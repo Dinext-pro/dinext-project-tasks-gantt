@@ -5,6 +5,36 @@ app_description = "Dinext Project Tasks Gantt"
 app_email = "info@dinext.ru"
 app_license = "mit"
 
+fixtures = [
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]]
+        ]
+    },
+    {
+        "doctype": "Client Script",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]],
+            ["enabled", "=", 1]
+        ]
+    },
+    {
+        "doctype": "Server Script",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]],
+            ["disabled", "=", 0]
+        ]
+    },
+    #{
+    #    "doctype": "Workflow",
+    #    "filters": [
+    #        ["document_type", "in", ["Application For Leave", "User Timesheet Position", "Project", "Expense Claim", "Purchase Invoice", "Sales Invoice"]],
+    #        ["is_active", "=", 1]            
+    #    ]
+    #}    
+]
+
 # Apps
 # ------------------
 
