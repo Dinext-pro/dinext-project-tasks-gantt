@@ -13,6 +13,12 @@ fixtures = [
         ]
     },
     {
+        "doctype": "Story Point",
+        "filters": [
+            ["name", "in", ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]]
+        ]
+    },
+    {
         "doctype": "Client Script",
         "filters": [
             ["module", "in", ["Dinext Project Tasks Gantt"]],
