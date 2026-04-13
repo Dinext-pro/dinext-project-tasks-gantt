@@ -173,13 +173,11 @@ fixtures = [
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Task": {
+		"before_save": "dinext_project_tasks_gantt.task_progress_audit.before_save_task",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
