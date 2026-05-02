@@ -43,6 +43,7 @@
 	function ensure_widget(frm) {
 		let wrapper = frm.$wrapper.find(`#${WIDGET_ID}`);
 		if (wrapper.length) {
+			wrapper.data("task-frm", frm);
 			return wrapper;
 		}
 
@@ -78,6 +79,7 @@
 
 		dashboard_body.append(wrapper);
 		wrapper.data("period", "day");
+		wrapper.data("task-frm", frm);
 		return wrapper;
 	}
 
@@ -120,7 +122,7 @@
 						return;
 					}
 					wrapper.data("last-chart-data", r.message);
-					draw_chart(wrapper, r.message);
+					draw_chart(wrapper, r.message, frm);
 				},
 				error() {
 					set_state(wrapper, __("Unable to load progress trend"));
@@ -141,10 +143,77 @@
 		wrapper.find(".task-progress-trend-state").text(message).toggle(Boolean(message));
 	}
 
-	function draw_chart(wrapper, data) {
+	function parse_bucket_range(bucket_dates) {
+		if (!bucket_dates || !bucket_dates.length) {
+			return null;
+		}
+		let minMs = Infinity;
+		let maxMs = -Infinity;
+		for (const row of bucket_dates) {
+			const s = row.start ? Date.parse(row.start) : NaN;
+			const e = row.end ? Date.parse(row.end) : NaN;
+			if (Number.isFinite(s)) {
+				minMs = Math.min(minMs, s);
+			}
+			if (Number.isFinite(e)) {
+				maxMs = Math.max(maxMs, e);
+			}
+		}
+		if (!Number.isFinite(minMs) || !Number.isFinite(maxMs)) {
+			return null;
+		}
+		return { min: new Date(minMs), max: new Date(maxMs) };
+	}
+
+	function fits_single_calendar_month(min, max) {
+		return min.getFullYear() === max.getFullYear() && min.getMonth() === max.getMonth();
+	}
+
+	function utcMondayOfWeek(d) {
+		const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+		const dow = (x.getUTCDay() + 6) % 7;
+		x.setUTCDate(x.getUTCDate() - dow);
+		return x.getTime();
+	}
+
+	function fits_single_iso_week(min, max) {
+		return utcMondayOfWeek(min) === utcMondayOfWeek(max);
+	}
+
+	function period_button_visible(period, hideWeek, hideMonth) {
+		if (period === "day") {
+			return true;
+		}
+		if (period === "week") {
+			return !hideWeek;
+		}
+		if (period === "month") {
+			return !hideMonth;
+		}
+		return true;
+	}
+
+	function update_period_buttons(wrapper, hideWeek, hideMonth) {
+		wrapper.find('[data-period="day"]').show();
+		wrapper.find('[data-period="week"]').toggle(!hideWeek);
+		wrapper.find('[data-period="month"]').toggle(!hideMonth);
+	}
+
+	function draw_chart(wrapper, data, frm) {
 		const categories = data.categories || [];
 		if (!categories.length) {
 			set_state(wrapper, __("No progress data to display"));
+			return;
+		}
+
+		const range = parse_bucket_range(data.bucket_dates || []);
+		const hideWeek = Boolean(range && fits_single_iso_week(range.min, range.max));
+		const hideMonth = Boolean(range && fits_single_calendar_month(range.min, range.max));
+		const period = wrapper.data("period") || "day";
+		if (!period_button_visible(period, hideWeek, hideMonth) && frm) {
+			const next = PERIODS.find((p) => period_button_visible(p, hideWeek, hideMonth)) || "day";
+			wrapper.data("period", next);
+			load_chart(frm, wrapper, next);
 			return;
 		}
 
@@ -166,8 +235,14 @@
 		const forecastCategories = progress.forecast_categories || categories;
 		const allCategories = forecastCategories.length > categories.length ? forecastCategories : categories;
 		const timesheetLimits = data.timesheet_limits || {};
-		const limitMarkArea = timesheet_limit_mark_area(timesheetLimits, theme);
 		const hoursRows = data.hours_by_role || [];
+		const hasBands = Array.isArray(timesheetLimits.bands) && timesheetLimits.bands.length > 0;
+		const totalHours = hoursRows.reduce(
+			(sum, row) => sum + (row.values || []).reduce((s, v) => s + flt(v), 0),
+			0
+		);
+		const showHoursAxis = hasBands || totalHours > 0;
+		const limitMarkArea = showHoursAxis ? timesheet_limit_mark_area(timesheetLimits, theme) : undefined;
 		const hoursOffset = staircase_hours_offset(hoursRows, allCategories.length);
 		const roleSeries = hoursRows.map((row, index) => ({
 			name: row.role,
@@ -181,6 +256,40 @@
 			itemStyle: { color: MUTED_BAR_COLORS[index % MUTED_BAR_COLORS.length] },
 			emphasis: { focus: "series" },
 		}));
+		const progressLegend = {
+			type: "scroll",
+			top: 0,
+			textStyle: { color: theme.text },
+			data: [__("Actual progress"), __("Planned progress"), __("Forecast progress")],
+		};
+		const roleLegend = {
+			type: "scroll",
+			bottom: 0,
+			textStyle: { color: theme.text },
+			data: roleSeries.map((row) => row.name),
+		};
+		const legend = showHoursAxis ? [progressLegend, roleLegend] : [progressLegend];
+		const yAxisProgress = {
+			type: "value",
+			name: __("Progress, %"),
+			min: 0,
+			max: 100,
+			nameTextStyle: { color: theme.text },
+			axisLabel: { color: theme.textMuted },
+			axisLine: { lineStyle: { color: theme.axisLine } },
+			splitLine: { lineStyle: { color: theme.splitLine } },
+		};
+		const yAxisHours = {
+			type: "value",
+			name: __("Work hours"),
+			min: 0,
+			max: timesheetLimits.axis_max || null,
+			nameTextStyle: { color: theme.text },
+			axisLabel: { color: theme.textMuted },
+			axisLine: { lineStyle: { color: theme.axisLine } },
+			splitLine: { show: false },
+		};
+		const yAxis = showHoursAxis ? [yAxisProgress, yAxisHours] : [yAxisProgress];
 
 		chart.setOption(
 			{
@@ -195,21 +304,8 @@
 						label: { color: theme.axisPointerLabelText, backgroundColor: theme.axisPointerLabelBackground },
 					},
 				},
-				legend: [
-					{
-						type: "scroll",
-						top: 0,
-						textStyle: { color: theme.text },
-						data: [__("Actual progress"), __("Planned progress"), __("Forecast progress")],
-					},
-					{
-						type: "scroll",
-						bottom: 0,
-						textStyle: { color: theme.text },
-						data: roleSeries.map((row) => row.name),
-					},
-				],
-				grid: { left: 48, right: 48, top: 54, bottom: 76 },
+				legend,
+				grid: { left: 48, right: 48, top: 54, bottom: showHoursAxis ? 76 : 48 },
 				xAxis: {
 					type: "category",
 					data: allCategories,
@@ -217,30 +313,9 @@
 					axisLine: { lineStyle: { color: theme.axisLine } },
 					axisTick: { lineStyle: { color: theme.axisLine } },
 				},
-				yAxis: [
-					{
-						type: "value",
-						name: __("Progress, %"),
-						min: 0,
-						max: 100,
-						nameTextStyle: { color: theme.text },
-						axisLabel: { color: theme.textMuted },
-						axisLine: { lineStyle: { color: theme.axisLine } },
-						splitLine: { lineStyle: { color: theme.splitLine } },
-					},
-					{
-						type: "value",
-						name: __("Work hours"),
-						min: 0,
-						max: timesheetLimits.axis_max || null,
-						nameTextStyle: { color: theme.text },
-						axisLabel: { color: theme.textMuted },
-						axisLine: { lineStyle: { color: theme.axisLine } },
-						splitLine: { show: false },
-					},
-				],
+				yAxis,
 				series: [
-					...(limitMarkArea
+					...(showHoursAxis && limitMarkArea
 						? [
 								{
 									name: __("Timesheet limits"),
@@ -255,7 +330,7 @@
 								},
 							]
 						: []),
-					...(hoursOffset.some((value) => value > 0)
+					...(showHoursAxis && hoursOffset.some((value) => value > 0)
 						? [
 								{
 									name: "__hours_offset",
@@ -273,7 +348,7 @@
 								},
 							]
 						: []),
-					...roleSeries,
+					...(showHoursAxis ? roleSeries : []),
 					{
 						name: progress.actual.label,
 						type: "line",
@@ -312,6 +387,8 @@
 			},
 			true
 		);
+
+		update_period_buttons(wrapper, hideWeek, hideMonth);
 	}
 
 	function normalize_progress_series(progress) {
@@ -398,8 +475,9 @@
 
 	function redraw_last_chart(wrapper) {
 		const data = wrapper.data("last-chart-data");
+		const frm = wrapper.data("task-frm");
 		if (data && wrapper.closest("body").length) {
-			draw_chart(wrapper, data);
+			draw_chart(wrapper, data, frm);
 		}
 	}
 
