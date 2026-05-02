@@ -16,6 +16,7 @@ from typing import Any
 
 import frappe
 from frappe import _
+from frappe.query_builder.functions import Coalesce, Date, IfNull, Sum
 from frappe.utils import add_months, flt, get_datetime, getdate
 
 UTP_STATUS_APPROVED = "Согласовано"
@@ -153,23 +154,25 @@ def _cumulative_plan_through(plan_rows: list[dict], last_day: date) -> float:
 
 
 def _load_pwe_plan_rows(project: str, task_names: list[str] | None) -> list[dict]:
-	q = """
-		SELECT
-			pwe.pwe_task AS pwe_task,
-			amt.pwea_year AS pwea_year,
-			amt.pwea_month AS pwea_month,
-			IFNULL(amt.pwea_plan, 0) AS pwea_plan
-		FROM `tabProject Work Efforts` pwe
-		INNER JOIN `tabProject Work Efforts Amount` amt ON amt.parent = pwe.name
-		WHERE pwe.pwe_project = %(project)s
-	"""
-	params: dict = {"project": project}
+	pwe = frappe.qb.DocType("Project Work Efforts")
+	amount = frappe.qb.DocType("Project Work Efforts Amount")
+	query = (
+		frappe.qb.from_(pwe)
+		.inner_join(amount)
+		.on(amount.parent == pwe.name)
+		.select(
+			pwe.pwe_task.as_("pwe_task"),
+			amount.pwea_year.as_("pwea_year"),
+			amount.pwea_month.as_("pwea_month"),
+			IfNull(amount.pwea_plan, 0).as_("pwea_plan"),
+		)
+		.where(pwe.pwe_project == project)
+	)
 	if task_names is not None:
 		if not task_names:
 			return []
-		q += " AND pwe.pwe_task IN %(tasks)s"
-		params["tasks"] = tuple(task_names)
-	return frappe.db.sql(q, params, as_dict=True)
+		query = query.where(pwe.pwe_task.isin(task_names))
+	return query.run(as_dict=True)
 
 
 def _task_name_list(
@@ -351,19 +354,18 @@ def _task_names_completed_from_rows(
 def _load_progress_rows(task_names: list[str], fd: date, td: date) -> list[dict]:
 	if not task_names:
 		return []
-	return frappe.db.sql(
-		f"""
-		SELECT
-			h.parent,
-			h.changed_on,
-			IFNULL(h.old_progress, 0) AS old_progress,
-			IFNULL(h.new_progress, 0) AS new_progress
-		FROM `tabTask Progress History` h
-		WHERE h.parent IN ({",".join(["%s"] * len(task_names))})
-			AND DATE(h.changed_on) BETWEEN %s AND %s
-		""",
-		tuple(task_names) + (fd, td),
-		as_dict=True,
+	history = frappe.qb.DocType("Task Progress History")
+	return (
+		frappe.qb.from_(history)
+		.select(
+			history.parent,
+			history.changed_on,
+			IfNull(history.old_progress, 0).as_("old_progress"),
+			IfNull(history.new_progress, 0).as_("new_progress"),
+		)
+		.where(history.parent.isin(task_names))
+		.where(Date(history.changed_on).between(fd, td))
+		.run(as_dict=True)
 	)
 
 
@@ -677,22 +679,23 @@ def _project_limits(project: str | None) -> dict[str, float | None]:
 def _planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
 	if not project or not task:
 		return {}
+	pwe = frappe.qb.DocType("Project Work Efforts")
+	amount = frappe.qb.DocType("Project Work Efforts Amount")
 	out: dict[str, float] = {}
 	current = task
 	while current:
-		rows = frappe.db.sql(
-			"""
-			SELECT
-				pwe.pwe_project_role AS role,
-				SUM(IFNULL(amount.pwea_plan, 0)) AS planned_hours
-			FROM `tabProject Work Efforts` pwe
-			INNER JOIN `tabProject Work Efforts Amount` amount ON amount.parent = pwe.name
-			WHERE pwe.pwe_project = %(project)s
-				AND pwe.pwe_task = %(task)s
-			GROUP BY pwe.pwe_project_role
-			""",
-			{"project": project, "task": current},
-			as_dict=True,
+		rows = (
+			frappe.qb.from_(pwe)
+			.inner_join(amount)
+			.on(amount.parent == pwe.name)
+			.select(
+				pwe.pwe_project_role.as_("role"),
+				Sum(IfNull(amount.pwea_plan, 0)).as_("planned_hours"),
+			)
+			.where(pwe.pwe_project == project)
+			.where(pwe.pwe_task == current)
+			.groupby(pwe.pwe_project_role)
+			.run(as_dict=True)
 		)
 		for row in rows:
 			role = row.get("role") or _("No role")
@@ -772,23 +775,25 @@ def _timesheet_limit_bands(
 def _load_task_timesheet_role_rows(task_names: list[str], date_from: date, date_to: date) -> list[dict]:
 	if not task_names:
 		return []
-	return frappe.db.sql(
-		f"""
-		SELECT
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	return (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.select(
 			utp.project_role,
-			d.date,
-			SUM(IFNULL(d.hours, 0)) AS hours
-		FROM `tabUser Timesheet Position` utp
-		INNER JOIN `tabUser Timesheet Position Details` d ON d.parent = utp.name
-		WHERE utp.status = %s
-			AND IFNULL(utp.document_type, '') = 'Task'
-			AND utp.document_name IN ({",".join(["%s"] * len(task_names))})
-			AND d.date BETWEEN %s AND %s
-		GROUP BY utp.project_role, d.date
-		ORDER BY utp.project_role, d.date
-		""",
-		(UTP_STATUS_APPROVED, *task_names, date_from, date_to),
-		as_dict=True,
+			detail.date,
+			Sum(IfNull(detail.hours, 0)).as_("hours"),
+		)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+		.where(utp.document_name.isin(task_names))
+		.where(detail.date.between(date_from, date_to))
+		.groupby(utp.project_role, detail.date)
+		.orderby(utp.project_role)
+		.orderby(detail.date)
+		.run(as_dict=True)
 	)
 
 
@@ -1057,30 +1062,21 @@ def _utp_sum_hours(
 ) -> float:
 	if task_names is not None and not task_names:
 		return 0.0
-	task_clause = ""
-	params: dict[str, Any] = {
-		"project": project,
-		"status": UTP_STATUS_APPROVED,
-		"df": date_from,
-		"dt": date_to,
-	}
-	if task_names is not None:
-		task_clause = " AND utp.document_name IN %(tasks)s"
-		params["tasks"] = tuple(task_names)
-	row = frappe.db.sql(
-		f"""
-		SELECT SUM(IFNULL(d.hours, 0)) AS hours
-		FROM `tabUser Timesheet Position` utp
-		INNER JOIN `tabUser Timesheet Position Details` d ON d.parent = utp.name
-		WHERE utp.project = %(project)s
-			AND utp.status = %(status)s
-			AND IFNULL(utp.document_type, '') = 'Task'
-			AND d.date BETWEEN %(df)s AND %(dt)s
-			{task_clause}
-		""",
-		params,
-		as_dict=True,
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	query = (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.select(Sum(IfNull(detail.hours, 0)).as_("hours"))
+		.where(utp.project == project)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+		.where(detail.date.between(date_from, date_to))
 	)
+	if task_names is not None:
+		query = query.where(utp.document_name.isin(task_names))
+	row = query.run(as_dict=True)
 	return flt(row[0].hours) if row else 0.0
 
 
@@ -1434,13 +1430,21 @@ def _measure_new_scope(
 ) -> float:
 	if not tasks:
 		return 0.0
-	q = f"""
-		SELECT name, progress, story_point, expected_time, exp_start_date, custom_planned_start_date
-		FROM tabTask
-		WHERE name IN ({",".join(["%s"] * len(tasks))})
-			AND DATE(COALESCE(exp_start_date, custom_planned_start_date, creation)) BETWEEN %s AND %s
-	"""
-	rows = frappe.db.sql(q, tuple(tasks) + (bs, be), as_dict=True)
+	task = frappe.qb.DocType("Task")
+	rows = (
+		frappe.qb.from_(task)
+		.select(
+			task.name,
+			task.progress,
+			task.story_point,
+			task.expected_time,
+			task.exp_start_date,
+			task.custom_planned_start_date,
+		)
+		.where(task.name.isin(tasks))
+		.where(Date(Coalesce(task.exp_start_date, task.custom_planned_start_date, task.creation)).between(bs, be))
+		.run(as_dict=True)
+	)
 	s = 0.0
 	for r in rows:
 		m = _mval(r.name, r, sp_map, measure)
@@ -1453,15 +1457,17 @@ def _measure_completed_hist(
 ) -> float:
 	if not tasks:
 		return 0.0
-	rows = frappe.db.sql(
-		f"""
-		SELECT h.parent, IFNULL(h.old_progress,0) AS op, IFNULL(h.new_progress,0) AS np
-		FROM `tabTask Progress History` h
-		WHERE h.parent IN ({",".join(["%s"] * len(tasks))})
-			AND DATE(h.changed_on) BETWEEN %s AND %s
-		""",
-		tuple(tasks) + (bs, be),
-		as_dict=True,
+	history = frappe.qb.DocType("Task Progress History")
+	rows = (
+		frappe.qb.from_(history)
+		.select(
+			history.parent,
+			IfNull(history.old_progress, 0).as_("op"),
+			IfNull(history.new_progress, 0).as_("np"),
+		)
+		.where(history.parent.isin(tasks))
+		.where(Date(history.changed_on).between(bs, be))
+		.run(as_dict=True)
 	)
 	s = 0.0
 	for r in rows:
