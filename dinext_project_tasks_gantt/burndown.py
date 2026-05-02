@@ -1,0 +1,1342 @@
+# Copyright (c) 2026, Dinext and contributors
+# For license information, please see license.txt
+
+"""
+Epic-style burndown data for Task Epic Burndown report.
+
+Hours: plan from Project Work Efforts (pwea_plan), actual from approved User Timesheet Position.
+Story points / task count: Task + Task Progress History.
+"""
+
+from __future__ import annotations
+
+import calendar
+from datetime import date, timedelta
+from typing import Any
+
+import frappe
+from frappe import _
+from frappe.utils import add_months, flt, get_datetime, getdate
+
+UTP_STATUS_APPROVED = "Согласовано"
+TASK_PERIOD_TYPES = {"phase": "Phase", "stage": "Stage", "sprint": "Sprint"}
+
+
+def fiscal_month_end_date(fiscal_year: str, month_number: int) -> date | None:
+	"""Last calendar day of fiscal month index (1 = first month of FY)."""
+	fm = fiscal_month_start_date(fiscal_year, month_number)
+	if not fm:
+		return None
+	_, me = month_start_end(fm)
+	return me
+
+
+def fiscal_month_start_date(fiscal_year: str, month_number: int) -> date | None:
+	start = frappe.db.get_value("Fiscal Year", fiscal_year, "year_start_date")
+	if not start:
+		return None
+	return getdate(add_months(start, int(month_number) - 1))
+
+
+def month_start_end(d: date) -> tuple[date, date]:
+	last = calendar.monthrange(d.year, d.month)[1]
+	return date(d.year, d.month, 1), date(d.year, d.month, last)
+
+
+def iter_month_buckets(from_date: date, to_date: date) -> list[tuple[str, date, date]]:
+	out: list[tuple[str, date, date]] = []
+	cur = date(from_date.year, from_date.month, 1)
+	end_month = date(to_date.year, to_date.month, 1)
+	while cur <= end_month:
+		ms, me = month_start_end(cur)
+		bs = max(ms, from_date)
+		be = min(me, to_date)
+		if bs <= be:
+			out.append((cur.strftime("%Y-%m"), bs, be))
+		if cur.month == 12:
+			cur = date(cur.year + 1, 1, 1)
+		else:
+			cur = date(cur.year, cur.month + 1, 1)
+	return out
+
+
+def iter_day_buckets(from_date: date, to_date: date) -> list[tuple[str, date, date]]:
+	out: list[tuple[str, date, date]] = []
+	cur = from_date
+	while cur <= to_date:
+		out.append((cur.isoformat(), cur, cur))
+		cur += timedelta(days=1)
+	return out
+
+
+def iter_week_buckets(from_date: date, to_date: date) -> list[tuple[str, date, date]]:
+	"""One row per ISO week overlapping [from_date, to_date]."""
+	out: list[tuple[str, date, date]] = []
+	d = from_date
+	while d <= to_date:
+		iy, iw, _ = d.isocalendar()
+		monday = d - timedelta(days=d.weekday())
+		ws = max(monday, from_date)
+		we = min(monday + timedelta(days=6), to_date)
+		label = f"{iy}-W{iw:02d}"
+		if not out or out[-1][0] != label:
+			out.append((label, ws, we))
+		d = monday + timedelta(days=7)
+	return out
+
+
+def _planned_start_end(row: dict) -> tuple[date | None, date | None]:
+	start = row.get("exp_start_date") or row.get("custom_planned_start_date")
+	end = row.get("exp_end_date") or row.get("custom_planned_end_date")
+	if not start and end:
+		start = end
+	if start and not end:
+		end = start
+	return (getdate(start) if start else None, getdate(end) if end else None)
+
+
+def iter_task_type_period_buckets_from_rows(
+	rows: list[dict], from_date: date, to_date: date
+) -> list[tuple[str, date, date]]:
+	"""Build time buckets from task rows whose forecast dates overlap the report range."""
+	out: list[tuple[str, date, date]] = []
+	for row in rows:
+		start, end = _planned_start_end(row)
+		if not start or not end:
+			continue
+		if end < from_date or start > to_date:
+			continue
+		label = row.get("subject") or row.get("name")
+		out.append((label, max(start, from_date), min(end, to_date)))
+	return sorted(out, key=lambda x: (x[1], x[2], x[0]))
+
+
+def iter_task_type_period_buckets(
+	project: str, from_date: date, to_date: date, task_type: str
+) -> list[tuple[str, date, date]]:
+	rows = frappe.get_all(
+		"Task",
+		filters={"project": project, "type": task_type},
+		fields=[
+			"name",
+			"subject",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+		],
+	)
+	return iter_task_type_period_buckets_from_rows(rows, from_date, to_date)
+
+
+def get_period_buckets(project: str, from_date: date, to_date: date, group_by: str):
+	if group_by == "week":
+		return iter_week_buckets(from_date, to_date)
+	if task_type := TASK_PERIOD_TYPES.get(group_by):
+		return iter_task_type_period_buckets(project, from_date, to_date, task_type)
+	return iter_month_buckets(from_date, to_date)
+
+
+def _cumulative_plan_through(plan_rows: list[dict], last_day: date) -> float:
+	"""Sum pwea_plan for fiscal months whose calendar month ends on or before last_day."""
+	total = 0.0
+	for row in plan_rows:
+		fy = row.get("pwea_year")
+		mn = row.get("pwea_month")
+		if not fy or not mn:
+			continue
+		me = fiscal_month_end_date(fy, int(mn))
+		if not me or me > last_day:
+			continue
+		total += flt(row.get("pwea_plan"))
+	return total
+
+
+def _load_pwe_plan_rows(project: str, task_names: list[str] | None) -> list[dict]:
+	q = """
+		SELECT
+			pwe.pwe_task AS pwe_task,
+			amt.pwea_year AS pwea_year,
+			amt.pwea_month AS pwea_month,
+			IFNULL(amt.pwea_plan, 0) AS pwea_plan
+		FROM `tabProject Work Efforts` pwe
+		INNER JOIN `tabProject Work Efforts Amount` amt ON amt.parent = pwe.name
+		WHERE pwe.pwe_project = %(project)s
+	"""
+	params: dict = {"project": project}
+	if task_names is not None:
+		if not task_names:
+			return []
+		q += " AND pwe.pwe_task IN %(tasks)s"
+		params["tasks"] = tuple(task_names)
+	return frappe.db.sql(q, params, as_dict=True)
+
+
+def _task_name_list(
+	project: str, exclude_group: bool, task_type_filter: str | None
+) -> list[str]:
+	filters: dict[str, Any] = {"project": project}
+	if exclude_group:
+		filters["is_group"] = 0
+	if task_type_filter:
+		filters["type"] = task_type_filter
+	return frappe.get_all("Task", filters=filters, pluck="name")
+
+
+def _pwe_plan_by_task(project: str, task_names: list[str] | None = None) -> dict[str, float]:
+	plan_by_task: dict[str, float] = {}
+	for row in _load_pwe_plan_rows(project, task_names):
+		task = row.get("pwe_task")
+		if not task:
+			continue
+		plan_by_task[task] = plan_by_task.get(task, 0.0) + flt(row.get("pwea_plan"))
+	return plan_by_task
+
+
+def _load_task_volume_rows(project: str, exclude_group: bool, measure: str) -> list[dict]:
+	task_names = _task_name_list(project, exclude_group, None)
+	if not task_names:
+		return []
+
+	fields = [
+		"name",
+		"creation",
+		"progress",
+		"status",
+		"completed_on",
+		"closing_date",
+		"story_point",
+		"exp_start_date",
+		"exp_end_date",
+		"custom_planned_start_date",
+		"custom_planned_end_date",
+	]
+	tasks = frappe.get_all("Task", filters={"name": ["in", task_names]}, fields=fields)
+	sp_map = _story_point_map() if measure == "story_points" else {}
+	pwe_by_task = _pwe_plan_by_task(project, task_names) if measure == "hours" else {}
+
+	for task in tasks:
+		task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task)
+	return tasks
+
+
+def _task_volume(
+	task: dict, measure: str, sp_map: dict[str, float] | None = None, pwe_by_task: dict[str, float] | None = None
+) -> float:
+	if measure == "task_count":
+		return 1.0
+	if measure == "story_points":
+		story_point = task.get("story_point")
+		return (sp_map or {}).get(story_point, 0.0) if story_point else 0.0
+	if measure == "hours":
+		return (pwe_by_task or {}).get(task.get("name"), 0.0)
+	return 0.0
+
+
+def _scope_start(task: dict) -> date | None:
+	value = task.get("exp_start_date") or task.get("custom_planned_start_date") or task.get("creation")
+	return getdate(value) if value else None
+
+
+def _creation_date(task: dict) -> date | None:
+	value = task.get("creation")
+	return getdate(value) if value else None
+
+
+def _scope_end(task: dict) -> date | None:
+	value = (
+		task.get("completed_on")
+		or task.get("closing_date")
+		or task.get("exp_end_date")
+		or task.get("custom_planned_end_date")
+	)
+	return getdate(value) if value else None
+
+
+def _is_completed_by(task: dict, bucket_end: date) -> bool:
+	if task.get("status") != "Completed":
+		return False
+	completed_on = _scope_end(task)
+	return bool(completed_on and completed_on <= bucket_end)
+
+
+def _measure_created_scope_from_rows(tasks: list[dict], bs: date, be: date) -> float:
+	return sum(flt(task.get("volume")) for task in _tasks_created_from_rows(tasks, bs, be))
+
+
+def _measure_open_scope_from_rows(tasks: list[dict], bucket_end: date, use_progress: bool = True) -> float:
+	total = 0.0
+	for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress):
+		if use_progress:
+			progress = min(max(flt(task.get("progress")), 0.0), 100.0)
+			total += flt(task.get("volume")) * (1.0 - progress / 100.0)
+		else:
+			total += flt(task.get("volume"))
+	return total
+
+
+def _measure_completed_scope_from_rows(
+	tasks: list[dict], progress_rows: list[dict], bs: date, be: date, use_progress: bool = True
+) -> float:
+	if not use_progress:
+		return sum(flt(task.get("volume")) for task in _tasks_completed_by_status_from_rows(tasks, bs, be))
+
+	volume_by_task = {task.get("name"): flt(task.get("volume")) for task in tasks}
+	total = 0.0
+	for row in progress_rows:
+		changed_on = getdate(row.get("changed_on"))
+		if changed_on < bs or changed_on > be:
+			continue
+		delta = flt(row.get("new_progress")) - flt(row.get("old_progress"))
+		if delta <= 0:
+			continue
+		total += volume_by_task.get(row.get("parent"), 0.0) * delta / 100.0
+	return total
+
+
+def _tasks_created_from_rows(tasks: list[dict], bs: date, be: date) -> list[dict]:
+	return [task for task in tasks if (created_on := _creation_date(task)) and bs <= created_on <= be]
+
+
+def _tasks_open_from_rows(tasks: list[dict], bucket_end: date, use_progress: bool = True) -> list[dict]:
+	out = []
+	for task in tasks:
+		start = _scope_start(task)
+		if not start or start > bucket_end:
+			continue
+		if use_progress:
+			if min(max(flt(task.get("progress")), 0.0), 100.0) < 100.0:
+				out.append(task)
+		elif not _is_completed_by(task, bucket_end):
+			out.append(task)
+	return out
+
+
+def _tasks_completed_by_status_from_rows(tasks: list[dict], bs: date, be: date) -> list[dict]:
+	out = []
+	for task in tasks:
+		if task.get("status") != "Completed":
+			continue
+		completed_on = _scope_end(task)
+		if completed_on and bs <= completed_on <= be:
+			out.append(task)
+	return out
+
+
+def _task_names_created_from_rows(tasks: list[dict], bs: date, be: date) -> list[str]:
+	return [task["name"] for task in _tasks_created_from_rows(tasks, bs, be)]
+
+
+def _task_names_open_from_rows(tasks: list[dict], bucket_end: date, use_progress: bool = True) -> list[str]:
+	return [task["name"] for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress)]
+
+
+def _task_names_completed_from_rows(
+	tasks: list[dict],
+	progress_rows: list[dict],
+	bs: date,
+	be: date,
+	use_progress: bool = True,
+) -> list[str]:
+	if not use_progress:
+		return [task["name"] for task in _tasks_completed_by_status_from_rows(tasks, bs, be)]
+	changed = []
+	for row in progress_rows:
+		changed_on = getdate(row.get("changed_on"))
+		if bs <= changed_on <= be and flt(row.get("new_progress")) > flt(row.get("old_progress")):
+			changed.append(row.get("parent"))
+	return sorted({name for name in changed if name})
+
+
+def _load_progress_rows(task_names: list[str], fd: date, td: date) -> list[dict]:
+	if not task_names:
+		return []
+	return frappe.db.sql(
+		f"""
+		SELECT
+			h.parent,
+			h.changed_on,
+			IFNULL(h.old_progress, 0) AS old_progress,
+			IFNULL(h.new_progress, 0) AS new_progress
+		FROM `tabTask Progress History` h
+		WHERE h.parent IN ({",".join(["%s"] * len(task_names))})
+			AND DATE(h.changed_on) BETWEEN %s AND %s
+		""",
+		tuple(task_names) + (fd, td),
+		as_dict=True,
+	)
+
+
+def _period_progress_series(
+	buckets: list[tuple[str, date, date]], progress_rows: list[dict], current_progress: float | int | None
+) -> list[float]:
+	rows = sorted(progress_rows, key=lambda row: get_datetime(row.get("changed_on")))
+	series: list[float] = []
+	last_progress = 0.0
+	row_index = 0
+	for _label, _bs, bucket_end in buckets:
+		progress_changed_in_bucket = False
+		while row_index < len(rows) and getdate(rows[row_index].get("changed_on")) <= bucket_end:
+			last_progress = min(max(flt(rows[row_index].get("new_progress")), 0.0), 100.0)
+			progress_changed_in_bucket = True
+			row_index += 1
+		if row_index >= len(rows) and not progress_changed_in_bucket and current_progress is not None:
+			last_progress = min(max(flt(current_progress), 0.0), 100.0)
+		series.append(last_progress)
+	return series
+
+
+def _task_actual_progress_series(
+	buckets: list[tuple[str, date, date]], progress_rows: list[dict], task_start: date | None
+) -> list[float | None]:
+	if not task_start:
+		return []
+	rows = sorted(progress_rows, key=lambda row: get_datetime(row.get("changed_on")))
+	last_change_date = getdate(rows[-1].get("changed_on")) if rows else task_start
+	series_end = max(last_change_date, getdate())
+	last_progress = 0.0
+	row_index = 0
+	series: list[float | None] = []
+	for _label, _bucket_start, bucket_end in buckets:
+		if bucket_end < task_start or bucket_end > series_end:
+			series.append(None)
+			continue
+		while row_index < len(rows) and getdate(rows[row_index].get("changed_on")) <= bucket_end:
+			last_progress = min(max(flt(rows[row_index].get("new_progress")), 0.0), 100.0)
+			row_index += 1
+		series.append(last_progress)
+	return series
+
+
+def _planned_progress_series(
+	buckets: list[tuple[str, date, date]], planned_start: date | None, planned_end: date | None
+) -> list[float | None]:
+	if not planned_start or not planned_end:
+		return []
+	if planned_end < planned_start:
+		planned_start, planned_end = planned_end, planned_start
+	total_days = max((planned_end - planned_start).days, 1)
+	series: list[float | None] = []
+	reached_completion = False
+	for _label, _bs, bucket_end in buckets:
+		if reached_completion:
+			series.append(None)
+			continue
+		if bucket_end < planned_start:
+			series.append(None)
+			continue
+		if bucket_end >= planned_end:
+			series.append(100.0)
+			reached_completion = True
+			continue
+		elapsed_days = (bucket_end - planned_start).days
+		series.append(round(min(max(elapsed_days / total_days * 100.0, 0.0), 100.0), 1))
+	return series
+
+
+def _task_widget_planned_dates(row: dict) -> tuple[date | None, date | None]:
+	start = row.get("custom_planned_start_date")
+	end = row.get("custom_planned_end_date")
+	return (getdate(start) if start else None, getdate(end) if end else None)
+
+
+def _task_progress_history_start_date(row: dict) -> date | None:
+	starts = [
+		row.get("actual_start_date"),
+		row.get("exp_start_date"),
+		row.get("custom_planned_start_date"),
+	]
+	dates = [getdate(value) for value in starts if value]
+	return min(dates) if dates else None
+
+
+def _forecast_progress_to_completion(
+	buckets: list[tuple[str, date, date]],
+	factual_progress: list[float | None],
+	forecast_start_date: date | None = None,
+) -> dict[str, Any]:
+	points = [
+		(index, flt(value))
+		for index, value in enumerate(factual_progress)
+		if value is not None and 0.0 <= flt(value) < 100.0
+	]
+	if len(points) < 2:
+		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+
+	x_mean = sum(index for index, _value in points) / len(points)
+	y_mean = sum(value for _index, value in points) / len(points)
+	denominator = sum((index - x_mean) ** 2 for index, _value in points)
+	if denominator <= 0:
+		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+
+	velocity = sum((index - x_mean) * (value - y_mean) for index, value in points) / denominator
+	if velocity <= 0:
+		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+
+	categories = [bucket[0] for bucket in buckets]
+	baseline_index = points[0][0]
+	if forecast_start_date:
+		forecast_start = getdate(forecast_start_date)
+		for index, (_label, bucket_start, bucket_end) in enumerate(buckets):
+			if bucket_start <= forecast_start <= bucket_end:
+				baseline_index = index
+				break
+	series: list[float | None] = [None] * max(baseline_index, 0) + [0.0]
+	current = 0.0
+	completion_date = None
+	offset = 0
+	while current < 100.0:
+		offset += 1
+		current = min(100.0, velocity * offset)
+		target_index = baseline_index + offset
+		if target_index >= len(categories):
+			categories.append(_("Forecast {0}").format(target_index - len(buckets) + 1))
+		series.append(round(current, 1))
+		if current >= 100.0:
+			if target_index < len(buckets):
+				completion_date = buckets[target_index][2]
+			break
+
+	if completion_date is None:
+		last_bucket_end = buckets[-1][2] if buckets else None
+		if len(buckets) >= 2:
+			period_days = max((buckets[-1][2] - buckets[-2][2]).days, 1)
+		else:
+			period_days = 7
+		extra_periods = max((baseline_index + offset) - (len(buckets) - 1), 0)
+		completion_date = last_bucket_end + timedelta(days=period_days * extra_periods) if last_bucket_end else None
+	return {"categories": categories[: len(series)], "series": series, "completion_date": completion_date}
+
+
+def _timesheet_role_series_from_rows(
+	buckets: list[tuple[str, date, date]], rows: list[dict]
+) -> list[dict[str, Any]]:
+	role_totals: dict[str, list[float]] = {}
+	for row in rows:
+		role = row.get("project_role") or _("No role")
+		values = role_totals.setdefault(role, [0.0] * len(buckets))
+		row_date = getdate(row.get("date"))
+		for index, (_label, bucket_start, bucket_end) in enumerate(buckets):
+			if bucket_start <= row_date <= bucket_end:
+				values[index] += flt(row.get("hours"))
+				break
+	return [{"role": role, "values": values} for role, values in sorted(role_totals.items())]
+
+
+def _task_tree_names_from_rows(task: str, rows: list[dict]) -> list[str]:
+	children_by_parent: dict[str, list[str]] = {}
+	for row in rows:
+		parent = row.get("parent_task")
+		name = row.get("name")
+		if parent and name:
+			children_by_parent.setdefault(parent, []).append(name)
+
+	out = [task]
+
+	def append_children(parent: str):
+		for child in sorted(children_by_parent.get(parent, [])):
+			out.append(child)
+			append_children(child)
+
+	append_children(task)
+	return out
+
+
+def _task_child_names(project: str | None, task: str) -> list[str]:
+	if not project or not task:
+		return []
+	return frappe.db.get_all(
+		"Task",
+		filters={"project": project},
+		fields=["name", "parent_task"],
+		limit=0,
+	)
+
+
+def _task_tree_names(project: str | None, task: str) -> list[str]:
+	return _task_tree_names_from_rows(task, _task_child_names(project, task))
+
+
+def _project_limits(project: str | None) -> dict[str, float | None]:
+	if not project:
+		return {"warning": None, "block": None, "message": None}
+	rows = frappe.db.get_all(
+		"Limit Control",
+		filters={"parent": project, "parenttype": "Project"},
+		fields=["type", "limit"],
+	)
+
+	def parse(limit_type: str) -> float | None:
+		for row in rows:
+			if (row.get("type") or "").strip().lower() == limit_type:
+				value = flt(row.get("limit"))
+				return value if value > 0 else None
+		return None
+
+	return {
+		"warning": parse("предупреждение"),
+		"block": parse("блокировка"),
+		"message": parse("уведомление"),
+	}
+
+
+def _planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
+	if not project or not task:
+		return {}
+	out: dict[str, float] = {}
+	current = task
+	while current:
+		rows = frappe.db.sql(
+			"""
+			SELECT
+				pwe.pwe_project_role AS role,
+				SUM(IFNULL(amount.pwea_plan, 0)) AS planned_hours
+			FROM `tabProject Work Efforts` pwe
+			INNER JOIN `tabProject Work Efforts Amount` amount ON amount.parent = pwe.name
+			WHERE pwe.pwe_project = %(project)s
+				AND pwe.pwe_task = %(task)s
+			GROUP BY pwe.pwe_project_role
+			""",
+			{"project": project, "task": current},
+			as_dict=True,
+		)
+		for row in rows:
+			role = row.get("role") or _("No role")
+			planned = flt(row.get("planned_hours"))
+			if planned > 0:
+				out[role] = planned
+		if out:
+			return out
+		current = frappe.db.get_value("Task", current, "parent_task")
+	return {}
+
+
+def _total_hours(hours_by_role: list[dict[str, Any]]) -> float:
+	return sum(sum(flt(value) for value in row.get("values", [])) for row in hours_by_role)
+
+
+def _timesheet_limit_bands(
+	planned_hours_by_role: dict[str, float],
+	hours_by_role: list[dict[str, Any]],
+	project_limits: dict[str, float | None],
+) -> dict[str, Any]:
+	planned_hours = sum(flt(value) for value in planned_hours_by_role.values())
+	actual_hours = _total_hours(hours_by_role)
+	if planned_hours <= 0:
+		return {
+			"planned_hours": 0.0,
+			"actual_hours": round(actual_hours, 1),
+			"warning_limit_hours": None,
+			"block_limit_hours": None,
+			"axis_max": None,
+			"bands": [],
+		}
+
+	warning = flt(project_limits.get("warning")) if project_limits.get("warning") else None
+	block = flt(project_limits.get("block")) if project_limits.get("block") else None
+	warning_hours = round(planned_hours * warning / 100.0, 1) if warning else None
+	block_hours = round(planned_hours * block / 100.0, 1) if block else None
+	bands: list[dict[str, Any]] = []
+
+	if warning_hours and block_hours:
+		axis_max = max(block_hours * 1.2, actual_hours * 1.1)
+		bands = [
+			{"name": _("Within warning limit"), "color": "green", "from": 0.0, "to": warning_hours},
+			{"name": _("Warning limit"), "color": "yellow", "from": warning_hours, "to": block_hours},
+			{"name": _("Block limit"), "color": "red", "from": block_hours, "to": round(axis_max, 1)},
+		]
+	elif warning_hours:
+		axis_max = max(planned_hours * 1.2, actual_hours * 1.1)
+		bands = [
+			{"name": _("Within warning limit"), "color": "green", "from": 0.0, "to": warning_hours},
+			{"name": _("Warning limit"), "color": "yellow", "from": warning_hours, "to": round(axis_max, 1)},
+		]
+	elif block_hours:
+		axis_max = max(block_hours * 1.2, actual_hours * 1.1)
+		bands = [
+			{"name": _("Plan"), "color": "green", "from": 0.0, "to": planned_hours},
+			{"name": _("Block limit"), "color": "red", "from": block_hours, "to": round(axis_max, 1)},
+		]
+	else:
+		axis_max = max(planned_hours * 1.2, actual_hours * 1.1)
+		bands = [
+			{"name": _("Plan"), "color": "green", "from": 0.0, "to": planned_hours},
+			{"name": _("Warning"), "color": "yellow", "from": planned_hours, "to": round(axis_max, 1)},
+		]
+
+	return {
+		"planned_hours": round(planned_hours, 1),
+		"actual_hours": round(actual_hours, 1),
+		"warning_limit_hours": warning_hours,
+		"block_limit_hours": block_hours,
+		"axis_max": round(axis_max, 1),
+		"bands": bands,
+		"planned_hours_by_role": planned_hours_by_role,
+	}
+
+
+def _load_task_timesheet_role_rows(task_names: list[str], date_from: date, date_to: date) -> list[dict]:
+	if not task_names:
+		return []
+	return frappe.db.sql(
+		f"""
+		SELECT
+			utp.project_role,
+			d.date,
+			SUM(IFNULL(d.hours, 0)) AS hours
+		FROM `tabUser Timesheet Position` utp
+		INNER JOIN `tabUser Timesheet Position Details` d ON d.parent = utp.name
+		WHERE utp.status = %s
+			AND IFNULL(utp.document_type, '') = 'Task'
+			AND utp.document_name IN ({",".join(["%s"] * len(task_names))})
+			AND d.date BETWEEN %s AND %s
+		GROUP BY utp.project_role, d.date
+		ORDER BY utp.project_role, d.date
+		""",
+		(UTP_STATUS_APPROVED, *task_names, date_from, date_to),
+		as_dict=True,
+	)
+
+
+def _date_marker(label: str, value: Any, marker_type: str) -> dict[str, Any] | None:
+	if not value:
+		return None
+	return {"label": label, "date": str(getdate(value)), "type": marker_type}
+
+
+def _task_actual_or_forecast_date_markers(task_row: dict, forecast: dict[str, Any]) -> list[dict[str, Any]]:
+	actual_start = task_row.get("actual_start_date")
+	expected_start = task_row.get("exp_start_date")
+	actual_end = task_row.get("actual_end_date") or task_row.get("completed_on") or task_row.get("closing_date")
+	markers = [
+		_date_marker(_("Actual start"), actual_start, "actual_start")
+		if actual_start
+		else _date_marker(_("Expected Start"), expected_start, "expected_start"),
+	]
+	if actual_end:
+		markers.append(_date_marker(_("Actual end"), actual_end, "actual_end"))
+	else:
+		markers.append(_date_marker(_("Expected end"), task_row.get("exp_end_date"), "expected_end"))
+	markers.append(
+		_date_marker(_("Progress forecast end"), forecast.get("completion_date"), "forecast_progress_end")
+	)
+	return [marker for marker in markers if marker]
+
+
+def _current_date_marker(buckets: list[tuple[str, date, date]]) -> dict[str, Any] | None:
+	today = getdate()
+	bucket_label = _bucket_label_for_date(buckets, today)
+	if not bucket_label:
+		return None
+	return {"label": _("Today"), "date": str(today), "type": "today", "bucket_label": bucket_label}
+
+
+def _bucket_label_for_date(buckets: list[tuple[str, date, date]], value: Any) -> str | None:
+	if not value:
+		return None
+	d = getdate(value)
+	for label, bucket_start, bucket_end in buckets:
+		if bucket_start <= d <= bucket_end:
+			return label
+	return None
+
+
+def _add_marker_bucket_labels(markers: list[dict[str, Any]], buckets: list[tuple[str, date, date]]) -> list[dict[str, Any]]:
+	out = []
+	for marker in markers:
+		bucket_label = _bucket_label_for_date(buckets, marker.get("date"))
+		if not bucket_label:
+			continue
+		enriched = marker.copy()
+		enriched["bucket_label"] = bucket_label
+		out.append(enriched)
+	return out
+
+
+def _task_trend_fields() -> list[str]:
+	meta = frappe.get_meta("Task")
+	candidates = [
+		"name",
+		"subject",
+		"project",
+		"progress",
+		"exp_start_date",
+		"exp_end_date",
+		"custom_planned_start_date",
+		"custom_planned_end_date",
+		"actual_start_date",
+		"actual_end_date",
+		"completed_on",
+		"closing_date",
+		"type",
+		"is_group",
+		"is_milestone",
+	]
+	return [field for field in candidates if field == "name" or meta.has_field(field)]
+
+
+@frappe.whitelist()
+def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> dict[str, Any]:
+	if not task:
+		frappe.throw(_("Task is required"))
+	if not frappe.has_permission("Task", "read", task):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	task_row = frappe.db.get_value(
+		"Task",
+		task,
+		_task_trend_fields(),
+		as_dict=True,
+	)
+	if not task_row:
+		frappe.throw(_("Task not found"))
+
+	planned_start, planned_end = _task_widget_planned_dates(task_row)
+	history_start = _task_progress_history_start_date(task_row)
+	progress_rows = _load_progress_rows([task], history_start or add_months(getdate(), -6), add_months(getdate(), 6))
+	all_dates = [getdate(row.get("changed_on")) for row in progress_rows]
+	for candidate in (
+		planned_start,
+		planned_end,
+		task_row.get("actual_start_date") or task_row.get("exp_start_date"),
+		task_row.get("exp_end_date"),
+		task_row.get("actual_end_date") or task_row.get("completed_on") or task_row.get("closing_date"),
+	):
+		if candidate:
+			all_dates.append(getdate(candidate))
+	if not all_dates:
+		all_dates.append(getdate())
+	fd = min(all_dates)
+	td = max(max(all_dates), getdate())
+	group_by = (group_by or "week").lower()
+	if group_by == "day":
+		buckets = iter_day_buckets(fd, td)
+	elif group_by == "month":
+		buckets = iter_month_buckets(fd, td)
+	else:
+		group_by = "week"
+		buckets = iter_week_buckets(fd, td)
+	task_start = getdate(task_row.get("actual_start_date") or task_row.get("exp_start_date")) if (
+		task_row.get("actual_start_date") or task_row.get("exp_start_date")
+	) else None
+	factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+	planned = _planned_progress_series(buckets, planned_start, planned_end)
+	forecast = _forecast_progress_to_completion(buckets, factual, task_row.get("exp_start_date"))
+	if forecast.get("completion_date") and getdate(forecast.get("completion_date")) > td:
+		td = getdate(forecast.get("completion_date"))
+		if group_by == "day":
+			buckets = iter_day_buckets(fd, td)
+		elif group_by == "month":
+			buckets = iter_month_buckets(fd, td)
+		else:
+			buckets = iter_week_buckets(fd, td)
+		factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+		planned = _planned_progress_series(buckets, planned_start, planned_end)
+		forecast = _forecast_progress_to_completion(buckets, factual, task_row.get("exp_start_date"))
+	task_names_for_hours = _task_tree_names(task_row.get("project"), task)
+	hours_by_role = _timesheet_role_series_from_rows(
+		buckets,
+		_load_task_timesheet_role_rows(task_names_for_hours, buckets[0][1], buckets[-1][2]) if buckets else [],
+	)
+	timesheet_limits = _timesheet_limit_bands(
+		_planned_hours_by_role(task_row.get("project"), task),
+		hours_by_role,
+		_project_limits(task_row.get("project")),
+	)
+
+	raw_date_markers = [
+		marker
+		for marker in [
+			_date_marker(_("Planned start"), planned_start, "planned_start"),
+			_date_marker(_("Planned end"), planned_end, "planned_end"),
+			*_task_actual_or_forecast_date_markers(task_row, forecast),
+			_current_date_marker(buckets),
+		]
+		if marker
+	]
+	date_markers = _add_marker_bucket_labels(raw_date_markers, buckets)
+
+	return {
+		"task": task,
+		"subject": task_row.get("subject"),
+		"group_by": group_by,
+		"categories": [bucket[0] for bucket in buckets],
+		"bucket_dates": [{"label": label, "start": str(start), "end": str(end)} for label, start, end in buckets],
+		"progress": {
+			"series": [
+				{
+					"id": "actual_progress",
+					"label": _("Actual progress"),
+					"kind": "line",
+					"line_style": "solid",
+					"values": factual,
+				},
+				{
+					"id": "planned_progress",
+					"label": _("Planned progress"),
+					"kind": "line",
+					"line_style": "dashed",
+					"values": planned,
+				},
+				{
+					"id": "forecast_progress",
+					"label": _("Forecast progress"),
+					"kind": "line",
+					"line_style": "dotted",
+					"values": forecast.get("series"),
+					"categories": forecast.get("categories"),
+				},
+			],
+			# Backward-compatible aliases for the first widget implementation.
+			"factual": factual,
+			"planned": planned,
+			"forecast_categories": forecast.get("categories"),
+			"forecast": forecast.get("series"),
+		},
+		"hours_by_role": hours_by_role,
+		"timesheet_limits": timesheet_limits,
+		"date_markers": date_markers,
+		"is_milestone": bool(
+			int(flt(task_row.get("is_group")))
+			or int(flt(task_row.get("is_milestone")))
+			or task_row.get("type") == "Milestone"
+		),
+	}
+
+
+def _utp_sum_hours(
+	project: str, date_from: date, date_to: date, task_names: list[str] | None
+) -> float:
+	if task_names is not None and not task_names:
+		return 0.0
+	task_clause = ""
+	params: dict[str, Any] = {
+		"project": project,
+		"status": UTP_STATUS_APPROVED,
+		"df": date_from,
+		"dt": date_to,
+	}
+	if task_names is not None:
+		task_clause = " AND utp.document_name IN %(tasks)s"
+		params["tasks"] = tuple(task_names)
+	row = frappe.db.sql(
+		f"""
+		SELECT SUM(IFNULL(d.hours, 0)) AS hours
+		FROM `tabUser Timesheet Position` utp
+		INNER JOIN `tabUser Timesheet Position Details` d ON d.parent = utp.name
+		WHERE utp.project = %(project)s
+			AND utp.status = %(status)s
+			AND IFNULL(utp.document_type, '') = 'Task'
+			AND d.date BETWEEN %(df)s AND %(dt)s
+			{task_clause}
+		""",
+		params,
+		as_dict=True,
+	)
+	return flt(row[0].hours) if row else 0.0
+
+
+def _as_bool(value: Any, default: bool = True) -> bool:
+	if value is None:
+		return default
+	if isinstance(value, str):
+		return value.strip().lower() not in {"", "0", "false", "no", "off"}
+	return bool(value)
+
+
+@frappe.whitelist()
+def get_burndown_series(
+	project: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	group_by: str = "month",
+	measure: str = "hours",
+	exclude_group_tasks: int | str = 1,
+	task_type_filter: str | None = None,
+	forecast_periods: int = 6,
+	use_progress: int | str = 1,
+) -> dict[str, Any]:
+	if not project:
+		frappe.throw(_("Project is required"))
+	if not frappe.has_permission("Project", "read", project):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	fd = getdate(from_date) if from_date else add_months(getdate(), -6)
+	td = getdate(to_date) if to_date else getdate()
+	if fd > td:
+		fd, td = td, fd
+
+	exclude_group = _as_bool(exclude_group_tasks)
+	progress_enabled = _as_bool(use_progress)
+	measure = (measure or "hours").lower()
+	group_by = (group_by or "month").lower()
+
+	if measure == "hours":
+		return _period_volume_burndown(project, fd, td, group_by, "hours", exclude_group, progress_enabled)
+	if measure in ("story_points", "story_point", "sp"):
+		return _period_volume_burndown(project, fd, td, group_by, "story_points", exclude_group, progress_enabled)
+	return _period_volume_burndown(project, fd, td, group_by, "task_count", exclude_group, progress_enabled)
+
+
+def _period_volume_burndown(
+	project: str,
+	fd: date,
+	td: date,
+	group_by: str,
+	measure: str,
+	exclude_group: bool,
+	use_progress: bool,
+) -> dict[str, Any]:
+	buckets = get_period_buckets(project, fd, td, group_by)
+	tasks = _load_task_volume_rows(project, exclude_group, measure)
+	task_names = [task["name"] for task in tasks]
+	progress_rows = _load_progress_rows(task_names, fd, td)
+
+	created: list[float] = []
+	open_volume: list[float] = []
+	completed: list[float] = []
+	task_filters = {"created": [], "open": [], "completed": []}
+	for _label, bs, be in buckets:
+		created.append(_measure_created_scope_from_rows(tasks, bs, be))
+		open_volume.append(_measure_open_scope_from_rows(tasks, be, use_progress=use_progress))
+		progress_completed = _measure_completed_scope_from_rows(
+			tasks, progress_rows, bs, be, use_progress=use_progress
+		)
+		if measure == "hours":
+			actual_completed = _utp_sum_hours(project, bs, be, task_names)
+			completed.append(actual_completed or progress_completed)
+		else:
+			completed.append(progress_completed)
+		task_filters["created"].append(_task_names_created_from_rows(tasks, bs, be))
+		task_filters["open"].append(_task_names_open_from_rows(tasks, be, use_progress=use_progress))
+		task_filters["completed"].append(
+			_task_names_completed_from_rows(tasks, progress_rows, bs, be, use_progress=use_progress)
+		)
+
+	categories = [bucket[0] for bucket in buckets]
+	y_label = {
+		"hours": _("Hours"),
+		"story_points": _("Story Points"),
+		"task_count": _("Tasks"),
+	}.get(measure, _("Volume"))
+
+	return {
+		"measure": measure,
+		"categories": categories,
+		"created": created,
+		"open": open_volume,
+		"completed": completed,
+		"task_filters": task_filters,
+		"use_progress": use_progress,
+		"y_axis_label": y_label,
+		# Backward-compatible aliases for older report JavaScript.
+		"added": created,
+		"remaining": open_volume,
+		"end_scope": open_volume,
+		"placeholder": [],
+		"start_scope": [],
+		"cumulative_plan": [],
+		"cumulative_actual": [],
+		"forecast_categories": [],
+		"forecast_placeholder": [],
+		"forecast_start_scope": [],
+		"forecast_end_scope": [],
+		"forecast_added": [],
+		"forecast_remaining": [],
+		"forecast_completed": [],
+		"forecast_from_index": None,
+	}
+
+
+def _hours_burndown(
+	project: str,
+	fd: date,
+	td: date,
+	group_by: str,
+	exclude_group: bool,
+	forecast_periods: int,
+) -> dict[str, Any]:
+	tasks = _task_name_list(project, exclude_group, None)
+	plan_rows = _load_pwe_plan_rows(project, None)
+	buckets = get_period_buckets(project, fd, td, group_by)
+
+	categories: list[str] = []
+	added: list[float] = []
+	completed: list[float] = []
+	start_scope: list[float] = []
+	end_rem: list[float] = []
+	placeholder: list[float] = []
+	cum_plan: list[float] = []
+	cum_act: list[float] = []
+
+	for _label, bs, be in buckets:
+		cp_end = _cumulative_plan_through(plan_rows, be)
+		cp_start = _cumulative_plan_through(plan_rows, bs - timedelta(days=1))
+		ca_end = _utp_sum_hours(project, fd, be, tasks)
+		ca_start = _utp_sum_hours(project, fd, bs - timedelta(days=1), tasks)
+
+		st = max(0.0, cp_start - ca_start)
+		ad = max(0.0, cp_end - cp_start)
+		act = max(0.0, ca_end - ca_start)
+		er = max(0.0, cp_end - ca_end)
+		ph = max(0.0, er + act - ad)
+
+		categories.append(_label)
+		start_scope.append(st)
+		added.append(ad)
+		completed.append(act)
+		end_rem.append(er)
+		placeholder.append(ph)
+		cum_plan.append(cp_end)
+		cum_act.append(ca_end)
+
+	# forecast (velocity from last fact buckets)
+	today = getdate()
+	fc_labels: list[str] = []
+	fc_ph: list[float] = []
+	fc_add: list[float] = []
+	fc_start: list[float] = []
+	fc_rem: list[float] = []
+	fc_comp: list[float] = []
+
+	fact_end_idx = len(buckets) - 1
+	for i, (_c, _bs, be) in enumerate(buckets):
+		if be >= today:
+			fact_end_idx = i - 1 if i > 0 else 0
+			break
+
+	if forecast_periods > 0 and fact_end_idx >= 0:
+		lo = max(0, fact_end_idx - 2)
+		window = completed[lo : fact_end_idx + 1]
+		velocity = sum(window) / len(window) if window else 0.0
+		rem = end_rem[fact_end_idx]
+		for _j in range(forecast_periods):
+			if velocity <= 0 or rem <= 0:
+				break
+			fc_start.append(rem)
+			fc = min(velocity, rem)
+			rem = max(0.0, rem - fc)
+			fc_labels.append(_("Forecast {0}").format(len(fc_labels) + 1))
+			fc_comp.append(fc)
+			fc_add.append(0.0)
+			fc_rem.append(rem)
+			fc_ph.append(0.0)
+
+	return {
+		"measure": "hours",
+		"categories": categories,
+		"placeholder": placeholder,
+		"start_scope": start_scope,
+		"end_scope": end_rem,
+		"added": added,
+		"remaining": end_rem,
+		"completed": completed,
+		"cumulative_plan": cum_plan,
+		"cumulative_actual": cum_act,
+		"forecast_categories": fc_labels,
+		"forecast_placeholder": fc_ph,
+		"forecast_start_scope": fc_start,
+		"forecast_end_scope": fc_rem,
+		"forecast_added": fc_add,
+		"forecast_remaining": fc_rem,
+		"forecast_completed": fc_comp,
+		"forecast_from_index": len(categories) if fc_labels else None,
+		"y_axis_label": _("Hours"),
+	}
+
+def _story_point_map() -> dict[str, float]:
+	return {r.name: flt(r.value) for r in frappe.get_all("Story Point", fields=["name", "value"])}
+
+
+def _mval(name: str, doc: dict | None, sp_map: dict[str, float], measure: str) -> float:
+	if measure == "task_count":
+		return 1.0
+	if measure == "story_points":
+		sp = (doc or {}).get("story_point")
+		return sp_map.get(sp, 0.0) if sp else 0.0
+	return flt((doc or {}).get("expected_time"))
+
+
+def _task_measure_burndown(
+	project: str,
+	fd: date,
+	td: date,
+	group_by: str,
+	measure: str,
+	exclude_group: bool,
+) -> dict[str, Any]:
+	sp_map = _story_point_map() if measure == "story_points" else {}
+	buckets = get_period_buckets(project, fd, td, group_by)
+	tasks = _task_name_list(project, exclude_group, None)
+
+	added = [0.0] * len(buckets)
+	completed = [0.0] * len(buckets)
+	start_scope = [0.0] * len(buckets)
+	end_rem = [0.0] * len(buckets)
+
+	for i, (_lb, bs, be) in enumerate(buckets):
+		added[i] = _measure_new_scope(tasks, bs, be, sp_map, measure)
+		completed[i] = _measure_completed_hist(tasks, bs, be, sp_map, measure)
+
+	running = _initial_remaining(tasks, fd, sp_map, measure)
+	for i, (_lb, bs, be) in enumerate(buckets):
+		start_scope[i] = running
+		running = running + added[i] - completed[i]
+		if running < 0:
+			running = 0.0
+		end_rem[i] = running
+
+	placeholder = []
+	for i in range(len(buckets)):
+		er = end_rem[i]
+		act = completed[i]
+		ad = added[i]
+		placeholder.append(max(0.0, er + act - ad))
+
+	categories = [b[0] for b in buckets]
+	return _series_dict(
+		measure,
+		categories,
+		placeholder,
+		start_scope,
+		added,
+		end_rem,
+		completed,
+		_("Story Points") if measure == "story_points" else _("Tasks"),
+	)
+
+
+def _series_dict(
+	meas: str,
+	categories: list[str],
+	placeholder: list[float],
+	start_scope: list[float],
+	added: list[float],
+	remaining: list[float],
+	completed: list[float],
+	y_label: str,
+) -> dict[str, Any]:
+	return {
+		"measure": meas,
+		"categories": categories,
+		"placeholder": placeholder,
+		"start_scope": start_scope,
+		"end_scope": remaining,
+		"added": added,
+		"remaining": remaining,
+		"completed": completed,
+		"cumulative_plan": [],
+		"cumulative_actual": [],
+		"forecast_categories": [],
+		"forecast_placeholder": [],
+		"forecast_start_scope": [],
+		"forecast_end_scope": [],
+		"forecast_added": [],
+		"forecast_remaining": [],
+		"forecast_completed": [],
+		"forecast_from_index": None,
+		"y_axis_label": y_label,
+	}
+
+
+def _derive_start_scope_series(
+	remaining: list[float], added: list[float], completed: list[float]
+) -> list[float]:
+	"""Return bucket opening scope so start + added - completed = end."""
+	out: list[float] = []
+	for er, ad, act in zip(remaining, added, completed, strict=False):
+		out.append(max(0.0, er - ad + act))
+	return out
+
+
+def _initial_remaining(
+	tasks: list[str], from_date: date, sp_map: dict[str, float], measure: str
+) -> float:
+	"""Approximate remaining scope just before from_date using forecast task starts."""
+	if not tasks:
+		return 0.0
+	total = 0.0
+	for name in tasks:
+		doc = frappe.db.get_value(
+			"Task",
+			name,
+			[
+				"creation",
+				"progress",
+				"story_point",
+				"expected_time",
+				"exp_start_date",
+				"custom_planned_start_date",
+			],
+			as_dict=True,
+		)
+		if not doc:
+			continue
+		scope_start = doc.get("exp_start_date") or doc.get("custom_planned_start_date") or doc.creation
+		if getdate(scope_start) >= from_date:
+			continue
+		m = _mval(name, doc, sp_map, measure)
+		p = flt(doc.progress)
+		total += m * (1.0 - p / 100.0)
+	return total
+
+
+def _measure_new_scope(
+	tasks: list[str], bs: date, be: date, sp_map: dict[str, float], measure: str
+) -> float:
+	if not tasks:
+		return 0.0
+	q = f"""
+		SELECT name, progress, story_point, expected_time, exp_start_date, custom_planned_start_date
+		FROM tabTask
+		WHERE name IN ({",".join(["%s"] * len(tasks))})
+			AND DATE(COALESCE(exp_start_date, custom_planned_start_date, creation)) BETWEEN %s AND %s
+	"""
+	rows = frappe.db.sql(q, tuple(tasks) + (bs, be), as_dict=True)
+	s = 0.0
+	for r in rows:
+		m = _mval(r.name, r, sp_map, measure)
+		s += m * (1.0 - flt(r.progress) / 100.0)
+	return s
+
+
+def _measure_completed_hist(
+	tasks: list[str], bs: date, be: date, sp_map: dict[str, float], measure: str
+) -> float:
+	if not tasks:
+		return 0.0
+	rows = frappe.db.sql(
+		f"""
+		SELECT h.parent, IFNULL(h.old_progress,0) AS op, IFNULL(h.new_progress,0) AS np
+		FROM `tabTask Progress History` h
+		WHERE h.parent IN ({",".join(["%s"] * len(tasks))})
+			AND DATE(h.changed_on) BETWEEN %s AND %s
+		""",
+		tuple(tasks) + (bs, be),
+		as_dict=True,
+	)
+	s = 0.0
+	for r in rows:
+		doc = frappe.db.get_value(
+			"Task", r.parent, ["story_point", "expected_time"], as_dict=True
+		)
+		m = _mval(r.parent, doc, sp_map, measure)
+		s += m * (flt(r.np) - flt(r.op)) / 100.0
+	return s
+
+
+def _measure_remaining_snapshot(
+	tasks: list[str], sp_map: dict[str, float], measure: str
+) -> float:
+	if not tasks:
+		return 0.0
+	s = 0.0
+	for name in tasks:
+		doc = frappe.db.get_value(
+			"Task", name, ["progress", "story_point", "expected_time"], as_dict=True
+		)
+		if not doc:
+			continue
+		m = _mval(name, doc, sp_map, measure)
+		s += m * (1.0 - flt(doc.progress) / 100.0)
+	return s

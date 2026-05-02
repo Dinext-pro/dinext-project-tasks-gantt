@@ -4,7 +4,7 @@ app_publisher = "Dinext"
 app_description = "Dinext Project Tasks Gantt"
 app_email = "info@dinext.ru"
 app_license = "mit"
-
+'''
 fixtures = [
     {
         "doctype": "Custom Field",
@@ -39,12 +39,16 @@ fixtures = [
     #        ["is_active", "=", 1]            
     #    ]
     #}    
-]
+]'''
 
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = [
+    "frappe/erpnext",
+    "dinext/dinext_common",
+    "dinext/dinext_projects",
+]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -61,7 +65,7 @@ fixtures = [
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/dinext_project_tasks_gantt/css/dinext_project_tasks_gantt.css"
+app_include_css = "/assets/dinext_project_tasks_gantt/css/task_progress_trend.css"
 # app_include_js = "/assets/dinext_project_tasks_gantt/js/dinext_project_tasks_gantt.js"
 
 # include js, css files in header of web template
@@ -79,7 +83,7 @@ fixtures = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Task": "public/js/task_progress_trend.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
