@@ -279,15 +279,19 @@
 			type: "scroll",
 			top: 0,
 			textStyle: { color: theme.text },
-			data: [__("Actual progress"), __("Planned progress"), __("Forecast progress")],
+			data: [
+				progress.actual.label,
+				progress.planned.label,
+				progress.forecast.label,
+			],
 		};
 		const roleLegend = {
 			type: "scroll",
 			bottom: 0,
 			textStyle: { color: theme.text },
 			data: [
-				...roleSeries.map((row) => row.name),
-				...(hoursForecastValues.length ? [hoursForecast.label] : []),
+				...roleSeries.map((row) => __(String(row.name))),
+				...(hoursForecastValues.length ? [__(String(hoursForecast.label))] : []),
 			],
 		};
 		const legend = showHoursAxis ? [progressLegend, roleLegend] : [progressLegend];
@@ -394,7 +398,7 @@
 					...(showHoursAxis && hoursForecastValues.length
 						? [
 								{
-									name: hoursForecast.label,
+									name: __(String(hoursForecast.label)),
 									type: "line",
 									yAxisIndex: 1,
 									smooth: true,
@@ -467,7 +471,11 @@
 		const series = progress.series || [];
 		const byId = {};
 		series.forEach((row) => {
-			byId[row.id] = row;
+			if (row && row.label != null) {
+				byId[row.id] = { ...row, label: __(String(row.label)) };
+			} else {
+				byId[row.id] = row;
+			}
 		});
 		return {
 			actual: byId.actual_progress || {
@@ -520,13 +528,13 @@
 			const labels = [];
 			const seen = new Set();
 			for (const m of group) {
-				const text = m.label != null ? String(m.label) : "";
+				const text = m.label != null ? __(String(m.label)) : "";
 				if (text && !seen.has(text)) {
 					seen.add(text);
 					labels.push(text);
 				}
 			}
-			const combined = labels.length ? labels.join(", ") : String(bucketLabel);
+			const combined = labels.length ? labels.join(", ") : __(String(bucketLabel));
 			data.push({
 				name: combined,
 				xAxis: bucketLabel,
