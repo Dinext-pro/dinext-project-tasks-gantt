@@ -1,7 +1,6 @@
 .task-progress-trend-widget {
-	border: 1px solid var(--border-color);
 	border-radius: 6px;
-	margin: 16px 0;
+	margin: 0;
 	padding: 12px;
 	background: var(--card-bg);
 }

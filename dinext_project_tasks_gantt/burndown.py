@@ -805,7 +805,7 @@ def _task_actual_or_forecast_date_markers(task_row: dict, forecast: dict[str, An
 	markers = [
 		_date_marker(_("Actual start"), actual_start, "actual_start")
 		if actual_start
-		else _date_marker(_("Expected Start"), expected_start, "expected_start"),
+		else _date_marker(_("Expected start"), expected_start, "expected_start"),
 	]
 	if actual_end:
 		markers.append(_date_marker(_("Actual end"), actual_end, "actual_end"))
