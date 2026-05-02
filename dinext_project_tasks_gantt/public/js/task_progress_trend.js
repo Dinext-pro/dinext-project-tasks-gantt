@@ -243,6 +243,15 @@
 		);
 		const showHoursAxis = hasBands || totalHours > 0;
 		const limitMarkArea = showHoursAxis ? timesheet_limit_mark_area(timesheetLimits, theme) : undefined;
+		const plannedHoursValue = flt(timesheetLimits.planned_hours);
+		const plannedHoursMarkLine =
+			showHoursAxis && plannedHoursValue > 0 ? planned_hours_mark_line(plannedHoursValue, theme) : undefined;
+		let hoursAxisMax =
+			timesheetLimits.axis_max != null && timesheetLimits.axis_max !== "" ? flt(timesheetLimits.axis_max) : null;
+		if (showHoursAxis && plannedHoursValue > 0) {
+			const minForMarker = plannedHoursValue * 1.1;
+			hoursAxisMax = hoursAxisMax != null && hoursAxisMax > 0 ? Math.max(hoursAxisMax, minForMarker) : minForMarker;
+		}
 		const hoursOffset = staircase_hours_offset(hoursRows, allCategories.length);
 		const roleSeries = hoursRows.map((row, index) => ({
 			name: row.role,
@@ -283,7 +292,7 @@
 			type: "value",
 			name: __("Work hours"),
 			min: 0,
-			max: timesheetLimits.axis_max || null,
+			max: hoursAxisMax != null && hoursAxisMax > 0 ? hoursAxisMax : null,
 			nameTextStyle: { color: theme.text },
 			axisLabel: { color: theme.textMuted },
 			axisLine: { lineStyle: { color: theme.axisLine } },
@@ -327,6 +336,22 @@
 									lineStyle: { opacity: 0 },
 									tooltip: { show: false },
 									markArea: limitMarkArea,
+								},
+							]
+						: []),
+					...(showHoursAxis && plannedHoursMarkLine
+						? [
+								{
+									name: __("Planned hours"),
+									type: "line",
+									yAxisIndex: 1,
+									data: pad([], allCategories.length, null),
+									silent: true,
+									symbol: "none",
+									lineStyle: { opacity: 0 },
+									tooltip: { show: false },
+									emphasis: { disabled: true },
+									markLine: plannedHoursMarkLine,
 								},
 							]
 						: []),
@@ -490,8 +515,8 @@
 			text: css_var(styles, "--text-color", isDark ? "#e5e7eb" : "#1f2937"),
 			textMuted: css_var(styles, "--text-muted", isDark ? "#a3aab8" : "#6b7280"),
 			axisLine: css_var(styles, "--border-color", isDark ? "#3f4653" : "#d9dee7"),
-			splitLine: isDark ? "rgba(229, 231, 235, 0.12)" : "rgba(31, 41, 55, 0.10)",
-			markerLine: isDark ? "rgba(229, 231, 235, 0.52)" : "rgba(31, 41, 55, 0.42)",
+			splitLine: isDark ? "rgba(229, 231, 235, 0.12)" : "rgba(31, 41, 55, 0.20)",
+			markerLine: isDark ? "rgba(229, 231, 235, 0.52)" : "rgba(31, 41, 55, 0.68)",
 			tooltipBackground,
 			tooltipText,
 			axisPointerLabelText: tooltipText,
@@ -551,6 +576,24 @@
 				},
 				{ yAxis: band.to },
 			]),
+		};
+	}
+
+	function planned_hours_mark_line(plannedHours, theme) {
+		const labelText = `${__("Planned hours")}: ${plannedHours}`;
+		return {
+			symbol: "none",
+			silent: true,
+			animation: false,
+			label: { show: true, color: theme.text, fontSize: 10, position: "middle" },
+			data: [
+				{
+					yAxis: plannedHours,
+					name: __("Planned hours"),
+					label: { show: true, formatter: labelText, color: theme.text, position: "middle", fontSize: 10 },
+					lineStyle: { color: theme.markerLine, type: "dashed", width: 2 },
+				},
+			],
 		};
 	}
 
