@@ -10,6 +10,7 @@
 		planned: "#c482f7",
 		forecast: "#919ff5",
 	};
+	const HOURS_FORECAST_COLOR = "#38bdf8";
 	const MUTED_BAR_COLORS = ["#6f8fa8", "#9aa879", "#c49a6c", "#a8798f", "#7d8b91", "#9b8db5"];
 
 	frappe.ui.form.on("Task", {
@@ -232,8 +233,12 @@
 
 		const theme = chart_theme_palette();
 		const progress = normalize_progress_series(data.progress || {});
-		const forecastCategories = progress.forecast_categories || categories;
-		const allCategories = forecastCategories.length > categories.length ? forecastCategories : categories;
+		const hoursForecast = normalize_hours_forecast(data.hours_forecast || {});
+		const allCategories = longest_array([
+			categories,
+			progress.forecast_categories || [],
+			hoursForecast.categories || [],
+		]);
 		const timesheetLimits = data.timesheet_limits || {};
 		const hoursRows = data.hours_by_role || [];
 		const hasBands = Array.isArray(timesheetLimits.bands) && timesheetLimits.bands.length > 0;
@@ -252,6 +257,10 @@
 			const minForMarker = plannedHoursValue * 1.1;
 			hoursAxisMax = hoursAxisMax != null && hoursAxisMax > 0 ? Math.max(hoursAxisMax, minForMarker) : minForMarker;
 		}
+		const hoursForecastValues =
+			showHoursAxis && plannedHoursValue > 0
+				? (hoursForecast.values || []).map((value) => (value == null ? null : (flt(value) / 100.0) * plannedHoursValue))
+				: [];
 		const hoursOffset = staircase_hours_offset(hoursRows, allCategories.length);
 		const roleSeries = hoursRows.map((row, index) => ({
 			name: row.role,
@@ -276,7 +285,10 @@
 			type: "scroll",
 			bottom: 0,
 			textStyle: { color: theme.text },
-			data: roleSeries.map((row) => row.name),
+			data: [
+				...roleSeries.map((row) => row.name),
+				...(hoursForecastValues.length ? [hoursForecast.label] : []),
+			],
 		};
 		const legend = showHoursAxis ? [progressLegend, roleLegend] : [progressLegend];
 		const yAxisProgress = {
@@ -319,7 +331,11 @@
 				xAxis: {
 					type: "category",
 					data: allCategories,
-					axisLabel: { rotate: allCategories.length > 8 ? 35 : 0, color: theme.textMuted },
+					axisLabel: {
+						rotate: allCategories.length > 8 ? 35 : 0,
+						color: theme.textMuted,
+						fontSize: 10,
+					},
 					axisLine: { lineStyle: { color: theme.axisLine } },
 					axisTick: { lineStyle: { color: theme.axisLine } },
 				},
@@ -375,6 +391,21 @@
 							]
 						: []),
 					...(showHoursAxis ? roleSeries : []),
+					...(showHoursAxis && hoursForecastValues.length
+						? [
+								{
+									name: hoursForecast.label,
+									type: "line",
+									yAxisIndex: 1,
+									smooth: true,
+									symbol: null,
+									symbolSize: 0,
+									itemStyle: { color: HOURS_FORECAST_COLOR, borderColor: HOURS_FORECAST_COLOR },
+									lineStyle: { color: HOURS_FORECAST_COLOR, type: hoursForecast.line_style },
+									data: hoursForecastValues,
+								},
+							]
+						: []),
 					{
 						name: progress.actual.label,
 						type: "line",
@@ -459,6 +490,19 @@
 				progress.forecast_categories ||
 				[],
 		};
+	}
+
+	function normalize_hours_forecast(forecast) {
+		return {
+			label: forecast.label || __("Forecast work hours"),
+			line_style: forecast.line_style || "dotted",
+			values: forecast.values || [],
+			categories: forecast.categories || [],
+		};
+	}
+
+	function longest_array(arrays) {
+		return arrays.reduce((longest, row) => (row.length > longest.length ? row : longest), []);
 	}
 
 	function marker_lines(markers, theme) {

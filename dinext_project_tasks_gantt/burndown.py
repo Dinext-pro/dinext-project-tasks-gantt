@@ -450,10 +450,47 @@ def _task_progress_history_start_date(row: dict) -> date | None:
 	return min(dates) if dates else None
 
 
+def _task_forecast_max_date(row: dict, planned_start: date | None, planned_end: date | None) -> date | None:
+	starts = [
+		planned_start,
+		row.get("actual_start_date"),
+		row.get("exp_start_date"),
+	]
+	ends = [
+		planned_end,
+		row.get("actual_end_date"),
+		row.get("completed_on"),
+		row.get("closing_date"),
+		row.get("exp_end_date"),
+	]
+	start_dates = [getdate(value) for value in starts if value]
+	end_dates = [getdate(value) for value in ends if value]
+	if not start_dates or not end_dates:
+		return None
+	base_start = min(start_dates)
+	base_end = max(end_dates)
+	if base_end < base_start:
+		base_start, base_end = base_end, base_start
+	return base_end + timedelta(days=max((base_end - base_start).days, 0))
+
+
+def _forecast_target_date(buckets: list[tuple[str, date, date]], target_index: int) -> date | None:
+	if target_index < len(buckets):
+		return buckets[target_index][2]
+	if not buckets:
+		return None
+	if len(buckets) >= 2:
+		period_days = max((buckets[-1][2] - buckets[-2][2]).days, 1)
+	else:
+		period_days = 7
+	return buckets[-1][2] + timedelta(days=period_days * (target_index - len(buckets) + 1))
+
+
 def _forecast_progress_to_completion(
 	buckets: list[tuple[str, date, date]],
 	factual_progress: list[float | None],
 	forecast_start_date: date | None = None,
+	max_forecast_date: date | None = None,
 ) -> dict[str, Any]:
 	points = [
 		(index, flt(value))
@@ -472,6 +509,7 @@ def _forecast_progress_to_completion(
 	velocity = sum((index - x_mean) * (value - y_mean) for index, value in points) / denominator
 	if velocity <= 0:
 		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+	intercept = y_mean - velocity * x_mean
 
 	categories = [bucket[0] for bucket in buckets]
 	baseline_index = points[0][0]
@@ -481,30 +519,86 @@ def _forecast_progress_to_completion(
 			if bucket_start <= forecast_start <= bucket_end:
 				baseline_index = index
 				break
-	series: list[float | None] = [None] * max(baseline_index, 0) + [0.0]
-	current = 0.0
+	series: list[float | None] = [None] * max(baseline_index, 0)
 	completion_date = None
 	offset = 0
-	while current < 100.0:
-		offset += 1
-		current = min(100.0, velocity * offset)
+	while True:
 		target_index = baseline_index + offset
+		target_date = _forecast_target_date(buckets, target_index)
+		if max_forecast_date and target_date and target_date > max_forecast_date:
+			break
 		if target_index >= len(categories):
 			categories.append(_("Forecast {0}").format(target_index - len(buckets) + 1))
+		current = min(max(intercept + velocity * target_index, 0.0), 100.0)
 		series.append(round(current, 1))
 		if current >= 100.0:
-			if target_index < len(buckets):
-				completion_date = buckets[target_index][2]
+			completion_date = target_date
 			break
+		offset += 1
 
 	if completion_date is None:
-		last_bucket_end = buckets[-1][2] if buckets else None
-		if len(buckets) >= 2:
-			period_days = max((buckets[-1][2] - buckets[-2][2]).days, 1)
-		else:
-			period_days = 7
-		extra_periods = max((baseline_index + offset) - (len(buckets) - 1), 0)
-		completion_date = last_bucket_end + timedelta(days=period_days * extra_periods) if last_bucket_end else None
+		completion_date = None
+	return {"categories": categories[: len(series)], "series": series, "completion_date": completion_date}
+
+
+def _hours_forecast_points(hours_by_role: list[dict[str, Any]], planned_hours: float) -> list[tuple[int, float]]:
+	if planned_hours <= 0:
+		return []
+	length = max((len(row.get("values", [])) for row in hours_by_role), default=0)
+	points: list[tuple[int, float]] = []
+	cumulative = 0.0
+	for index in range(length):
+		bucket_hours = 0.0
+		for row in hours_by_role:
+			values = row.get("values") or []
+			bucket_hours += flt(values[index] if index < len(values) else 0)
+		cumulative += bucket_hours
+		if bucket_hours > 0:
+			value = min(cumulative / planned_hours * 100.0, 100.0)
+			if value < 100.0:
+				points.append((index, value))
+	return points
+
+
+def _forecast_hours_to_plan(
+	buckets: list[tuple[str, date, date]],
+	hours_by_role: list[dict[str, Any]],
+	planned_hours: float,
+	max_forecast_date: date | None = None,
+) -> dict[str, Any]:
+	points = _hours_forecast_points(hours_by_role, planned_hours)
+	if len(points) < 2:
+		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+
+	x_mean = sum(index for index, _value in points) / len(points)
+	y_mean = sum(value for _index, value in points) / len(points)
+	denominator = sum((index - x_mean) ** 2 for index, _value in points)
+	if denominator <= 0:
+		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+
+	velocity = sum((index - x_mean) * (value - y_mean) for index, value in points) / denominator
+	if velocity <= 0:
+		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+	intercept = y_mean - velocity * x_mean
+
+	categories = [bucket[0] for bucket in buckets]
+	baseline_index = points[0][0]
+	series: list[float | None] = [None] * max(baseline_index, 0)
+	completion_date = None
+	offset = 0
+	while True:
+		target_index = baseline_index + offset
+		target_date = _forecast_target_date(buckets, target_index)
+		if max_forecast_date and target_date and target_date > max_forecast_date:
+			break
+		if target_index >= len(categories):
+			categories.append(_("Forecast {0}").format(target_index - len(buckets) + 1))
+		current = min(max(intercept + velocity * target_index, 0.0), 100.0)
+		series.append(round(current, 1))
+		if current >= 100.0:
+			completion_date = target_date
+			break
+		offset += 1
 	return {"categories": categories[: len(series)], "series": series, "completion_date": completion_date}
 
 
@@ -808,6 +902,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 		all_dates.append(getdate())
 	fd = min(all_dates)
 	td = max(max(all_dates), getdate())
+	max_forecast_date = _task_forecast_max_date(task_row, planned_start, planned_end)
 	group_by = (group_by or "week").lower()
 	if group_by == "day":
 		buckets = iter_day_buckets(fd, td)
@@ -821,7 +916,12 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	) else None
 	factual = _task_actual_progress_series(buckets, progress_rows, task_start)
 	planned = _planned_progress_series(buckets, planned_start, planned_end)
-	forecast = _forecast_progress_to_completion(buckets, factual, task_row.get("exp_start_date"))
+	forecast = _forecast_progress_to_completion(
+		buckets,
+		factual,
+		task_row.get("exp_start_date"),
+		max_forecast_date=max_forecast_date,
+	)
 	if forecast.get("completion_date") and getdate(forecast.get("completion_date")) > td:
 		td = getdate(forecast.get("completion_date"))
 		if group_by == "day":
@@ -832,17 +932,53 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			buckets = iter_week_buckets(fd, td)
 		factual = _task_actual_progress_series(buckets, progress_rows, task_start)
 		planned = _planned_progress_series(buckets, planned_start, planned_end)
-		forecast = _forecast_progress_to_completion(buckets, factual, task_row.get("exp_start_date"))
+		forecast = _forecast_progress_to_completion(
+			buckets,
+			factual,
+			task_row.get("exp_start_date"),
+			max_forecast_date=max_forecast_date,
+		)
 	task_names_for_hours = _task_tree_names(task_row.get("project"), task)
+	planned_hours_by_role = _planned_hours_by_role(task_row.get("project"), task)
+	project_limits = _project_limits(task_row.get("project"))
 	hours_by_role = _timesheet_role_series_from_rows(
 		buckets,
 		_load_task_timesheet_role_rows(task_names_for_hours, buckets[0][1], buckets[-1][2]) if buckets else [],
 	)
-	timesheet_limits = _timesheet_limit_bands(
-		_planned_hours_by_role(task_row.get("project"), task),
+	timesheet_limits = _timesheet_limit_bands(planned_hours_by_role, hours_by_role, project_limits)
+	hours_forecast = _forecast_hours_to_plan(
+		buckets,
 		hours_by_role,
-		_project_limits(task_row.get("project")),
+		flt(timesheet_limits.get("planned_hours")),
+		max_forecast_date=max_forecast_date,
 	)
+	if hours_forecast.get("completion_date") and getdate(hours_forecast.get("completion_date")) > td:
+		td = getdate(hours_forecast.get("completion_date"))
+		if group_by == "day":
+			buckets = iter_day_buckets(fd, td)
+		elif group_by == "month":
+			buckets = iter_month_buckets(fd, td)
+		else:
+			buckets = iter_week_buckets(fd, td)
+		factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+		planned = _planned_progress_series(buckets, planned_start, planned_end)
+		forecast = _forecast_progress_to_completion(
+			buckets,
+			factual,
+			task_row.get("exp_start_date"),
+			max_forecast_date=max_forecast_date,
+		)
+		hours_by_role = _timesheet_role_series_from_rows(
+			buckets,
+			_load_task_timesheet_role_rows(task_names_for_hours, buckets[0][1], buckets[-1][2]) if buckets else [],
+		)
+		timesheet_limits = _timesheet_limit_bands(planned_hours_by_role, hours_by_role, project_limits)
+		hours_forecast = _forecast_hours_to_plan(
+			buckets,
+			hours_by_role,
+			flt(timesheet_limits.get("planned_hours")),
+			max_forecast_date=max_forecast_date,
+		)
 
 	raw_date_markers = [
 		marker
@@ -850,6 +986,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			_date_marker(_("Planned start"), planned_start, "planned_start"),
 			_date_marker(_("Planned end"), planned_end, "planned_end"),
 			*_task_actual_or_forecast_date_markers(task_row, forecast),
+			_date_marker(_("Work hours forecast end"), hours_forecast.get("completion_date"), "forecast_work_hours_end"),
 			_current_date_marker(buckets),
 		]
 		if marker
@@ -894,6 +1031,17 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			"forecast": forecast.get("series"),
 		},
 		"hours_by_role": hours_by_role,
+		"hours_forecast": {
+			"id": "forecast_work_hours",
+			"label": _("Forecast work hours"),
+			"kind": "line",
+			"line_style": "dotted",
+			"values": hours_forecast.get("series"),
+			"categories": hours_forecast.get("categories"),
+			"completion_date": str(hours_forecast.get("completion_date"))
+			if hours_forecast.get("completion_date")
+			else None,
+		},
 		"timesheet_limits": timesheet_limits,
 		"date_markers": date_markers,
 		"is_milestone": bool(
