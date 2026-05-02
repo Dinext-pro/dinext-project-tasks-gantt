@@ -265,6 +265,7 @@
 			itemStyle: { color: MUTED_BAR_COLORS[index % MUTED_BAR_COLORS.length] },
 			emphasis: { focus: "series" },
 		}));
+		const dateMarkerLines = marker_lines(data.date_markers || [], theme);
 		const progressLegend = {
 			type: "scroll",
 			top: 0,
@@ -384,7 +385,6 @@
 						itemStyle: { color: PROGRESS_COLORS.actual, borderColor: PROGRESS_COLORS.actual },
 						lineStyle: { color: PROGRESS_COLORS.actual, type: "solid", width: 4 },
 						data: pad(progress.actual.values || [], allCategories.length, null),
-						markLine: marker_lines(data.date_markers || [], theme),
 					},
 					{
 						name: progress.planned.label,
@@ -408,6 +408,22 @@
 						lineStyle: { color: PROGRESS_COLORS.forecast, type: progress.forecast.line_style },
 						data: progress.forecast.values && progress.forecast.values.length ? progress.forecast.values : [],
 					},
+					...(dateMarkerLines
+						? [
+								{
+									name: "__date_markers",
+									type: "line",
+									yAxisIndex: 0,
+									data: pad([], allCategories.length, null),
+									silent: true,
+									symbol: "none",
+									lineStyle: { opacity: 0 },
+									tooltip: { show: false },
+									emphasis: { disabled: true },
+									markLine: dateMarkerLines,
+								},
+							]
+						: []),
 				],
 			},
 			true
