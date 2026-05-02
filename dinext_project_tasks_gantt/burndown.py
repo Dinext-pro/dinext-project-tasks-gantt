@@ -684,28 +684,77 @@ def _planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
 	out: dict[str, float] = {}
 	current = task
 	while current:
-		rows = (
-			frappe.qb.from_(pwe)
-			.inner_join(amount)
-			.on(amount.parent == pwe.name)
-			.select(
-				pwe.pwe_project_role.as_("role"),
-				Sum(IfNull(amount.pwea_plan, 0)).as_("planned_hours"),
-			)
-			.where(pwe.pwe_project == project)
-			.where(pwe.pwe_task == current)
-			.groupby(pwe.pwe_project_role)
-			.run(as_dict=True)
-		)
-		for row in rows:
-			role = row.get("role") or _("No role")
-			planned = flt(row.get("planned_hours"))
-			if planned > 0:
-				out[role] = planned
+		out = _planned_hours_by_role_for_task(project, current, pwe, amount)
 		if out:
 			return out
 		current = frappe.db.get_value("Task", current, "parent_task")
 	return {}
+
+
+def _planned_hours_by_role_for_task(
+	project: str,
+	task: str,
+	pwe: Any | None = None,
+	amount: Any | None = None,
+) -> dict[str, float]:
+	pwe = pwe or frappe.qb.DocType("Project Work Efforts")
+	amount = amount or frappe.qb.DocType("Project Work Efforts Amount")
+	rows = (
+		frappe.qb.from_(pwe)
+		.inner_join(amount)
+		.on(amount.parent == pwe.name)
+		.select(
+			pwe.pwe_project_role.as_("role"),
+			Sum(IfNull(amount.pwea_plan, 0)).as_("planned_hours"),
+		)
+		.where(pwe.pwe_project == project)
+		.where(pwe.pwe_task == task)
+		.groupby(pwe.pwe_project_role)
+		.run(as_dict=True)
+	)
+	out: dict[str, float] = {}
+	for row in rows:
+		role = row.get("role") or _("No role")
+		planned = flt(row.get("planned_hours"))
+		if planned > 0:
+			out[role] = planned
+	return out
+
+
+def _add_hours_by_role(target: dict[str, float], source: dict[str, float]) -> None:
+	for role, planned in source.items():
+		target[role] = target.get(role, 0.0) + flt(planned)
+
+
+def _child_tree_planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
+	if not project or not task:
+		return {}
+	rows = _task_child_names(project, task)
+	children_by_parent: dict[str, list[str]] = {}
+	for row in rows:
+		parent = row.get("parent_task")
+		name = row.get("name")
+		if parent and name:
+			children_by_parent.setdefault(parent, []).append(name)
+
+	pwe = frappe.qb.DocType("Project Work Efforts")
+	amount = frappe.qb.DocType("Project Work Efforts Amount")
+	visited: set[str] = set()
+
+	def planned_for_descendants(parent: str) -> dict[str, float]:
+		if parent in visited:
+			return {}
+		visited.add(parent)
+		out: dict[str, float] = {}
+		for child in sorted(children_by_parent.get(parent, [])):
+			child_plan = _planned_hours_by_role_for_task(project, child, pwe, amount)
+			if child_plan:
+				_add_hours_by_role(out, child_plan)
+			else:
+				_add_hours_by_role(out, planned_for_descendants(child))
+		return out
+
+	return planned_for_descendants(task)
 
 
 def _total_hours(hours_by_role: list[dict[str, Any]]) -> float:
@@ -716,16 +765,19 @@ def _timesheet_limit_bands(
 	planned_hours_by_role: dict[str, float],
 	hours_by_role: list[dict[str, Any]],
 	project_limits: dict[str, float | None],
+	scale_planned_hours: float | None = None,
 ) -> dict[str, Any]:
 	planned_hours = sum(flt(value) for value in planned_hours_by_role.values())
 	actual_hours = _total_hours(hours_by_role)
+	scale_hours = flt(scale_planned_hours) if scale_planned_hours else planned_hours
 	if planned_hours <= 0:
 		return {
 			"planned_hours": 0.0,
 			"actual_hours": round(actual_hours, 1),
+			"scale_planned_hours": round(scale_hours, 1),
 			"warning_limit_hours": None,
 			"block_limit_hours": None,
-			"axis_max": None,
+			"axis_max": round(max(scale_hours * 1.1, actual_hours * 1.1), 1) if scale_hours > 0 else None,
 			"bands": [],
 		}
 
@@ -764,6 +816,7 @@ def _timesheet_limit_bands(
 	return {
 		"planned_hours": round(planned_hours, 1),
 		"actual_hours": round(actual_hours, 1),
+		"scale_planned_hours": round(scale_hours, 1),
 		"warning_limit_hours": warning_hours,
 		"block_limit_hours": block_hours,
 		"axis_max": round(axis_max, 1),
@@ -945,12 +998,23 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 		)
 	task_names_for_hours = _task_tree_names(task_row.get("project"), task)
 	planned_hours_by_role = _planned_hours_by_role(task_row.get("project"), task)
+	scale_planned_hours_by_role = (
+		planned_hours_by_role
+		if planned_hours_by_role
+		else _child_tree_planned_hours_by_role(task_row.get("project"), task)
+	)
+	scale_planned_hours = sum(flt(value) for value in scale_planned_hours_by_role.values())
 	project_limits = _project_limits(task_row.get("project"))
 	hours_by_role = _timesheet_role_series_from_rows(
 		buckets,
 		_load_task_timesheet_role_rows(task_names_for_hours, buckets[0][1], buckets[-1][2]) if buckets else [],
 	)
-	timesheet_limits = _timesheet_limit_bands(planned_hours_by_role, hours_by_role, project_limits)
+	timesheet_limits = _timesheet_limit_bands(
+		planned_hours_by_role,
+		hours_by_role,
+		project_limits,
+		scale_planned_hours=scale_planned_hours,
+	)
 	hours_forecast = _forecast_hours_to_plan(
 		buckets,
 		hours_by_role,
@@ -977,7 +1041,12 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			buckets,
 			_load_task_timesheet_role_rows(task_names_for_hours, buckets[0][1], buckets[-1][2]) if buckets else [],
 		)
-		timesheet_limits = _timesheet_limit_bands(planned_hours_by_role, hours_by_role, project_limits)
+		timesheet_limits = _timesheet_limit_bands(
+			planned_hours_by_role,
+			hours_by_role,
+			project_limits,
+			scale_planned_hours=scale_planned_hours,
+		)
 		hours_forecast = _forecast_hours_to_plan(
 			buckets,
 			hours_by_role,
