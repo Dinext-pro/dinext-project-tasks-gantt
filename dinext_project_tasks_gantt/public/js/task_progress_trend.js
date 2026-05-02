@@ -582,8 +582,8 @@
 		return {
 			text: css_var(styles, "--text-color", isDark ? "#e5e7eb" : "#1f2937"),
 			textMuted: css_var(styles, "--text-muted", isDark ? "#a3aab8" : "#6b7280"),
-			axisLine: css_var(styles, "--border-color", isDark ? "#3f4653" : "#d9dee7"),
-			splitLine: isDark ? "rgba(229, 231, 235, 0.12)" : "rgba(31, 41, 55, 0.20)",
+			axisLine: css_var(styles, "--border-color", isDark ? "#3f4653" : "#cbd5e1"),
+			splitLine: isDark ? "rgba(229, 231, 235, 0.12)" : "rgba(31, 41, 55, 0.22)",
 			markerLine: isDark ? "rgba(229, 231, 235, 0.52)" : "rgba(31, 41, 55, 0.68)",
 			tooltipBackground,
 			tooltipText,
