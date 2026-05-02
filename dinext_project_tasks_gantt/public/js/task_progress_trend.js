@@ -303,7 +303,7 @@
 			nameTextStyle: { color: theme.text },
 			axisLabel: { color: theme.textMuted },
 			axisLine: { lineStyle: { color: theme.axisLine } },
-			splitLine: { lineStyle: { color: theme.splitLine } },
+			splitLine: { lineStyle: { color: theme.splitLine, width: theme.splitLineWidth } },
 		};
 		const yAxisHours = {
 			type: "value",
@@ -539,7 +539,7 @@
 				name: combined,
 				xAxis: bucketLabel,
 				label: { formatter: combined, color: theme.text, fontSize: 10 },
-				lineStyle: { color: theme.markerLine },
+				lineStyle: { color: theme.markerLine, width: theme.markerLineWidth },
 			});
 		}
 		return data.length
@@ -583,8 +583,11 @@
 			text: css_var(styles, "--text-color", isDark ? "#e5e7eb" : "#1f2937"),
 			textMuted: css_var(styles, "--text-muted", isDark ? "#a3aab8" : "#6b7280"),
 			axisLine: css_var(styles, "--border-color", isDark ? "#3f4653" : "#cbd5e1"),
-			splitLine: isDark ? "rgba(229, 231, 235, 0.12)" : "rgba(31, 41, 55, 0.22)",
-			markerLine: isDark ? "rgba(229, 231, 235, 0.52)" : "rgba(31, 41, 55, 0.68)",
+			splitLine: isDark ? "rgba(229, 231, 235, 0.12)" : "rgba(15, 23, 42, 0.3)",
+			splitLineWidth: 1,
+			markerLine: isDark ? "rgba(229, 231, 235, 0.52)" : "rgba(15, 23, 42, 0.8)",
+			markerLineWidth: 1,
+			plannedHoursMarkerWidth: 1,
 			tooltipBackground,
 			tooltipText,
 			axisPointerLabelText: tooltipText,
@@ -659,7 +662,7 @@
 					yAxis: plannedHours,
 					name: __("Planned hours"),
 					label: { show: true, formatter: labelText, color: theme.text, position: "middle", fontSize: 10 },
-					lineStyle: { color: theme.markerLine, type: "dashed", width: 2 },
+					lineStyle: { color: theme.markerLine, type: "dashed", width: theme.plannedHoursMarkerWidth },
 				},
 			],
 		};
