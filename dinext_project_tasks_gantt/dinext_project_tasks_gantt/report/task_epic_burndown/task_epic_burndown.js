@@ -111,6 +111,56 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const open = z(d.open || d.remaining || d.end_scope);
 							const completed = z(d.completed);
 							const createdCompleted = z(d.created_completed || d.same_period_completed);
+							const todayStr = frappe.datetime.get_today();
+							const groupByKey = (filters.group_by || "month").toLowerCase();
+							const forecastFromIndexRaw = d.forecast_from_index;
+							const forecastFromIndex =
+								forecastFromIndexRaw === null || forecastFromIndexRaw === undefined || forecastFromIndexRaw === ""
+									? null
+									: Number(forecastFromIndexRaw);
+							const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
+							const mondayOfIsoWeek = (year, week) => {
+								const jan4 = new Date(year, 0, 4);
+								const jan4Dow = jan4.getDay() || 7;
+								const mondayWeek1 = new Date(jan4);
+								mondayWeek1.setDate(jan4.getDate() - jan4Dow + 1);
+								const out = new Date(mondayWeek1);
+								out.setDate(mondayWeek1.getDate() + (week - 1) * 7);
+								return out;
+							};
+							const bucketStartStrForForecast = (label) => {
+								if (!label || typeof label !== "string") {
+									return null;
+								}
+								if (groupByKey === "day") {
+									return /^\d{4}-\d{2}-\d{2}$/.test(label) ? label : null;
+								}
+								if (groupByKey === "month") {
+									return /^\d{4}-\d{2}$/.test(label) ? `${label}-01` : null;
+								}
+								if (groupByKey === "week") {
+									const m = label.match(/^(\d{4})-W(\d{2})$/);
+									if (!m) {
+										return null;
+									}
+									const y = Number(m[1]);
+									const w = Number(m[2]);
+									const mon = mondayOfIsoWeek(y, w);
+									return `${mon.getFullYear()}-${pad2(mon.getMonth() + 1)}-${pad2(mon.getDate())}`;
+								}
+								return null;
+							};
+							const isFutureBucketIndex = (idx) => {
+								if (
+									forecastFromIndex != null &&
+									!Number.isNaN(forecastFromIndex) &&
+									forecastFromIndex >= 0
+								) {
+									return idx >= forecastFromIndex;
+								}
+								const startStr = bucketStartStrForForecast(cats[idx]);
+								return Boolean(startStr && startStr > todayStr);
+							};
 							const formatValue = (value) => {
 								if ((d.measure || "") === "task_count" && !d.use_progress) {
 									return Math.round(value).toString();
@@ -146,12 +196,20 @@ frappe.query_reports["Task Epic Burndown"] = {
 								completed: "#0a5c0a",
 								created_completed: "#a8ffb0",
 							};
+							const segmentLabelColorForecast = {
+								created: "#ffffff",
+								open: "#ffffff",
+								completed: "#02240a",
+								created_completed: "#e6ffea",
+							};
+							const forecastFillOpacity = 0.42;
 							const waterfallData = [];
 							let previousOpenTop = null;
 							let yMin = 0;
 							let yMax = 0;
 
 							for (let i = 0; i < cats.length; i++) {
+								const isForecast = isFutureBucketIndex(i);
 								const createdValue = created[i] || 0;
 								const openValue = open[i] || 0;
 								const completedValue = completed[i] || 0;
@@ -214,6 +272,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 								waterfallData.push({
 									value: i,
 									category: cats[i],
+									isForecast,
 									created: createdValue,
 									open: openValue,
 									completed: completedValue,
@@ -340,6 +399,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 														info: { segment },
 														style: {
 															fill: segmentColors[segment],
+															fillOpacity: rowData.isForecast ? forecastFillOpacity : 1,
 														},
 														shape: rect,
 													};
@@ -354,6 +414,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 													if (height < 16) {
 														return null;
 													}
+													const labelPalette = rowData.isForecast
+														? segmentLabelColorForecast
+														: segmentLabelColor;
 													return {
 														type: "text",
 														silent: true,
@@ -363,7 +426,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 															text: segmentLabel(segment, rawValue),
 															textAlign: "center",
 															textVerticalAlign: "middle",
-															fill: segmentLabelColor[segment],
+															fill: labelPalette[segment],
 															fontSize: 12,
 															fontWeight: 600,
 														},
