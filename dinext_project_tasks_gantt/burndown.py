@@ -57,6 +57,45 @@ def _holiday_dates_in_range(holiday_list: str | None, from_date: date, to_date: 
 	return [getdate(row["holiday_date"]).isoformat() for row in rows if row.get("holiday_date")]
 
 
+_WEEKDAY_NAME_TO_INDEX = {
+	"sunday": 6,
+	"monday": 0,
+	"tuesday": 1,
+	"wednesday": 2,
+	"thursday": 3,
+	"friday": 4,
+	"saturday": 5,
+}
+
+
+def _weekly_off_dates_in_range(weekly_off: str | None, from_date: date, to_date: date) -> list[str]:
+	"""Dates matching Holiday List weekly off (same weekday each week), inclusive."""
+	if not weekly_off:
+		return []
+	key = str(weekly_off).strip().lower()
+	weekday = _WEEKDAY_NAME_TO_INDEX.get(key)
+	if weekday is None:
+		return []
+	out: list[str] = []
+	cur = from_date
+	while cur <= to_date:
+		if cur.weekday() == weekday:
+			out.append(cur.isoformat())
+		cur += timedelta(days=1)
+	return out
+
+
+def _nonworking_holiday_dates_in_range(holiday_list: str | None, from_date: date, to_date: date) -> list[str]:
+	"""Explicit holidays from child table plus weekly off days from Holiday List header."""
+	explicit = _holiday_dates_in_range(holiday_list, from_date, to_date)
+	weekly_off = (
+		frappe.db.get_value("Holiday List", holiday_list, "weekly_off") if holiday_list else None
+	)
+	weekly = _weekly_off_dates_in_range(weekly_off, from_date, to_date)
+	merged = sorted(set(explicit) | set(weekly))
+	return merged
+
+
 def _fact_end_index(buckets: list[tuple[str, date, date]]) -> int:
 	today = getdate()
 	fact_end_idx = len(buckets) - 1
@@ -1276,6 +1315,15 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	]
 	date_markers = _add_marker_bucket_labels(raw_date_markers, buckets)
 
+	holiday_list_name: str | None = None
+	holiday_dates: list[str] = []
+	if group_by == "day" and buckets:
+		project_name = task_row.get("project")
+		if project_name:
+			holiday_list_name = _resolve_project_holiday_list(project_name)
+			bs0, be0 = buckets[0][1], buckets[-1][2]
+			holiday_dates = _nonworking_holiday_dates_in_range(holiday_list_name, bs0, be0)
+
 	return {
 		"task": task,
 		"subject": task_row.get("subject"),
@@ -1327,6 +1375,8 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 		},
 		"timesheet_limits": timesheet_limits,
 		"date_markers": date_markers,
+		"holiday_list_name": holiday_list_name,
+		"holiday_dates": holiday_dates,
 		"is_milestone": bool(
 			int(flt(task_row.get("is_group")))
 			or int(flt(task_row.get("is_milestone")))
