@@ -297,6 +297,15 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		self.assertEqual(open_volume, 2.85)
 
+		open_names = _task_names_open_from_rows(
+			rows,
+			date(2026, 4, 28),
+			use_progress=True,
+			bucket_start=date(2026, 4, 28),
+			progress_rows=progress_rows,
+		)
+		self.assertEqual(open_names, ["TASK-1", "TASK-2", "TASK-3"])
+
 	def test_measure_completed_scope_uses_progress_delta(self):
 		rows = [
 			{"name": "TASK-1", "volume": 10},
@@ -528,7 +537,10 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		forecast = _forecast_progress_to_completion(buckets, [0.0, 0.0, 0.0, 60.0, 60.0, 60.0])
 
-		self.assertEqual(forecast["series"], [0.0, 15.4, 30.9, 46.3, 61.7, 77.1, 92.6, 100.0])
+		self.assertEqual(
+			forecast["series"],
+			[0.0, 6.9, 22.3, 37.7, 53.1, 68.6, 84.0, 99.4, 100.0],
+		)
 		self.assertEqual(
 			forecast["categories"],
 			[
@@ -540,9 +552,10 @@ class TestBurndownBuckets(FrappeTestCase):
 				"2026-01-06",
 				"Forecast 1",
 				"Forecast 2",
+				"Forecast 3",
 			],
 		)
-		self.assertEqual(forecast["completion_date"], date(2026, 1, 8))
+		self.assertEqual(forecast["completion_date"], date(2026, 1, 9))
 
 	def test_forecast_progress_to_completion_starts_from_expected_start_bucket(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
@@ -553,7 +566,10 @@ class TestBurndownBuckets(FrappeTestCase):
 			forecast_start_date=date(2026, 1, 1),
 		)
 
-		self.assertEqual(forecast["series"], [0.0, 12.0, 24.0, 36.0, 48.0, 60.0, 72.0, 84.0, 96.0, 100.0])
+		self.assertEqual(
+			forecast["series"],
+			[0.0, 5.0, 17.0, 29.0, 41.0, 53.0, 65.0, 77.0, 89.0, 100.0],
+		)
 		self.assertEqual(forecast["categories"][:6], ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06"])
 		self.assertEqual(forecast["completion_date"], date(2026, 1, 10))
 
@@ -636,7 +652,7 @@ class TestBurndownBuckets(FrappeTestCase):
 			[marker["type"] for marker in markers],
 			["expected_start", "expected_end", "forecast_progress_end"],
 		)
-		self.assertEqual(markers[0]["label"], "Expected Start")
+		self.assertEqual(markers[0]["label"], "Expected start")
 		self.assertEqual(
 			[marker["date"] for marker in markers],
 			["2026-01-03", "2026-01-20", "2026-02-01"],
@@ -651,21 +667,21 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		forecast = _forecast_progress_to_completion(buckets, [20.0, 50.0, 80.0])
 
-		self.assertEqual(forecast["series"], [0.0, 30.0, 60.0, 90.0, 100.0])
-		self.assertEqual(forecast["categories"], ["2026-W01", "2026-W02", "2026-W03", "Forecast 1", "Forecast 2"])
-		self.assertEqual(forecast["completion_date"], date(2026, 2, 1))
+		self.assertEqual(forecast["series"], [20.0, 50.0, 80.0, 100.0])
+		self.assertEqual(forecast["categories"], ["2026-W01", "2026-W02", "2026-W03", "Forecast 1"])
+		self.assertEqual(forecast["completion_date"], date(2026, 1, 25))
 
 	def test_forecast_progress_to_completion_stops_after_reaching_100_percent(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
 
 		forecast = _forecast_progress_to_completion(buckets, [None, 40.0, 70.0, None, None, None])
 
-		self.assertEqual(forecast["series"], [None, 0.0, 30.0, 60.0, 90.0, 100.0])
+		self.assertEqual(forecast["series"], [None, 40.0, 70.0, 100.0])
 		self.assertEqual(
 			forecast["categories"],
-			["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06"],
+			["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"],
 		)
-		self.assertEqual(forecast["completion_date"], date(2026, 1, 6))
+		self.assertEqual(forecast["completion_date"], date(2026, 1, 4))
 
 	def test_current_date_marker_is_added_only_inside_bucket_range(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))

@@ -348,7 +348,13 @@ def _measure_open_scope_from_rows(
 	progress_rows: list[dict] | None = None,
 ) -> float:
 	total = 0.0
-	for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress, bucket_start=bucket_start):
+	for task in _tasks_open_from_rows(
+		tasks,
+		bucket_end,
+		use_progress=use_progress,
+		bucket_start=bucket_start,
+		progress_rows=progress_rows,
+	):
 		if use_progress:
 			progress = (
 				_task_progress_as_of(task, progress_rows, bucket_end)
@@ -362,19 +368,28 @@ def _measure_open_scope_from_rows(
 
 
 def _task_progress_as_of(task: dict, progress_rows: list[dict], bucket_end: date) -> float:
-	progress = min(max(flt(task.get("progress")), 0.0), 100.0)
-	found_history = False
+	"""Best-effort progress snapshot at end of `bucket_end` from Task progress history rows.
+
+	If there is no history row on or before `bucket_end`, treated as 0% for that date
+	(rather than falling back to the task's current `progress`, which can be from
+	the future relative to the burndown bucket).
+	"""
 	task_name = task.get("name")
-	for row in sorted(progress_rows, key=lambda item: get_datetime(item.get("changed_on"))):
+	best_key: tuple | None = None
+	best_progress: float = 0.0
+	for row in progress_rows:
 		if row.get("parent") != task_name:
 			continue
-		if getdate(row.get("changed_on")) > bucket_end:
+		changed_on = getdate(row.get("changed_on"))
+		if changed_on > bucket_end:
 			continue
-		found_history = True
-		progress = flt(row.get("new_progress"))
-	if not found_history:
-		return progress
-	return min(max(progress, 0.0), 100.0)
+		key = (changed_on, get_datetime(row.get("changed_on")))
+		if best_key is None or key > best_key:
+			best_key = key
+			best_progress = flt(row.get("new_progress"))
+	if best_key is None:
+		return 0.0
+	return min(max(best_progress, 0.0), 100.0)
 
 
 def _measure_forecast_open_baseline_from_rows(
@@ -430,7 +445,11 @@ def _tasks_created_from_rows(tasks: list[dict], bs: date, be: date) -> list[dict
 
 
 def _tasks_open_from_rows(
-	tasks: list[dict], bucket_end: date, use_progress: bool = True, bucket_start: date | None = None
+	tasks: list[dict],
+	bucket_end: date,
+	use_progress: bool = True,
+	bucket_start: date | None = None,
+	progress_rows: list[dict] | None = None,
 ) -> list[dict]:
 	out = []
 	for task in tasks:
@@ -444,7 +463,11 @@ def _tasks_open_from_rows(
 		if not start or start > bucket_end:
 			continue
 		if use_progress:
-			if min(max(flt(task.get("progress")), 0.0), 100.0) < 100.0:
+			if progress_rows is not None:
+				progress = _task_progress_as_of(task, progress_rows, bucket_end)
+			else:
+				progress = min(max(flt(task.get("progress")), 0.0), 100.0)
+			if progress < 100.0:
 				out.append(task)
 		elif not _is_completed_by(task, bucket_end):
 			out.append(task)
@@ -478,11 +501,21 @@ def _task_names_created_from_rows(tasks: list[dict], bs: date, be: date) -> list
 
 
 def _task_names_open_from_rows(
-	tasks: list[dict], bucket_end: date, use_progress: bool = True, bucket_start: date | None = None
+	tasks: list[dict],
+	bucket_end: date,
+	use_progress: bool = True,
+	bucket_start: date | None = None,
+	progress_rows: list[dict] | None = None,
 ) -> list[str]:
 	return [
 		task["name"]
-		for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress, bucket_start=bucket_start)
+		for task in _tasks_open_from_rows(
+			tasks,
+			bucket_end,
+			use_progress=use_progress,
+			bucket_start=bucket_start,
+			progress_rows=progress_rows,
+		)
 	]
 
 
@@ -1446,7 +1479,15 @@ def _period_volume_burndown(
 		created_completed.append(created_completed_value)
 		completed.append(max(0.0, completed_raw - created_completed_value))
 		task_filters["created"].append(created_task_names)
-		task_filters["open"].append(_task_names_open_from_rows(tasks, be, use_progress=use_progress, bucket_start=bs))
+		task_filters["open"].append(
+			_task_names_open_from_rows(
+				tasks,
+				be,
+				use_progress=use_progress,
+				bucket_start=bs,
+				progress_rows=progress_rows,
+			)
+		)
 		task_filters["completed"].append(
 			[
 				name
