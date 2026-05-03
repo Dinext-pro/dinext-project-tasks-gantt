@@ -110,13 +110,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const created = z(d.created || d.added);
 							const open = z(d.open || d.remaining || d.end_scope);
 							const completed = z(d.completed);
-							const barTotal = cats.map(
-								(_, i) => (created[i] || 0) + (open[i] || 0) + (completed[i] || 0)
-							);
-							const baseline = barTotal.map((total, i) => {
-								const topTarget = i === 0 ? total : open[i - 1] || 0;
-								return Math.max(0, topTarget - total);
-							});
 							const formatValue = (value) => {
 								if ((d.measure || "") === "task_count" && !d.use_progress) {
 									return Math.round(value).toString();
@@ -137,7 +130,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 								}
 								return text;
 							};
-							const segmentBySeriesIndex = [null, "created", "open", "completed"];
 							const segmentColors = {
 								created: "#0b2f5a",
 								open: "#1f77b4",
@@ -148,6 +140,77 @@ frappe.query_reports["Task Epic Burndown"] = {
 								open: "#ffffff",
 								completed: "#0a5c0a",
 							};
+							const waterfallData = [];
+							let previousOpenTop = null;
+							let previousBarBottom = 0;
+							let yMin = 0;
+							let yMax = 0;
+
+							for (let i = 0; i < cats.length; i++) {
+								const createdValue = created[i] || 0;
+								const openValue = open[i] || 0;
+								const completedValue = completed[i] || 0;
+								const total = createdValue + openValue + completedValue;
+
+								let barTop;
+								let openTop;
+								let openBottom;
+								let completedTop;
+								let completedBottom;
+								let createdTop;
+								let createdBottom;
+								let barBottom;
+
+								if (i === 0) {
+									openBottom = 0;
+									openTop = openValue;
+									completedBottom = openTop;
+									completedTop = completedBottom + completedValue;
+									createdBottom = completedTop;
+									createdTop = createdBottom + createdValue;
+									barTop = createdTop;
+									barBottom = 0;
+								} else {
+									barTop = previousOpenTop == null ? open[i - 1] || 0 : previousOpenTop;
+									completedTop = barTop;
+									completedBottom = completedTop - completedValue;
+									openTop = completedBottom;
+									openBottom = openTop - openValue;
+									createdTop = previousBarBottom;
+									createdBottom = createdTop - createdValue;
+									barBottom = Math.min(openBottom, createdBottom);
+								}
+
+								previousOpenTop = openValue > 0 ? openTop : barTop;
+								previousBarBottom = barBottom;
+								yMin = Math.min(
+									yMin,
+									openBottom,
+									completedBottom,
+									createdBottom,
+									barBottom
+								);
+								yMax = Math.max(yMax, openTop, completedTop, createdTop, barTop);
+
+								waterfallData.push({
+									value: i,
+									category: cats[i],
+									created: createdValue,
+									open: openValue,
+									completed: completedValue,
+									total,
+									geometry: {
+										barTop,
+										barBottom,
+										openTop,
+										openBottom,
+										completedTop,
+										completedBottom,
+										createdTop,
+										createdBottom,
+									},
+								});
+							}
 
 							const dom = $wrap.get(0);
 							if (!chart) {
@@ -157,17 +220,14 @@ frappe.query_reports["Task Epic Burndown"] = {
 							chart.setOption(
 								{
 									tooltip: {
-										trigger: "axis",
-										axisPointer: { type: "shadow" },
+										trigger: "item",
 										formatter: function (params) {
-											if (!params || !params.length) {
+											if (!params || !params.data) {
 												return "";
 											}
-											const i = params[0].dataIndex;
-											const total =
-												(created[i] || 0) + (open[i] || 0) + (completed[i] || 0);
+											const rowData = params.data;
 											const lines = [
-												params[0].axisValue +
+												rowData.category +
 													'<table style="margin-top:4px;border-collapse:collapse;">',
 											];
 											const row = (k, v) =>
@@ -177,16 +237,18 @@ frappe.query_reports["Task Epic Burndown"] = {
 												v +
 												"</td></tr>";
 											lines.push(
-												row(__("Created in period"), segmentLabel("created", created[i] || 0))
+												row(__("Created in period"), segmentLabel("created", rowData.created || 0))
 											);
-											lines.push(row(__("Open at period end"), segmentLabel("open", open[i] || 0)));
+											lines.push(
+												row(__("Open at period end"), segmentLabel("open", rowData.open || 0))
+											);
 											lines.push(
 												row(
 													__("Completed in period"),
-													segmentLabel("completed", completed[i] || 0)
+													segmentLabel("completed", rowData.completed || 0)
 												)
 											);
-											lines.push(row(__("Total visible volume"), formatValue(total)));
+											lines.push(row(__("Total visible volume"), formatValue(rowData.total || 0)));
 											lines.push("</table>");
 											return lines.join("");
 										},
@@ -207,56 +269,99 @@ frappe.query_reports["Task Epic Burndown"] = {
 									yAxis: {
 										type: "value",
 										name: d.y_axis_label || "",
-										scale: false,
+										scale: true,
+										min: yMin,
+										max: yMax,
 									},
 									series: [
 										{
-											name: "__baseline",
-											type: "bar",
-											stack: "volume",
-											data: baseline,
-											silent: true,
-											tooltip: { show: false },
-											itemStyle: { color: "transparent" },
-											emphasis: { disabled: true },
-										},
-										{
-											name: __("Created in period"),
-											type: "bar",
-											stack: "volume",
-											data: created,
-											itemStyle: { color: segmentColors.created },
-											label: {
-												show: true,
-												position: "inside",
-												color: segmentLabelColor.created,
-												formatter: (p) => segmentLabel("created", p.value),
-											},
-										},
-										{
-											name: __("Open at period end"),
-											type: "bar",
-											stack: "volume",
-											data: open,
-											itemStyle: { color: segmentColors.open },
-											label: {
-												show: true,
-												position: "inside",
-												color: segmentLabelColor.open,
-												formatter: (p) => segmentLabel("open", p.value),
-											},
-										},
-										{
-											name: __("Completed in period"),
-											type: "bar",
-											stack: "volume",
-											data: completed,
-											itemStyle: { color: segmentColors.completed },
-											label: {
-												show: true,
-												position: "inside",
-												color: segmentLabelColor.completed,
-												formatter: (p) => segmentLabel("completed", p.value),
+											name: __("Task epic flow"),
+											type: "custom",
+											data: waterfallData,
+											renderItem: function (params, api) {
+												const rowData = waterfallData[params.dataIndex];
+												const geometry = rowData.geometry;
+												const xCenter = api.coord([params.dataIndex, 0])[0];
+												const bandWidth = api.size([1, 0])[0] * 0.72;
+												const left = xCenter - bandWidth / 2;
+												const coord = (value) => api.coord([params.dataIndex, value])[1];
+												const segmentRect = (segment, topValue, bottomValue) => {
+													const topY = coord(topValue);
+													const bottomY = coord(bottomValue);
+													const rect = echarts.graphic.clipRectByRect(
+														{
+															x: left,
+															y: Math.min(topY, bottomY),
+															width: bandWidth,
+															height: Math.max(1, Math.abs(bottomY - topY)),
+														},
+														{
+															x: params.coordSys.x,
+															y: params.coordSys.y,
+															width: params.coordSys.width,
+															height: params.coordSys.height,
+														}
+													);
+													if (!rect) {
+														return null;
+													}
+													return {
+														type: "rect",
+														name: segment,
+														info: { segment },
+														style: {
+															fill: segmentColors[segment],
+														},
+														shape: rect,
+													};
+												};
+												const segmentText = (segment, topValue, bottomValue, rawValue) => {
+													if (!rawValue) {
+														return null;
+													}
+													const topY = coord(topValue);
+													const bottomY = coord(bottomValue);
+													const height = Math.abs(bottomY - topY);
+													if (height < 16) {
+														return null;
+													}
+													return {
+														type: "text",
+														silent: true,
+														style: {
+															x: xCenter,
+															y: Math.min(topY, bottomY) + height / 2,
+															text: segmentLabel(segment, rawValue),
+															textAlign: "center",
+															textVerticalAlign: "middle",
+															fill: segmentLabelColor[segment],
+															fontSize: 12,
+															fontWeight: 600,
+														},
+													};
+												};
+												const children = [
+													segmentRect("completed", geometry.completedTop, geometry.completedBottom),
+													segmentRect("open", geometry.openTop, geometry.openBottom),
+													segmentRect("created", geometry.createdTop, geometry.createdBottom),
+													segmentText(
+														"completed",
+														geometry.completedTop,
+														geometry.completedBottom,
+														rowData.completed
+													),
+													segmentText("open", geometry.openTop, geometry.openBottom, rowData.open),
+													segmentText(
+														"created",
+														geometry.createdTop,
+														geometry.createdBottom,
+														rowData.created
+													),
+												].filter(Boolean);
+												return {
+													type: "group",
+													children,
+												};
 											},
 										},
 									],
@@ -265,7 +370,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							);
 							chart.off("click");
 							chart.on("click", function (params) {
-								const segment = segmentBySeriesIndex[params.seriesIndex];
+								const segment = params.info && params.info.segment;
 								if (!segment || params.dataIndex === undefined) {
 									return;
 								}
