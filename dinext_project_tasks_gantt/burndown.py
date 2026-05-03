@@ -362,15 +362,39 @@ def _measure_open_scope_from_rows(
 
 
 def _task_progress_as_of(task: dict, progress_rows: list[dict], bucket_end: date) -> float:
-	progress = 0.0
+	progress = min(max(flt(task.get("progress")), 0.0), 100.0)
+	found_history = False
 	task_name = task.get("name")
 	for row in sorted(progress_rows, key=lambda item: get_datetime(item.get("changed_on"))):
 		if row.get("parent") != task_name:
 			continue
 		if getdate(row.get("changed_on")) > bucket_end:
 			continue
+		found_history = True
 		progress = flt(row.get("new_progress"))
+	if not found_history:
+		return progress
 	return min(max(progress, 0.0), 100.0)
+
+
+def _measure_forecast_open_baseline_from_rows(
+	tasks: list[dict],
+	bucket_end: date,
+	use_progress: bool = True,
+	progress_rows: list[dict] | None = None,
+) -> float:
+	"""Remaining scope at bucket end for forecasting.
+
+	Unlike display-side `open`, this includes tasks created inside the factual bucket
+	if they are still unfinished by bucket end.
+	"""
+	return _measure_open_scope_from_rows(
+		tasks,
+		bucket_end,
+		use_progress=use_progress,
+		bucket_start=None,
+		progress_rows=progress_rows,
+	)
 
 
 def _measure_completed_scope_from_rows(
@@ -1450,11 +1474,18 @@ def _period_volume_burndown(
 	forecast_open = list(open_volume)
 	forecast_from_index: int | None = None
 	if show_completion_forecast and categories and fact_end_idx >= 0 and fact_end_idx < len(categories) - 1:
+		_fact_label, _fact_bs, fact_be = buckets[fact_end_idx]
+		forecast_baseline_open = _measure_forecast_open_baseline_from_rows(
+			tasks,
+			fact_be,
+			use_progress=use_progress,
+			progress_rows=progress_rows,
+		)
 		velocity_window = _velocity_window_values(
 			buckets, completed_total, fact_end_idx, group_by, holiday_dates
 		)
 		velocity = _weighted_velocity(velocity_window)
-		remaining_open = flt(open_volume[fact_end_idx]) if fact_end_idx < len(open_volume) else 0.0
+		remaining_open = flt(forecast_baseline_open)
 		if velocity > 0 and remaining_open > 0:
 			forecast_from_index = fact_end_idx + 1
 			for index in range(forecast_from_index, len(categories)):
