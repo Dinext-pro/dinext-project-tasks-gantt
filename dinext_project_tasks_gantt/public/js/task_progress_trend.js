@@ -551,6 +551,24 @@
 		return arrays.reduce((longest, row) => (row.length > longest.length ? row : longest), []);
 	}
 
+	function marker_line_color_for_group(group, theme) {
+		const types = [...new Set(group.map((m) => m.type).filter(Boolean))];
+		if (types.length !== 1) {
+			return theme.markerLine;
+		}
+		const t = types[0];
+		if (t === "today") {
+			return PROGRESS_COLORS.actual;
+		}
+		if (t === "forecast_progress_end") {
+			return PROGRESS_COLORS.forecast;
+		}
+		if (t === "forecast_work_hours_end") {
+			return HOURS_FORECAST_COLOR;
+		}
+		return theme.markerLine;
+	}
+
 	function marker_lines(markers, theme) {
 		const filtered = markers.filter((marker) => marker.bucket_label);
 		const byBucket = new Map();
@@ -573,11 +591,13 @@
 				}
 			}
 			const combined = labels.length ? labels.join(", ") : __(String(bucketLabel));
+			const lineColor = marker_line_color_for_group(group, theme);
+			const labelColor = lineColor === theme.markerLine ? theme.text : lineColor;
 			data.push({
 				name: combined,
 				xAxis: bucketLabel,
-				label: { formatter: combined, color: theme.text, fontSize: 10 },
-				lineStyle: { color: theme.markerLine, width: theme.markerLineWidth },
+				label: { formatter: combined, color: labelColor, fontSize: 10 },
+				lineStyle: { color: lineColor, width: theme.markerLineWidth },
 			});
 		}
 		return data.length
