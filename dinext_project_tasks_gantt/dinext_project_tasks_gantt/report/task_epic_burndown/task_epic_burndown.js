@@ -65,21 +65,69 @@ frappe.query_reports["Task Epic Burndown"] = {
 	],
 
 	onload: function (report) {
-		const $wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
-		report.$chart_area = $wrap;
+		let $wrap = null;
 		if (report.page && report.page.main) {
-			report.page.main.prepend($wrap);
+			$wrap = report.page.main.find(".task-epic-burndown-chart").first();
+			if (!$wrap.length) {
+				$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
+				report.page.main.prepend($wrap);
+			}
 		} else if (report.parent) {
-			$(report.parent).prepend($wrap);
+			$wrap = $(report.parent).find(".task-epic-burndown-chart").first();
+			if (!$wrap.length) {
+				$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
+				$(report.parent).prepend($wrap);
+			}
+		} else {
+			$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
 		}
+		report.$chart_area = $wrap;
 
 		let chart = null;
+		let renderTimer = null;
+		let renderRequestId = 0;
+
+		function destroyChart() {
+			if (chart) {
+				chart.dispose();
+				chart = null;
+			}
+			$wrap.empty();
+		}
+
+		function scheduleRender(delay = 120) {
+			if (renderTimer) {
+				clearTimeout(renderTimer);
+			}
+			renderTimer = setTimeout(function () {
+				renderTimer = null;
+				renderBurndown();
+			}, delay);
+		}
+
+		function bindFilterAutoRefresh() {
+			(report.filters || []).forEach(function (filter) {
+				if (!filter || filter.__task_epic_burndown_bound || !filter.df) {
+					return;
+				}
+				const originalOnChange = filter.df.onchange;
+				filter.df.onchange = function () {
+					if (typeof originalOnChange === "function") {
+						originalOnChange.apply(this, arguments);
+					}
+					scheduleRender();
+				};
+				filter.__task_epic_burndown_bound = true;
+			});
+		}
 
 		function renderBurndown() {
 			const filters = frappe.query_report.get_filter_values();
 			if (!filters.project) {
+				destroyChart();
 				return;
 			}
+			const requestId = ++renderRequestId;
 			const toBool = (value, defaultValue) => {
 				if (value === undefined || value === null || value === "") {
 					return defaultValue;
@@ -108,6 +156,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 							show_completion_forecast: filters.show_completion_forecast ? 1 : 0,
 						},
 						callback: function (r) {
+							if (requestId !== renderRequestId) {
+								return;
+							}
 							if (!r.message || r.exc) {
 								return;
 							}
@@ -221,6 +272,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const holidayBandFill = "rgba(120, 120, 120, 0.12)";
 							const waterfallData = [];
 							const holidayBandData = [];
+							const forecastBoundaryData = [];
 							let previousOpenTop = null;
 							let yMin = 0;
 							let yMax = 0;
@@ -326,13 +378,61 @@ frappe.query_reports["Task Epic Burndown"] = {
 								}
 							}
 
-							const dom = $wrap.get(0);
-							if (!chart) {
+							const yShift = yMin < 0 ? Math.abs(yMin) : 0;
+							if (yShift > 0) {
+								waterfallData.forEach(function (rowData) {
+									const g = rowData.geometry;
+									rowData.geometry = {
+										barTop: g.barTop + yShift,
+										barBottom: g.barBottom + yShift,
+										openTop: g.openTop + yShift,
+										openBottom: g.openBottom + yShift,
+										completedTop: g.completedTop + yShift,
+										completedBottom: g.completedBottom + yShift,
+										createdTop: g.createdTop + yShift,
+										createdBottom: g.createdBottom + yShift,
+										createdCompletedTop: g.createdCompletedTop + yShift,
+										createdCompletedBottom: g.createdCompletedBottom + yShift,
+									};
+								});
+							}
+							const shiftedYMax = yMax + yShift;
+							if (
+								showCompletionForecast &&
+								forecastFromIndex != null &&
+								!Number.isNaN(forecastFromIndex) &&
+								forecastFromIndex > 0 &&
+								forecastFromIndex < cats.length
+							) {
+								forecastBoundaryData.push({ value: forecastFromIndex });
+							}
+
+							let $chartRoot = $wrap.find(".task-epic-burndown-chart-root").first();
+							if (!$chartRoot.length) {
+								$wrap.empty();
+								$chartRoot = $('<div class="task-epic-burndown-chart-root" style="width:100%;min-height:460px;"></div>');
+								$wrap.append($chartRoot);
+							}
+							const dom = $chartRoot.get(0);
+							if (!chart || chart.isDisposed()) {
 								chart = echarts.init(dom, null, { renderer: "canvas" });
+							} else {
+								chart.clear();
 							}
 
 							chart.setOption(
 								{
+									animation: true,
+									animationDuration: 500,
+									animationEasing: "cubicOut",
+									animationDurationUpdate: 350,
+									animationEasingUpdate: "cubicOut",
+									animationDelay: function (idx) {
+										return Math.min(idx * 35, 280);
+									},
+									animationDelayUpdate: function (idx) {
+										return Math.min(idx * 20, 160);
+									},
 									tooltip: {
 										trigger: "item",
 										formatter: function (params) {
@@ -390,9 +490,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 									yAxis: {
 										type: "value",
 										name: d.y_axis_label || "",
-										scale: true,
-										min: yMin,
-										max: yMax,
+										scale: false,
+										min: 0,
+										max: shiftedYMax,
 									},
 									series: [
 										{
@@ -431,6 +531,49 @@ frappe.query_reports["Task Epic Burndown"] = {
 														fill: holidayBandFill,
 													},
 													shape: rect,
+												};
+											},
+										},
+										{
+											name: "__forecast_boundary",
+											type: "custom",
+											silent: true,
+											tooltip: { show: false },
+											data: forecastBoundaryData,
+											z: 15,
+											renderItem: function (params, api) {
+												const rowData = forecastBoundaryData[params.dataIndex];
+												const boundaryIndex = rowData ? rowData.value : null;
+												if (
+													boundaryIndex === undefined ||
+													boundaryIndex === null ||
+													boundaryIndex <= 0 ||
+													boundaryIndex >= cats.length
+												) {
+													return null;
+												}
+												const leftX = api.coord([boundaryIndex - 1, 0])[0];
+												const rightX = api.coord([boundaryIndex, 0])[0];
+												const xMid = (leftX + rightX) / 2;
+												return {
+													type: "group",
+													children: [
+														{
+															type: "line",
+															silent: true,
+															shape: {
+																x1: xMid,
+																y1: params.coordSys.y,
+																x2: xMid,
+																y2: params.coordSys.y + params.coordSys.height,
+															},
+															style: {
+																stroke: "rgba(70, 70, 70, 0.9)",
+																lineWidth: 3,
+																lineDash: [6, 4],
+															},
+														},
+													],
 												};
 											},
 										},
@@ -567,10 +710,15 @@ frappe.query_reports["Task Epic Burndown"] = {
 			);
 		}
 
+		bindFilterAutoRefresh();
 		window.__task_epic_burndown_render = renderBurndown;
-		setTimeout(renderBurndown, 400);
+		setTimeout(function () {
+			scheduleRender(0);
+		}, 400);
 		if (report.page && report.page.add_inner_button) {
-			report.page.add_inner_button(__("Refresh chart"), renderBurndown);
+			report.page.add_inner_button(__("Refresh chart"), function () {
+				scheduleRender(0);
+			});
 		}
 
 		$(window).on("resize.task_epic_burndown", function () {
@@ -578,6 +726,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 				chart.resize();
 			}
 		});
+	},
+
+	after_datatable_render: function () {
+		if (window.__task_epic_burndown_render) {
+			window.__task_epic_burndown_render();
+		}
 	},
 
 	after_datatable_refresh: function () {
