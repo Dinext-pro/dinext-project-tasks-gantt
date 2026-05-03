@@ -617,11 +617,18 @@ frappe.query_reports["Task Epic Burndown"] = {
 													if (!rect) {
 														return null;
 													}
+													const segmentCursor = rowData.isForecast ? "default" : "pointer";
 													return {
 														type: "rect",
+														cursor: segmentCursor,
 														id: `${rowData.category}-${segment}-rect`,
 														name: segment,
 														info: { segment },
+														emphasis: {
+															style: {
+																cursor: segmentCursor,
+															},
+														},
 														enterFrom: {
 															shape: {
 																x: rect.x,
@@ -711,6 +718,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 												].filter(Boolean);
 												return {
 													type: "group",
+													cursor: rowData.isForecast ? "default" : "pointer",
 													children,
 												};
 											},
@@ -719,10 +727,32 @@ frappe.query_reports["Task Epic Burndown"] = {
 								},
 								true
 							);
+							chart.off("mousemove");
+							chart.on("mousemove", function (params) {
+								const segment = params.info && params.info.segment;
+								if (!segment || params.dataIndex === undefined) {
+									chart.getZr().setCursorStyle("default");
+									return;
+								}
+								const rowData =
+									params.data || waterfallData[params.dataIndex];
+								chart
+									.getZr()
+									.setCursorStyle(rowData && !rowData.isForecast ? "pointer" : "default");
+							});
+							chart.getZr().off("globalout");
+							chart.getZr().on("globalout", function () {
+								chart.getZr().setCursorStyle("default");
+							});
 							chart.off("click");
 							chart.on("click", function (params) {
 								const segment = params.info && params.info.segment;
 								if (!segment || params.dataIndex === undefined) {
+									return;
+								}
+								const rowData =
+									params.data || waterfallData[params.dataIndex];
+								if (rowData && rowData.isForecast) {
 									return;
 								}
 								const taskNames =
