@@ -363,6 +363,7 @@
 									itemStyle: { color: theme.nonworkingBand },
 									emphasis: { disabled: true },
 									tooltip: { show: false },
+									zlevel: -10,
 									z: -10,
 									animation: false,
 								},
@@ -379,6 +380,8 @@
 									symbol: "none",
 									lineStyle: { opacity: 0 },
 									tooltip: { show: false },
+									z: -2,
+									zlevel: -2,
 									markArea: limitMarkArea,
 								},
 							]
@@ -395,6 +398,8 @@
 									lineStyle: { opacity: 0 },
 									tooltip: { show: false },
 									emphasis: { disabled: true },
+									z: 12,
+									zlevel: 12,
 									markLine: plannedHoursMarkLine,
 								},
 							]
@@ -414,6 +419,8 @@
 									itemStyle: { color: "rgba(0, 0, 0, 0)" },
 									emphasis: { disabled: true },
 									tooltip: { show: false },
+									z: -1,
+									zlevel: -1,
 								},
 							]
 						: []),
@@ -443,6 +450,8 @@
 						itemStyle: { color: PROGRESS_COLORS.actual, borderColor: PROGRESS_COLORS.actual },
 						lineStyle: { color: PROGRESS_COLORS.actual, type: "solid", width: 4 },
 						data: pad(progress.actual.values || [], allCategories.length, null),
+						z: 8,
+						zlevel: 8,
 					},
 					{
 						name: progress.planned.label,
@@ -454,6 +463,8 @@
 						itemStyle: { color: PROGRESS_COLORS.planned, borderColor: PROGRESS_COLORS.planned },
 						lineStyle: { color: PROGRESS_COLORS.planned, type: progress.planned.line_style },
 						data: pad(progress.planned.values || [], allCategories.length, null),
+						z: 8,
+						zlevel: 8,
 					},
 					{
 						name: progress.forecast.label,
@@ -465,6 +476,8 @@
 						itemStyle: { color: PROGRESS_COLORS.forecast, borderColor: PROGRESS_COLORS.forecast },
 						lineStyle: { color: PROGRESS_COLORS.forecast, type: progress.forecast.line_style },
 						data: progress.forecast.values && progress.forecast.values.length ? progress.forecast.values : [],
+						z: 8,
+						zlevel: 8,
 					},
 					...(dateMarkerLines
 						? [
@@ -478,6 +491,8 @@
 									lineStyle: { opacity: 0 },
 									tooltip: { show: false },
 									emphasis: { disabled: true },
+									z: 20,
+									zlevel: 20,
 									markLine: dateMarkerLines,
 								},
 							]
