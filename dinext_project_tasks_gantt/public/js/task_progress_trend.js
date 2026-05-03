@@ -248,6 +248,10 @@
 		);
 		const showHoursAxis = hasBands || totalHours > 0;
 		const limitMarkArea = showHoursAxis ? timesheet_limit_mark_area(timesheetLimits, theme) : undefined;
+		const weekendBandValues =
+			period === "day" && data.group_by === "day"
+				? day_nonworking_band_values(data.holiday_dates, allCategories)
+				: undefined;
 		const plannedHoursValue = flt(timesheetLimits.planned_hours);
 		const plannedHoursMarkLine =
 			showHoursAxis && plannedHoursValue > 0 ? planned_hours_mark_line(plannedHoursValue, theme) : undefined;
@@ -345,6 +349,25 @@
 				},
 				yAxis,
 				series: [
+					...(weekendBandValues
+						? [
+								{
+									name: "__weekend_bands",
+									type: "bar",
+									yAxisIndex: 0,
+									data: weekendBandValues,
+									silent: true,
+									barWidth: "100%",
+									barGap: "-100%",
+									barCategoryGap: "0%",
+									itemStyle: { color: theme.nonworkingBand },
+									emphasis: { disabled: true },
+									tooltip: { show: false },
+									z: -10,
+									animation: false,
+								},
+							]
+						: []),
 					...(showHoursAxis && limitMarkArea
 						? [
 								{
@@ -597,6 +620,7 @@
 				yellow: isDark ? "rgba(255, 193, 7, 0.18)" : "rgba(255, 193, 7, 0.14)",
 				red: isDark ? "rgba(244, 67, 54, 0.18)" : "rgba(244, 67, 54, 0.12)",
 			},
+			nonworkingBand: isDark ? "rgba(248, 250, 252, 0.06)" : "rgba(30, 41, 59, 0.08)",
 		};
 	}
 
@@ -648,6 +672,19 @@
 				{ yAxis: band.to },
 			]),
 		};
+	}
+
+	function day_nonworking_band_values(holidayDates, allCategories) {
+		const dates = Array.isArray(holidayDates) ? holidayDates : [];
+		if (!dates.length || !allCategories.length) {
+			return undefined;
+		}
+		const holidaySet = new Set(dates.map((raw) => (raw == null ? "" : String(raw))).filter(Boolean));
+		const values = allCategories.map((label) => (holidaySet.has(String(label)) ? 100 : 0));
+		if (!values.some((value) => value > 0)) {
+			return undefined;
+		}
+		return values;
 	}
 
 	function planned_hours_mark_line(plannedHours, theme) {
