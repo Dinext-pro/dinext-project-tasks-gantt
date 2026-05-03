@@ -131,6 +131,8 @@ def iter_task_type_period_buckets(
 
 
 def get_period_buckets(project: str, from_date: date, to_date: date, group_by: str):
+	if group_by == "day":
+		return iter_day_buckets(from_date, to_date)
 	if group_by == "week":
 		return iter_week_buckets(from_date, to_date)
 	if task_type := TASK_PERIOD_TYPES.get(group_by):
@@ -237,8 +239,7 @@ def _task_volume(
 
 
 def _scope_start(task: dict) -> date | None:
-	value = task.get("exp_start_date") or task.get("custom_planned_start_date") or task.get("creation")
-	return getdate(value) if value else None
+	return _creation_date(task)
 
 
 def _creation_date(task: dict) -> date | None:
@@ -247,12 +248,7 @@ def _creation_date(task: dict) -> date | None:
 
 
 def _scope_end(task: dict) -> date | None:
-	value = (
-		task.get("completed_on")
-		or task.get("closing_date")
-		or task.get("exp_end_date")
-		or task.get("custom_planned_end_date")
-	)
+	value = task.get("completed_on")
 	return getdate(value) if value else None
 
 
@@ -267,15 +263,37 @@ def _measure_created_scope_from_rows(tasks: list[dict], bs: date, be: date) -> f
 	return sum(flt(task.get("volume")) for task in _tasks_created_from_rows(tasks, bs, be))
 
 
-def _measure_open_scope_from_rows(tasks: list[dict], bucket_end: date, use_progress: bool = True) -> float:
+def _measure_open_scope_from_rows(
+	tasks: list[dict],
+	bucket_end: date,
+	use_progress: bool = True,
+	bucket_start: date | None = None,
+	progress_rows: list[dict] | None = None,
+) -> float:
 	total = 0.0
-	for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress):
+	for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress, bucket_start=bucket_start):
 		if use_progress:
-			progress = min(max(flt(task.get("progress")), 0.0), 100.0)
+			progress = (
+				_task_progress_as_of(task, progress_rows, bucket_end)
+				if progress_rows is not None
+				else min(max(flt(task.get("progress")), 0.0), 100.0)
+			)
 			total += flt(task.get("volume")) * (1.0 - progress / 100.0)
 		else:
 			total += flt(task.get("volume"))
 	return total
+
+
+def _task_progress_as_of(task: dict, progress_rows: list[dict], bucket_end: date) -> float:
+	progress = 0.0
+	task_name = task.get("name")
+	for row in sorted(progress_rows, key=lambda item: get_datetime(item.get("changed_on"))):
+		if row.get("parent") != task_name:
+			continue
+		if getdate(row.get("changed_on")) > bucket_end:
+			continue
+		progress = flt(row.get("new_progress"))
+	return min(max(progress, 0.0), 100.0)
 
 
 def _measure_completed_scope_from_rows(
@@ -301,9 +319,17 @@ def _tasks_created_from_rows(tasks: list[dict], bs: date, be: date) -> list[dict
 	return [task for task in tasks if (created_on := _creation_date(task)) and bs <= created_on <= be]
 
 
-def _tasks_open_from_rows(tasks: list[dict], bucket_end: date, use_progress: bool = True) -> list[dict]:
+def _tasks_open_from_rows(
+	tasks: list[dict], bucket_end: date, use_progress: bool = True, bucket_start: date | None = None
+) -> list[dict]:
 	out = []
 	for task in tasks:
+		created_on = _creation_date(task)
+		if created_on:
+			if created_on > bucket_end:
+				continue
+			if bucket_start and bucket_start <= created_on <= bucket_end:
+				continue
 		start = _scope_start(task)
 		if not start or start > bucket_end:
 			continue
@@ -330,8 +356,13 @@ def _task_names_created_from_rows(tasks: list[dict], bs: date, be: date) -> list
 	return [task["name"] for task in _tasks_created_from_rows(tasks, bs, be)]
 
 
-def _task_names_open_from_rows(tasks: list[dict], bucket_end: date, use_progress: bool = True) -> list[str]:
-	return [task["name"] for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress)]
+def _task_names_open_from_rows(
+	tasks: list[dict], bucket_end: date, use_progress: bool = True, bucket_start: date | None = None
+) -> list[str]:
+	return [
+		task["name"]
+		for task in _tasks_open_from_rows(tasks, bucket_end, use_progress=use_progress, bucket_start=bucket_start)
+	]
 
 
 def _task_names_completed_from_rows(
@@ -1211,7 +1242,11 @@ def _period_volume_burndown(
 	task_filters = {"created": [], "open": [], "completed": []}
 	for _label, bs, be in buckets:
 		created.append(_measure_created_scope_from_rows(tasks, bs, be))
-		open_volume.append(_measure_open_scope_from_rows(tasks, be, use_progress=use_progress))
+		open_volume.append(
+			_measure_open_scope_from_rows(
+				tasks, be, use_progress=use_progress, bucket_start=bs, progress_rows=progress_rows
+			)
+		)
 		progress_completed = _measure_completed_scope_from_rows(
 			tasks, progress_rows, bs, be, use_progress=use_progress
 		)
@@ -1221,7 +1256,7 @@ def _period_volume_burndown(
 		else:
 			completed.append(progress_completed)
 		task_filters["created"].append(_task_names_created_from_rows(tasks, bs, be))
-		task_filters["open"].append(_task_names_open_from_rows(tasks, be, use_progress=use_progress))
+		task_filters["open"].append(_task_names_open_from_rows(tasks, be, use_progress=use_progress, bucket_start=bs))
 		task_filters["completed"].append(
 			_task_names_completed_from_rows(tasks, progress_rows, bs, be, use_progress=use_progress)
 		)

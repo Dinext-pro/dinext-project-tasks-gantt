@@ -26,6 +26,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_task_names_open_from_rows,
 	_timesheet_limit_bands,
 	_timesheet_role_series_from_rows,
+	get_period_buckets,
 	iter_day_buckets,
 	iter_task_type_period_buckets_from_rows,
 	iter_month_buckets,
@@ -55,6 +56,17 @@ class TestBurndownBuckets(FrappeTestCase):
 				("2026-01-31", date(2026, 1, 31), date(2026, 1, 31)),
 				("2026-02-01", date(2026, 2, 1), date(2026, 2, 1)),
 				("2026-02-02", date(2026, 2, 2), date(2026, 2, 2)),
+			],
+		)
+
+	def test_get_period_buckets_dispatches_day_group(self):
+		buckets = get_period_buckets("PROJECT-1", date(2026, 1, 30), date(2026, 1, 31), "day")
+
+		self.assertEqual(
+			buckets,
+			[
+				("2026-01-30", date(2026, 1, 30), date(2026, 1, 30)),
+				("2026-01-31", date(2026, 1, 31), date(2026, 1, 31)),
 			],
 		)
 
@@ -148,12 +160,14 @@ class TestBurndownBuckets(FrappeTestCase):
 		rows = [
 			{
 				"name": "TASK-1",
+				"creation": date(2026, 7, 10),
 				"exp_start_date": date(2026, 7, 10),
 				"progress": 25,
 				"volume": 8,
 			},
 			{
 				"name": "TASK-2",
+				"creation": date(2026, 8, 1),
 				"exp_start_date": date(2026, 8, 1),
 				"progress": 0,
 				"volume": 13,
@@ -163,6 +177,125 @@ class TestBurndownBuckets(FrappeTestCase):
 		open_volume = _measure_open_scope_from_rows(rows, date(2026, 7, 31))
 
 		self.assertEqual(open_volume, 6)
+
+	def test_measure_open_scope_excludes_tasks_created_in_same_period(self):
+		rows = [
+			{
+				"name": "TASK-1",
+				"creation": date(2026, 7, 10),
+				"exp_start_date": date(2026, 7, 10),
+				"progress": 25,
+				"volume": 8,
+			},
+			{
+				"name": "TASK-2",
+				"creation": date(2026, 6, 30),
+				"exp_start_date": date(2026, 7, 1),
+				"progress": 50,
+				"volume": 10,
+			},
+		]
+
+		open_volume = _measure_open_scope_from_rows(
+			rows, date(2026, 7, 31), use_progress=True, bucket_start=date(2026, 7, 1)
+		)
+
+		self.assertEqual(open_volume, 5)
+
+	def test_measure_open_scope_ignores_task_before_creation_date(self):
+		rows = [
+			{
+				"name": "TASK-2026-00008",
+				"creation": date(2026, 4, 27),
+				"exp_start_date": date(2026, 4, 26),
+				"progress": 25,
+				"volume": 1,
+			}
+		]
+
+		open_before_creation = _measure_open_scope_from_rows(
+			rows, date(2026, 4, 26), use_progress=True, bucket_start=date(2026, 4, 26)
+		)
+		open_in_creation_period = _measure_open_scope_from_rows(
+			rows, date(2026, 4, 27), use_progress=True, bucket_start=date(2026, 4, 27)
+		)
+		open_after_creation = _measure_open_scope_from_rows(
+			rows, date(2026, 4, 28), use_progress=True, bucket_start=date(2026, 4, 28)
+		)
+
+		self.assertEqual(open_before_creation, 0)
+		self.assertEqual(open_in_creation_period, 0)
+		self.assertEqual(open_after_creation, 0.75)
+
+	def test_measure_open_scope_ignores_planned_start_date_for_period_assignment(self):
+		rows = [
+			{
+				"name": "TASK-1",
+				"creation": date(2026, 7, 20),
+				"exp_start_date": date(2026, 7, 1),
+				"custom_planned_start_date": date(2026, 7, 5),
+				"progress": 0,
+				"volume": 1,
+			}
+		]
+
+		open_before_creation = _measure_open_scope_from_rows(
+			rows, date(2026, 7, 10), use_progress=True, bucket_start=date(2026, 7, 10)
+		)
+
+		self.assertEqual(open_before_creation, 0)
+
+	def test_measure_open_scope_uses_progress_history_as_of_period_end(self):
+		rows = [
+			{
+				"name": "TASK-1",
+				"creation": date(2026, 4, 27),
+				"progress": 25,
+				"volume": 1,
+			},
+			{
+				"name": "TASK-2",
+				"creation": date(2026, 4, 27),
+				"progress": 15,
+				"volume": 1,
+			},
+			{
+				"name": "TASK-3",
+				"creation": date(2026, 4, 27),
+				"progress": 0,
+				"volume": 1,
+			},
+		]
+		progress_rows = [
+			{
+				"parent": "TASK-1",
+				"changed_on": date(2026, 4, 28),
+				"old_progress": 0,
+				"new_progress": 15,
+			},
+			{
+				"parent": "TASK-1",
+				"changed_on": date(2026, 5, 2),
+				"old_progress": 15,
+				"new_progress": 25,
+			},
+			{
+				"parent": "TASK-2",
+				"changed_on": date(2026, 5, 2),
+				"old_progress": 0,
+				"new_progress": 15,
+			},
+		]
+
+		open_volume = _measure_open_scope_from_rows(
+			rows,
+			date(2026, 4, 28),
+			use_progress=True,
+			bucket_start=date(2026, 4, 28),
+			progress_rows=progress_rows,
+		)
+
+		self.assertEqual(open_volume, 2.85)
 
 	def test_measure_completed_scope_uses_progress_delta(self):
 		rows = [
@@ -190,10 +323,42 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		self.assertEqual(completed, 13)
 
+	def test_created_task_can_also_be_completed_by_progress_delta_in_same_period(self):
+		rows = [
+			{
+				"name": "TASK-1",
+				"creation": date(2026, 7, 10),
+				"exp_start_date": date(2026, 7, 10),
+				"progress": 60,
+				"volume": 10,
+			}
+		]
+		progress_rows = [
+			{
+				"parent": "TASK-1",
+				"changed_on": date(2026, 7, 20),
+				"old_progress": 10,
+				"new_progress": 60,
+			}
+		]
+
+		created = _measure_created_scope_from_rows(rows, date(2026, 7, 1), date(2026, 7, 31))
+		open_volume = _measure_open_scope_from_rows(
+			rows, date(2026, 7, 31), use_progress=True, bucket_start=date(2026, 7, 1)
+		)
+		completed = _measure_completed_scope_from_rows(
+			rows, progress_rows, date(2026, 7, 1), date(2026, 7, 31), use_progress=True
+		)
+
+		self.assertEqual(created, 10)
+		self.assertEqual(open_volume, 0)
+		self.assertEqual(completed, 5)
+
 	def test_measure_open_scope_without_progress_uses_full_open_task_volume(self):
 		rows = [
 			{
 				"name": "TASK-1",
+				"creation": date(2026, 7, 10),
 				"exp_start_date": date(2026, 7, 10),
 				"status": "Working",
 				"progress": 75,
@@ -201,6 +366,7 @@ class TestBurndownBuckets(FrappeTestCase):
 			},
 			{
 				"name": "TASK-2",
+				"creation": date(2026, 7, 15),
 				"exp_start_date": date(2026, 7, 15),
 				"status": "Completed",
 				"completed_on": date(2026, 7, 20),
@@ -212,7 +378,7 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		self.assertEqual(open_volume, 8)
 
-	def test_measure_completed_scope_without_progress_uses_completed_status_dates(self):
+	def test_measure_completed_scope_without_progress_uses_completed_on_only(self):
 		rows = [
 			{
 				"name": "TASK-1",
@@ -224,6 +390,8 @@ class TestBurndownBuckets(FrappeTestCase):
 				"name": "TASK-2",
 				"status": "Completed",
 				"closing_date": date(2026, 8, 1),
+				"exp_end_date": date(2026, 7, 15),
+				"custom_planned_end_date": date(2026, 7, 16),
 				"volume": 20,
 			},
 		]
@@ -264,6 +432,12 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		self.assertEqual(_task_names_created_from_rows(rows, date(2026, 7, 1), date(2026, 7, 31)), ["TASK-2"])
 		self.assertEqual(_task_names_open_from_rows(rows, date(2026, 7, 31), use_progress=False), ["TASK-1"])
+		self.assertEqual(
+			_task_names_open_from_rows(
+				rows, date(2026, 7, 31), use_progress=False, bucket_start=date(2026, 7, 1)
+			),
+			["TASK-1"],
+		)
 		self.assertEqual(
 			_task_names_completed_from_rows(
 				rows, progress_rows, date(2026, 7, 1), date(2026, 7, 31), use_progress=True
