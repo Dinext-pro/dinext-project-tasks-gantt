@@ -110,6 +110,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const created = z(d.created || d.added);
 							const open = z(d.open || d.remaining || d.end_scope);
 							const completed = z(d.completed);
+							const createdCompleted = z(d.created_completed || d.same_period_completed);
 							const formatValue = (value) => {
 								if ((d.measure || "") === "task_count" && !d.use_progress) {
 									return Math.round(value).toString();
@@ -125,6 +126,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 								if (segment === "created") {
 									return `+${text}`;
 								}
+								if (segment === "created_completed") {
+									return `+/-${text}`;
+								}
 								if (segment === "completed") {
 									return `-${text}`;
 								}
@@ -134,15 +138,16 @@ frappe.query_reports["Task Epic Burndown"] = {
 								created: "#0b2f5a",
 								open: "#1f77b4",
 								completed: "#6fdc6f",
+								created_completed: "#0f5b5b",
 							};
 							const segmentLabelColor = {
 								created: "#ffffff",
 								open: "#ffffff",
 								completed: "#0a5c0a",
+								created_completed: "#a8ffb0",
 							};
 							const waterfallData = [];
 							let previousOpenTop = null;
-							let previousBarBottom = 0;
 							let yMin = 0;
 							let yMax = 0;
 
@@ -150,7 +155,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 								const createdValue = created[i] || 0;
 								const openValue = open[i] || 0;
 								const completedValue = completed[i] || 0;
-								const total = createdValue + openValue + completedValue;
+								const createdCompletedValue = createdCompleted[i] || 0;
+								const total = createdValue + openValue + completedValue + createdCompletedValue;
 
 								let barTop;
 								let openTop;
@@ -159,16 +165,20 @@ frappe.query_reports["Task Epic Burndown"] = {
 								let completedBottom;
 								let createdTop;
 								let createdBottom;
+								let createdCompletedTop;
+								let createdCompletedBottom;
 								let barBottom;
 
 								if (i === 0) {
-									openBottom = 0;
-									openTop = openValue;
+									createdCompletedBottom = 0;
+									createdCompletedTop = createdCompletedBottom + createdCompletedValue;
+									createdBottom = createdCompletedTop;
+									createdTop = createdBottom + createdValue;
+									openBottom = createdTop;
+									openTop = openBottom + openValue;
 									completedBottom = openTop;
 									completedTop = completedBottom + completedValue;
-									createdBottom = completedTop;
-									createdTop = createdBottom + createdValue;
-									barTop = createdTop;
+									barTop = completedTop;
 									barBottom = 0;
 								} else {
 									barTop = previousOpenTop == null ? open[i - 1] || 0 : previousOpenTop;
@@ -176,21 +186,30 @@ frappe.query_reports["Task Epic Burndown"] = {
 									completedBottom = completedTop - completedValue;
 									openTop = completedBottom;
 									openBottom = openTop - openValue;
-									createdTop = previousBarBottom;
+									createdTop = openBottom;
 									createdBottom = createdTop - createdValue;
-									barBottom = Math.min(openBottom, createdBottom);
+									createdCompletedTop = createdBottom;
+									createdCompletedBottom = createdCompletedTop - createdCompletedValue;
+									barBottom = Math.min(openBottom, createdBottom, createdCompletedBottom);
 								}
 
 								previousOpenTop = openValue > 0 ? openTop : barTop;
-								previousBarBottom = barBottom;
 								yMin = Math.min(
 									yMin,
 									openBottom,
 									completedBottom,
 									createdBottom,
+									createdCompletedBottom,
 									barBottom
 								);
-								yMax = Math.max(yMax, openTop, completedTop, createdTop, barTop);
+								yMax = Math.max(
+									yMax,
+									openTop,
+									completedTop,
+									createdTop,
+									createdCompletedTop,
+									barTop
+								);
 
 								waterfallData.push({
 									value: i,
@@ -198,6 +217,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									created: createdValue,
 									open: openValue,
 									completed: completedValue,
+									created_completed: createdCompletedValue,
 									total,
 									geometry: {
 										barTop,
@@ -208,6 +228,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 										completedBottom,
 										createdTop,
 										createdBottom,
+										createdCompletedTop,
+										createdCompletedBottom,
 									},
 								});
 							}
@@ -237,15 +259,21 @@ frappe.query_reports["Task Epic Burndown"] = {
 												v +
 												"</td></tr>";
 											lines.push(
-												row(__("Created in period"), segmentLabel("created", rowData.created || 0))
+												row(
+													__("Completed in period"),
+													segmentLabel("completed", rowData.completed || 0)
+												)
 											);
 											lines.push(
 												row(__("Open at period end"), segmentLabel("open", rowData.open || 0))
 											);
 											lines.push(
+												row(__("Created in period"), segmentLabel("created", rowData.created || 0))
+											);
+											lines.push(
 												row(
-													__("Completed in period"),
-													segmentLabel("completed", rowData.completed || 0)
+													__("Created and completed"),
+													segmentLabel("created_completed", rowData.created_completed || 0)
 												)
 											);
 											lines.push(row(__("Total visible volume"), formatValue(rowData.total || 0)));
@@ -255,9 +283,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 									legend: {
 										data: [
-											__("Created in period"),
-											__("Open at period end"),
 											__("Completed in period"),
+											__("Open at period end"),
+											__("Created in period"),
+											__("Created and completed"),
 										],
 									},
 									grid: { left: 48, right: 24, top: 48, bottom: 80 },
@@ -344,6 +373,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 													segmentRect("completed", geometry.completedTop, geometry.completedBottom),
 													segmentRect("open", geometry.openTop, geometry.openBottom),
 													segmentRect("created", geometry.createdTop, geometry.createdBottom),
+													segmentRect(
+														"created_completed",
+														geometry.createdCompletedTop,
+														geometry.createdCompletedBottom
+													),
 													segmentText(
 														"completed",
 														geometry.completedTop,
@@ -356,6 +390,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 														geometry.createdTop,
 														geometry.createdBottom,
 														rowData.created
+													),
+													segmentText(
+														"created_completed",
+														geometry.createdCompletedTop,
+														geometry.createdCompletedBottom,
+														rowData.created_completed
 													),
 												].filter(Boolean);
 												return {
