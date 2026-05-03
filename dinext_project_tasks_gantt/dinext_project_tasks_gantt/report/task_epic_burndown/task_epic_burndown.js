@@ -56,6 +56,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldtype: "Int",
 			default: 6,
 		},
+		{
+			fieldname: "show_completion_forecast",
+			label: __("Прогноз выполнения"),
+			fieldtype: "Check",
+			default: 0,
+		},
 	],
 
 	onload: function (report) {
@@ -99,6 +105,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							exclude_group_tasks: filters.exclude_group_tasks ? 1 : 0,
 							use_progress: useProgress ? 1 : 0,
 							forecast_periods: filters.forecast_periods || 6,
+							show_completion_forecast: filters.show_completion_forecast ? 1 : 0,
 						},
 						callback: function (r) {
 							if (!r.message || r.exc) {
@@ -108,10 +115,16 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const z = (a) => (a || []).map((x) => (x === null || x === undefined ? 0 : x));
 							const cats = d.categories || [];
 							const created = z(d.created || d.added);
-							const open = z(d.open || d.remaining || d.end_scope);
-							const completed = z(d.completed);
+							const openBase = z(d.open || d.remaining || d.end_scope);
+							const completedBase = z(d.completed);
 							const createdCompleted = z(d.created_completed || d.same_period_completed);
+							const forecastCompleted = z(d.forecast_completed);
+							const forecastOpen = z(d.forecast_remaining);
 							const holidayDates = new Set((d.holiday_dates || []).filter(Boolean));
+							const showCompletionForecast = toBool(
+								filters.show_completion_forecast,
+								false
+							);
 							const todayStr = frappe.datetime.get_today();
 							const groupByKey = (filters.group_by || "month").toLowerCase();
 							const isDayGroup = groupByKey === "day";
@@ -216,9 +229,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 								const isForecast = isFutureBucketIndex(i);
 								const isHoliday = isDayGroup && holidayDates.has(cats[i]);
 								const createdValue = created[i] || 0;
-								const openValue = open[i] || 0;
-								const completedValue = completed[i] || 0;
-								const createdCompletedValue = createdCompleted[i] || 0;
+								const createdCompletedBaseValue = createdCompleted[i] || 0;
+								const completedValue =
+									showCompletionForecast && isForecast
+										? forecastCompleted[i] || 0
+										: completedBase[i] || 0;
+								const openValue =
+									showCompletionForecast && isForecast
+										? forecastOpen[i] || 0
+										: openBase[i] || 0;
+								const createdCompletedValue =
+									showCompletionForecast && isForecast ? 0 : createdCompletedBaseValue;
 								const total = createdValue + openValue + completedValue + createdCompletedValue;
 
 								let barTop;
@@ -244,7 +265,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									barTop = completedTop;
 									barBottom = 0;
 								} else {
-									barTop = previousOpenTop == null ? open[i - 1] || 0 : previousOpenTop;
+									barTop = previousOpenTop == null ? 0 : previousOpenTop;
 									completedTop = barTop;
 									completedBottom = completedTop - completedValue;
 									openTop = completedBottom;

@@ -57,6 +57,49 @@ def _holiday_dates_in_range(holiday_list: str | None, from_date: date, to_date: 
 	return [getdate(row["holiday_date"]).isoformat() for row in rows if row.get("holiday_date")]
 
 
+def _fact_end_index(buckets: list[tuple[str, date, date]]) -> int:
+	today = getdate()
+	fact_end_idx = len(buckets) - 1
+	for index, (_label, bucket_start, bucket_end) in enumerate(buckets):
+		if bucket_start <= today <= bucket_end:
+			return index
+		if bucket_start > today:
+			return index - 1 if index > 0 else -1
+	return fact_end_idx
+
+
+def _weighted_velocity(values: list[float]) -> float:
+	if not values:
+		return 0.0
+	window = values[-5:]
+	weights = [1, 2, 3, 3, 3][-len(window) :]
+	weighted_sum = sum(value * weight for value, weight in zip(window, weights, strict=False))
+	weight_total = sum(weights)
+	return weighted_sum / weight_total if weight_total else 0.0
+
+
+def _velocity_window_values(
+	buckets: list[tuple[str, date, date]],
+	completed_total: list[float],
+	fact_end_idx: int,
+	group_by: str,
+	holiday_dates: list[str],
+) -> list[float]:
+	if fact_end_idx < 0:
+		return []
+	holiday_set = set(holiday_dates)
+	values: list[float] = []
+	for index in range(fact_end_idx + 1):
+		label, bucket_start, _bucket_end = buckets[index]
+		value = flt(completed_total[index])
+		if group_by == "day":
+			is_nonworking_day = label in holiday_set or bucket_start.isoformat() in holiday_set
+			if is_nonworking_day and value <= 0:
+				continue
+		values.append(value)
+	return values
+
+
 def fiscal_month_end_date(fiscal_year: str, month_number: int) -> date | None:
 	"""Last calendar day of fiscal month index (1 = first month of FY)."""
 	fm = fiscal_month_start_date(fiscal_year, month_number)
@@ -1277,6 +1320,7 @@ def get_burndown_series(
 	task_type_filter: str | None = None,
 	forecast_periods: int = 6,
 	use_progress: int | str = 1,
+	show_completion_forecast: int | str = 0,
 ) -> dict[str, Any]:
 	if not project:
 		frappe.throw(_("Project is required"))
@@ -1290,14 +1334,42 @@ def get_burndown_series(
 
 	exclude_group = _as_bool(exclude_group_tasks)
 	progress_enabled = _as_bool(use_progress)
+	show_completion_forecast = _as_bool(show_completion_forecast, default=False)
 	measure = (measure or "hours").lower()
 	group_by = (group_by or "month").lower()
 
 	if measure == "hours":
-		return _period_volume_burndown(project, fd, td, group_by, "hours", exclude_group, progress_enabled)
+		return _period_volume_burndown(
+			project,
+			fd,
+			td,
+			group_by,
+			"hours",
+			exclude_group,
+			progress_enabled,
+			show_completion_forecast,
+		)
 	if measure in ("story_points", "story_point", "sp"):
-		return _period_volume_burndown(project, fd, td, group_by, "story_points", exclude_group, progress_enabled)
-	return _period_volume_burndown(project, fd, td, group_by, "task_count", exclude_group, progress_enabled)
+		return _period_volume_burndown(
+			project,
+			fd,
+			td,
+			group_by,
+			"story_points",
+			exclude_group,
+			progress_enabled,
+			show_completion_forecast,
+		)
+	return _period_volume_burndown(
+		project,
+		fd,
+		td,
+		group_by,
+		"task_count",
+		exclude_group,
+		progress_enabled,
+		show_completion_forecast,
+	)
 
 
 def _period_volume_burndown(
@@ -1308,6 +1380,7 @@ def _period_volume_burndown(
 	measure: str,
 	exclude_group: bool,
 	use_progress: bool,
+	show_completion_forecast: bool = False,
 ) -> dict[str, Any]:
 	buckets = get_period_buckets(project, fd, td, group_by)
 	tasks = _load_task_volume_rows(project, exclude_group, measure)
@@ -1371,6 +1444,28 @@ def _period_volume_burndown(
 		)
 
 	categories = [bucket[0] for bucket in buckets]
+	completed_total = [flt(completed[i]) + flt(created_completed[i]) for i in range(len(categories))]
+	fact_end_idx = _fact_end_index(buckets)
+	forecast_completed = [0.0 for _ in categories]
+	forecast_open = list(open_volume)
+	forecast_from_index: int | None = None
+	if show_completion_forecast and categories and fact_end_idx >= 0 and fact_end_idx < len(categories) - 1:
+		velocity_window = _velocity_window_values(
+			buckets, completed_total, fact_end_idx, group_by, holiday_dates
+		)
+		velocity = _weighted_velocity(velocity_window)
+		remaining_open = flt(open_volume[fact_end_idx]) if fact_end_idx < len(open_volume) else 0.0
+		if velocity > 0 and remaining_open > 0:
+			forecast_from_index = fact_end_idx + 1
+			for index in range(forecast_from_index, len(categories)):
+				bucket_forecast = min(velocity, remaining_open)
+				forecast_completed[index] = bucket_forecast
+				remaining_open = max(0.0, remaining_open - bucket_forecast)
+				forecast_open[index] = remaining_open
+				if remaining_open <= 0:
+					for tail_index in range(index + 1, len(categories)):
+						forecast_open[tail_index] = 0.0
+					break
 	y_label = {
 		"hours": _("Hours"),
 		"story_points": _("Story Points"),
@@ -1403,9 +1498,9 @@ def _period_volume_burndown(
 		"forecast_start_scope": [],
 		"forecast_end_scope": [],
 		"forecast_added": [],
-		"forecast_remaining": [],
-		"forecast_completed": [],
-		"forecast_from_index": None,
+		"forecast_remaining": forecast_open if show_completion_forecast else [],
+		"forecast_completed": forecast_completed if show_completion_forecast else [],
+		"forecast_from_index": forecast_from_index,
 	}
 
 
