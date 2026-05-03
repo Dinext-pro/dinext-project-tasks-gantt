@@ -51,12 +51,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 			default: 1,
 		},
 		{
-			fieldname: "forecast_periods",
-			label: __("Forecast periods"),
-			fieldtype: "Int",
-			default: 6,
-		},
-		{
 			fieldname: "show_completion_forecast",
 			label: __("Прогноз выполнения"),
 			fieldtype: "Check",
@@ -561,16 +555,30 @@ frappe.query_reports["Task Epic Burndown"] = {
 														{
 															type: "line",
 															silent: true,
+															id: `forecast-boundary-${boundaryIndex}`,
 															shape: {
 																x1: xMid,
 																y1: params.coordSys.y,
 																x2: xMid,
 																y2: params.coordSys.y + params.coordSys.height,
 															},
+															enterFrom: {
+																shape: {
+																	x1: xMid,
+																	y1: params.coordSys.y + params.coordSys.height,
+																	x2: xMid,
+																	y2: params.coordSys.y + params.coordSys.height,
+																},
+																style: {
+																	opacity: 0,
+																},
+															},
+															transition: ["shape", "style"],
 															style: {
 																stroke: "rgba(70, 70, 70, 0.9)",
 																lineWidth: 3,
 																lineDash: [6, 4],
+																opacity: 1,
 															},
 														},
 													],
@@ -611,11 +619,25 @@ frappe.query_reports["Task Epic Burndown"] = {
 													}
 													return {
 														type: "rect",
+														id: `${rowData.category}-${segment}-rect`,
 														name: segment,
 														info: { segment },
+														enterFrom: {
+															shape: {
+																x: rect.x,
+																y: rect.y + rect.height,
+																width: rect.width,
+																height: 0,
+															},
+															style: {
+																opacity: 0,
+															},
+														},
+														transition: ["shape", "style"],
 														style: {
 															fill: segmentColors[segment],
 															fillOpacity: rowData.isForecast ? forecastFillOpacity : 1,
+															opacity: 1,
 														},
 														shape: rect,
 													};
@@ -635,7 +657,16 @@ frappe.query_reports["Task Epic Burndown"] = {
 														: segmentLabelColor;
 													return {
 														type: "text",
+														id: `${rowData.category}-${segment}-text`,
 														silent: true,
+														enterFrom: {
+															style: {
+																x: xCenter,
+																y: Math.min(topY, bottomY) + height / 2 + 8,
+																opacity: 0,
+															},
+														},
+														transition: ["style"],
 														style: {
 															x: xCenter,
 															y: Math.min(topY, bottomY) + height / 2,
@@ -645,6 +676,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 															fill: labelPalette[segment],
 															fontSize: 12,
 															fontWeight: 600,
+															opacity: 1,
 														},
 													};
 												};
