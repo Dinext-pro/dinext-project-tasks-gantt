@@ -111,8 +111,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const open = z(d.open || d.remaining || d.end_scope);
 							const completed = z(d.completed);
 							const createdCompleted = z(d.created_completed || d.same_period_completed);
+							const holidayDates = new Set((d.holiday_dates || []).filter(Boolean));
 							const todayStr = frappe.datetime.get_today();
 							const groupByKey = (filters.group_by || "month").toLowerCase();
+							const isDayGroup = groupByKey === "day";
 							const forecastFromIndexRaw = d.forecast_from_index;
 							const forecastFromIndex =
 								forecastFromIndexRaw === null || forecastFromIndexRaw === undefined || forecastFromIndexRaw === ""
@@ -203,13 +205,16 @@ frappe.query_reports["Task Epic Burndown"] = {
 								created_completed: "#e6ffea",
 							};
 							const forecastFillOpacity = 0.42;
+							const holidayBandFill = "rgba(120, 120, 120, 0.12)";
 							const waterfallData = [];
+							const holidayBandData = [];
 							let previousOpenTop = null;
 							let yMin = 0;
 							let yMax = 0;
 
 							for (let i = 0; i < cats.length; i++) {
 								const isForecast = isFutureBucketIndex(i);
+								const isHoliday = isDayGroup && holidayDates.has(cats[i]);
 								const createdValue = created[i] || 0;
 								const openValue = open[i] || 0;
 								const completedValue = completed[i] || 0;
@@ -273,6 +278,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									value: i,
 									category: cats[i],
 									isForecast,
+									isHoliday,
 									created: createdValue,
 									open: openValue,
 									completed: completedValue,
@@ -291,6 +297,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 										createdCompletedBottom,
 									},
 								});
+								if (isHoliday) {
+									holidayBandData.push({
+										value: i,
+										category: cats[i],
+									});
+								}
 							}
 
 							const dom = $wrap.get(0);
@@ -363,9 +375,49 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 									series: [
 										{
+											name: "__holiday_bands",
+											type: "custom",
+											silent: true,
+											tooltip: { show: false },
+											data: holidayBandData,
+											z: -10,
+											renderItem: function (params, api) {
+												const rowData = holidayBandData[params.dataIndex];
+												const categoryIndex = rowData ? rowData.value : params.dataIndex;
+												const xCenter = api.coord([categoryIndex, 0])[0];
+												const bandWidth = api.size([1, 0])[0];
+												const left = xCenter - bandWidth / 2;
+												const rect = echarts.graphic.clipRectByRect(
+													{
+														x: left,
+														y: params.coordSys.y,
+														width: bandWidth,
+														height: params.coordSys.height,
+													},
+													{
+														x: params.coordSys.x,
+														y: params.coordSys.y,
+														width: params.coordSys.width,
+														height: params.coordSys.height,
+													}
+												);
+												if (!rect) {
+													return null;
+												}
+												return {
+													type: "rect",
+													style: {
+														fill: holidayBandFill,
+													},
+													shape: rect,
+												};
+											},
+										},
+										{
 											name: __("Task epic flow"),
 											type: "custom",
 											data: waterfallData,
+											z: 10,
 											renderItem: function (params, api) {
 												const rowData = waterfallData[params.dataIndex];
 												const geometry = rowData.geometry;

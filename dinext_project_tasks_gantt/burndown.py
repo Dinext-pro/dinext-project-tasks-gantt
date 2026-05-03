@@ -23,6 +23,40 @@ UTP_STATUS_APPROVED = "Согласовано"
 TASK_PERIOD_TYPES = {"phase": "Phase", "stage": "Stage", "sprint": "Sprint"}
 
 
+def _fallback_company_holiday_list(company: str | None = None) -> str | None:
+	if not company:
+		try:
+			from erpnext import get_default_company
+
+			company = get_default_company() or frappe.get_all("Company", pluck="name", limit=1)[0]
+		except Exception:
+			companies = frappe.get_all("Company", pluck="name", limit=1)
+			company = companies[0] if companies else None
+	if not company:
+		return None
+	return frappe.get_cached_value("Company", company, "default_holiday_list")
+
+
+def _resolve_project_holiday_list(project: str) -> str | None:
+	project_row = frappe.db.get_value("Project", project, ["holiday_list", "company"], as_dict=True) or {}
+	return project_row.get("holiday_list") or _fallback_company_holiday_list(project_row.get("company"))
+
+
+def _holiday_dates_in_range(holiday_list: str | None, from_date: date, to_date: date) -> list[str]:
+	if not holiday_list:
+		return []
+	rows = frappe.get_all(
+		"Holiday",
+		filters={
+			"parent": holiday_list,
+			"holiday_date": ["between", [from_date, to_date]],
+		},
+		fields=["holiday_date"],
+		order_by="holiday_date asc",
+	)
+	return [getdate(row["holiday_date"]).isoformat() for row in rows if row.get("holiday_date")]
+
+
 def fiscal_month_end_date(fiscal_year: str, month_number: int) -> date | None:
 	"""Last calendar day of fiscal month index (1 = first month of FY)."""
 	fm = fiscal_month_start_date(fiscal_year, month_number)
@@ -1279,6 +1313,8 @@ def _period_volume_burndown(
 	tasks = _load_task_volume_rows(project, exclude_group, measure)
 	task_names = [task["name"] for task in tasks]
 	progress_rows = _load_progress_rows(task_names, fd, td)
+	holiday_list_name = _resolve_project_holiday_list(project)
+	holiday_dates = _holiday_dates_in_range(holiday_list_name, fd, td)
 
 	created: list[float] = []
 	open_volume: list[float] = []
@@ -1352,6 +1388,8 @@ def _period_volume_burndown(
 		"task_filters": task_filters,
 		"use_progress": use_progress,
 		"y_axis_label": y_label,
+		"holiday_list_name": holiday_list_name,
+		"holiday_dates": holiday_dates,
 		# Backward-compatible aliases for older report JavaScript.
 		"added": created,
 		"remaining": open_volume,
