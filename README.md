@@ -2,9 +2,9 @@
 
 ## 📖 Обзор
 
-**Dinext Project Tasks Gantt** — приложение на [Frappe](https://frappeframework.com/), расширяющее ERPNext **Project / Task** для Dinext: представления Gantt и дерева, работа с зависимостями, оценки в story points и **журнал изменений поля «% выполнения»** (`progress`) у задач.
+**Dinext Project Tasks Gantt** — приложение на [Frappe](https://frappeframework.com/), расширяющее ERPNext **Project / Task** для Dinext: представления Gantt и дерева, работа с зависимостями, оценки в story points, **журнал изменений поля «% выполнения»** (`progress`) у задач, а также **серии для графиков** (тренд прогноза/факта на форме задачи и отчёт Epic Burndown).
 
-В составе приложения — **фикстуры** (Custom Field, Client Script, Server Script, записи Story Point) и **DocTypes** (например `Task Relation`, `Story Point`, `Task Progress History`). Серверная логика аудита прогресса вызывается при каждом сохранении `Task` через `doc_events`, поэтому изменения фиксируются при сохранении из формы, через API и в скриптах — не только из интерфейса Desk.
+В составе приложения — **фикстуры** (Custom Field, Client Script, Server Script, записи Story Point) и **DocTypes** (например `Task Relation`, `Story Point`, `Task Progress History`). Серверная логика аудита прогресса вызывается при каждом сохранении `Task` через `doc_events`, поэтому изменения фиксируются при сохранении из формы, через API и в скриптах — не только из интерфейса Desk. Данные для графиков отдаёт модуль [`burndown.py`](dinext_project_tasks_gantt/burndown.py) (whitelisted-методы для клиента и отчёта).
 
 ## ✨ Возможности
 
@@ -12,6 +12,8 @@
 - **Логика зависимостей** — Server Script и дочерняя таблица **`Task Relation`** на `Task` (`custom_relations`) для связей предшественник/последователь и связанной автоматизации.
 - **Story points** — DocType **`Story Point`** и поле-связь **`story_point`** на `Task`.
 - **Аудит прогресса** — при сохранении уже существующей задачи, если **`progress`** реально изменился, в **`custom_progress_history`** (таблица **`Task Progress History`**) добавляется строка с `changed_on`, `changed_by`, `old_progress`, `new_progress`. При первой вставке документа строка не создаётся; при неизменном прогрессе дубликаты не пишутся.
+- **Progress Trend на форме Task** — виджет в дашборде формы (подключается через `hooks.py`: `doctype_js` / `app_include_css`). Данные: `dinext_project_tasks_gantt.burndown.get_task_progress_trend`; клиент: [`public/js/task_progress_trend.js`](dinext_project_tasks_gantt/public/js/task_progress_trend.js) (ECharts). Вертикальные маркеры дат на оси X по возможности совпадают по цвету с соответствующими линиями рядов: **Today** — фактический прогресс, **Progress forecast end** — прогноз прогресса, **Work hours forecast end** — прогноз трудозатрат; если в одном bucket объединены маркеры разных типов, используется нейтральный цвет темы.
+- **Отчёт Task Epic Burndown** — Script Report в модуле приложения; график строится из `get_burndown_series` (см. `dinext_project_tasks_gantt/report/task_epic_burndown/`).
 - **Инструменты качества** — `pre-commit` с ruff, ESLint, Prettier, pyupgrade (см. `.pre-commit-config.yaml`).
 
 ## 🚀 Установка
@@ -30,8 +32,8 @@ bench build --app dinext_project_tasks_gantt
 
 ## 🛠️ Использование
 
-- **Desk** — откройте **Task** как обычно; блок **Progress History** отображается после поля **% Progress**, если кастомное поле есть. Строки заполняются автоматически; таблица только для чтения.
-- **Разработчикам** — точка входа: `dinext_project_tasks_gantt.task_progress_audit.before_save_task` (регистрация в `hooks.py` в `doc_events["Task"]["before_save"]`). Константы и логика — в `dinext_project_tasks_gantt/task_progress_audit.py`.
+- **Desk** — откройте **Task** как обычно; блок **Progress History** отображается после поля **% Progress**, если кастомное поле есть. Строки заполняются автоматически; таблица только для чтения. Секция **Progress Trend** (если задача не новая и не milestone) показывает график по периоду (день / неделя / месяц).
+- **Разработчикам** — аудит прогресса: `dinext_project_tasks_gantt.task_progress_audit.before_save_task` (регистрация в `hooks.py` в `doc_events["Task"]["before_save"]`). Логика — в `dinext_project_tasks_gantt/task_progress_audit.py`. Burndown и тренд — `dinext_project_tasks_gantt/burndown.py`; тесты — `test_burndown.py`.
 
 Запуск тестов:
 
@@ -84,6 +86,7 @@ pre-commit install
 
 Недавние коммиты (полная история — `git log`):
 
+- Виджет Progress Trend на Task: API `get_task_progress_trend`, маркеры дат согласованы с цветами рядов (при одном типе маркера в bucket).
 - Документация и навыки Cursor (AGENTS, инструменты для README).
 - DocType Story Point и связанное поведение.
 - Task Relation и фикстуры для зависимостей.
@@ -104,17 +107,21 @@ dinext_project_tasks_gantt/          # Корень репозитория
     ├── __init__.py
     ├── hooks.py                     # Фикстуры, doc_events (аудит прогресса Task)
     ├── task_progress_audit.py       # before_save: строки истории прогресса
+    ├── burndown.py                  # get_task_progress_trend, get_burndown_series, расчёт серий
+    ├── test_burndown.py
     ├── modules.txt
     ├── patches.txt
     ├── fixtures/                    # JSON: Custom Field, Client/Server Script, Story Point
     ├── dinext_project_tasks_gantt/  # Модуль «Dinext Project Tasks Gantt»
-    │   └── doctype/                 # JSON DocType, контроллеры, тесты
-    │       ├── story_point/
-    │       ├── task_relation/
-    │       └── task_progress_history/
+    │   ├── doctype/                 # JSON DocType, контроллеры, тесты
+    │   │   ├── story_point/
+    │   │   ├── task_relation/
+    │   │   └── task_progress_history/
+    │   └── report/                  # Script Report Task Epic Burndown (+ JS графика)
+    │       └── task_epic_burndown/
     ├── api/
     ├── config/
-    ├── public/
+    ├── public/                      # JS/CSS ассеты (например js/task_progress_trend.js, css/task_progress_trend.css)
     ├── templates/
     └── www/
 ```
@@ -122,6 +129,7 @@ dinext_project_tasks_gantt/          # Корень репозитория
 - **`fixtures/`** — сериализованные метаданные Desk для установки/миграции; при `export-fixtures` источником истины остаётся целевой сайт.
 - **`doctype/`** — DocType приложения (дочерняя таблица `Task Progress History`, `Task Relation`, `Story Point` и др.).
 - **`task_progress_audit.py`** — серверный аудит при изменении `Task.progress`.
+- **`burndown.py`** — расчёт серий для виджета Progress Trend и отчёта Epic Burndown.
 
 ## 🔗 Схема потока
 

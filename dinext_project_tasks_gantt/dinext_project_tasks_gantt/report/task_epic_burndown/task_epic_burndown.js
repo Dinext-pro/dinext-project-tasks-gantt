@@ -274,6 +274,15 @@ frappe.query_reports["Task Epic Burndown"] = {
 							for (let i = 0; i < cats.length; i++) {
 								const isForecast = isFutureBucketIndex(i);
 								const isHoliday = isDayGroup && holidayDates.has(cats[i]);
+								if (isHoliday) {
+									holidayBandData.push({
+										value: i,
+										category: cats[i],
+									});
+								}
+								if (!showCompletionForecast && isForecast) {
+									continue;
+								}
 								const createdValue = created[i] || 0;
 								const createdCompletedBaseValue = createdCompleted[i] || 0;
 								const completedValue =
@@ -364,12 +373,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 										createdCompletedBottom,
 									},
 								});
-								if (isHoliday) {
-									holidayBandData.push({
-										value: i,
-										category: cats[i],
-									});
-								}
 							}
 
 							const yShift = yMin < 0 ? Math.abs(yMin) : 0;
@@ -593,10 +596,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 											renderItem: function (params, api) {
 												const rowData = waterfallData[params.dataIndex];
 												const geometry = rowData.geometry;
-												const xCenter = api.coord([params.dataIndex, 0])[0];
+												const categoryIndex = rowData.value;
+												const xCenter = api.coord([categoryIndex, 0])[0];
 												const bandWidth = api.size([1, 0])[0] * 0.72;
 												const left = xCenter - bandWidth / 2;
-												const coord = (value) => api.coord([params.dataIndex, value])[1];
+												const coord = (value) => api.coord([categoryIndex, value])[1];
 												const segmentRect = (segment, topValue, bottomValue) => {
 													const topY = coord(topValue);
 													const bottomY = coord(bottomValue);
@@ -759,8 +763,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 								if (rowData && rowData.isForecast) {
 									return;
 								}
+								const bucketIndex =
+									rowData && rowData.value !== undefined && rowData.value !== null
+										? rowData.value
+										: params.dataIndex;
 								const taskNames =
-									((d.task_filters || {})[segment] || [])[params.dataIndex] || [];
+									((d.task_filters || {})[segment] || [])[bucketIndex] || [];
 								if (!taskNames.length) {
 									return;
 								}
