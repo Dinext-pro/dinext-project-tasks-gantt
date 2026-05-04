@@ -122,6 +122,26 @@ frappe.query_reports["Task Epic Burndown"] = {
 			});
 		}
 
+		/** Query Report omits falsy values from get_filter_values(); Check returns 0 when off. */
+		function getCheckFilterValue(fieldname, defaultWhenMissing) {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function") {
+				return defaultWhenMissing;
+			}
+			const f = qr.get_filter(fieldname, false);
+			if (!f || typeof f.get_value !== "function") {
+				return defaultWhenMissing;
+			}
+			const raw = f.get_value();
+			if (raw === undefined || raw === null || raw === "") {
+				return defaultWhenMissing;
+			}
+			if (typeof raw === "string") {
+				return !["0", "false", "no", "off"].includes(raw.toLowerCase());
+			}
+			return !!raw;
+		}
+
 		function renderBurndown() {
 			const filters = frappe.query_report.get_filter_values();
 			if (!filters.project) {
@@ -129,16 +149,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 				return;
 			}
 			const requestId = ++renderRequestId;
-			const toBool = (value, defaultValue) => {
-				if (value === undefined || value === null || value === "") {
-					return defaultValue;
-				}
-				if (typeof value === "string") {
-					return !["0", "false", "no", "off"].includes(value.toLowerCase());
-				}
-				return !!value;
-			};
-			const useProgress = toBool(filters.use_progress, true);
+			const useProgress = getCheckFilterValue("use_progress", true);
+			const excludeGroupTasks = getCheckFilterValue("exclude_group_tasks", true);
+			const showCompletionForecastFilter = getCheckFilterValue("show_completion_forecast", false);
+			const useTaskWeight = getCheckFilterValue("use_task_weight", false);
 
 			frappe.require(
 				["/assets/dinext_common/js/echarts.min.js"],
@@ -151,11 +165,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 							to_date: filters.to_date,
 							group_by: filters.group_by || "month",
 							measure: filters.measure || "hours",
-							exclude_group_tasks: filters.exclude_group_tasks ? 1 : 0,
+							exclude_group_tasks: excludeGroupTasks ? 1 : 0,
 							use_progress: useProgress ? 1 : 0,
 							forecast_periods: filters.forecast_periods || 6,
-							show_completion_forecast: filters.show_completion_forecast ? 1 : 0,
-							use_task_weight: filters.use_task_weight ? 1 : 0,
+							show_completion_forecast: showCompletionForecastFilter ? 1 : 0,
+							use_task_weight: useTaskWeight ? 1 : 0,
 						},
 						callback: function (r) {
 							if (requestId !== renderRequestId) {
@@ -174,10 +188,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const forecastCompleted = z(d.forecast_completed);
 							const forecastOpen = z(d.forecast_remaining);
 							const holidayDates = new Set((d.holiday_dates || []).filter(Boolean));
-							const showCompletionForecast = toBool(
-								filters.show_completion_forecast,
-								false
-							);
+							const showCompletionForecast = showCompletionForecastFilter;
 							const todayStr = frappe.datetime.get_today();
 							const groupByKey = (filters.group_by || "month").toLowerCase();
 							const isDayGroup = groupByKey === "day";
@@ -229,8 +240,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 								const startStr = bucketStartStrForForecast(cats[idx]);
 								return Boolean(startStr && startStr > todayStr);
 							};
+							const weightedTaskCount =
+								useTaskWeight ||
+								d.use_task_weight === true ||
+								d.use_task_weight === 1 ||
+								String(d.use_task_weight || "").toLowerCase() === "true";
 							const formatValue = (value) => {
-								if ((d.measure || "") === "task_count" && !d.use_progress) {
+								if (
+									(d.measure || "") === "task_count" &&
+									!d.use_progress &&
+									!weightedTaskCount
+								) {
 									return Math.round(value).toString();
 								}
 								return value.toFixed(2);

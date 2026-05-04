@@ -1620,6 +1620,7 @@ def _period_volume_burndown(
 		"same_period_completed": created_completed,
 		"task_filters": task_filters,
 		"use_progress": use_progress,
+		"use_task_weight": use_task_weight,
 		"y_axis_label": y_label,
 		"holiday_list_name": holiday_list_name,
 		"holiday_dates": holiday_dates,
