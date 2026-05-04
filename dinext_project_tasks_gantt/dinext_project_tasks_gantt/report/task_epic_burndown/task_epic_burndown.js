@@ -600,12 +600,16 @@ frappe.query_reports["Task Epic Burndown"] = {
 												const segmentRect = (segment, topValue, bottomValue) => {
 													const topY = coord(topValue);
 													const bottomY = coord(bottomValue);
+													const height = Math.abs(bottomY - topY);
+													if (height <= 0) {
+														return null;
+													}
 													const rect = echarts.graphic.clipRectByRect(
 														{
 															x: left,
 															y: Math.min(topY, bottomY),
 															width: bandWidth,
-															height: Math.max(1, Math.abs(bottomY - topY)),
+															height,
 														},
 														{
 															x: params.coordSys.x,
