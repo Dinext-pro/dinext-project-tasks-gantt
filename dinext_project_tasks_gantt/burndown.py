@@ -314,7 +314,9 @@ def _pwe_plan_by_task(project: str, task_names: list[str] | None = None) -> dict
 	return plan_by_task
 
 
-def _load_task_volume_rows(project: str, exclude_group: bool, measure: str) -> list[dict]:
+def _load_task_volume_rows(
+	project: str, exclude_group: bool, measure: str, use_task_weight: bool = False
+) -> list[dict]:
 	task_names = _task_name_list(project, exclude_group, None)
 	if not task_names:
 		return []
@@ -327,6 +329,7 @@ def _load_task_volume_rows(project: str, exclude_group: bool, measure: str) -> l
 		"completed_on",
 		"closing_date",
 		"story_point",
+		"task_weight",
 		"exp_start_date",
 		"exp_end_date",
 		"custom_planned_start_date",
@@ -337,14 +340,21 @@ def _load_task_volume_rows(project: str, exclude_group: bool, measure: str) -> l
 	pwe_by_task = _pwe_plan_by_task(project, task_names) if measure == "hours" else {}
 
 	for task in tasks:
-		task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task)
+		task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task, use_task_weight)
 	return tasks
 
 
 def _task_volume(
-	task: dict, measure: str, sp_map: dict[str, float] | None = None, pwe_by_task: dict[str, float] | None = None
+	task: dict,
+	measure: str,
+	sp_map: dict[str, float] | None = None,
+	pwe_by_task: dict[str, float] | None = None,
+	use_task_weight: bool = False,
 ) -> float:
 	if measure == "task_count":
+		if use_task_weight:
+			w = flt(task.get("task_weight"))
+			return w if w > 0 else 0.0
 		return 1.0
 	if measure == "story_points":
 		story_point = task.get("story_point")
@@ -1428,6 +1438,7 @@ def get_burndown_series(
 	forecast_periods: int = 6,
 	use_progress: int | str = 1,
 	show_completion_forecast: int | str = 0,
+	use_task_weight: int | str = 0,
 ) -> dict[str, Any]:
 	if not project:
 		frappe.throw(_("Project is required"))
@@ -1442,6 +1453,7 @@ def get_burndown_series(
 	exclude_group = _as_bool(exclude_group_tasks)
 	progress_enabled = _as_bool(use_progress)
 	show_completion_forecast = _as_bool(show_completion_forecast, default=False)
+	use_task_weight_flag = _as_bool(use_task_weight, default=False)
 	measure = (measure or "hours").lower()
 	group_by = (group_by or "month").lower()
 
@@ -1455,6 +1467,7 @@ def get_burndown_series(
 			exclude_group,
 			progress_enabled,
 			show_completion_forecast,
+			use_task_weight=False,
 		)
 	if measure in ("story_points", "story_point", "sp"):
 		return _period_volume_burndown(
@@ -1466,6 +1479,7 @@ def get_burndown_series(
 			exclude_group,
 			progress_enabled,
 			show_completion_forecast,
+			use_task_weight=False,
 		)
 	return _period_volume_burndown(
 		project,
@@ -1476,6 +1490,7 @@ def get_burndown_series(
 		exclude_group,
 		progress_enabled,
 		show_completion_forecast,
+		use_task_weight=use_task_weight_flag,
 	)
 
 
@@ -1488,9 +1503,10 @@ def _period_volume_burndown(
 	exclude_group: bool,
 	use_progress: bool,
 	show_completion_forecast: bool = False,
+	use_task_weight: bool = False,
 ) -> dict[str, Any]:
 	buckets = get_period_buckets(project, fd, td, group_by)
-	tasks = _load_task_volume_rows(project, exclude_group, measure)
+	tasks = _load_task_volume_rows(project, exclude_group, measure, use_task_weight)
 	task_names = [task["name"] for task in tasks]
 	progress_rows = _load_progress_rows(task_names, fd, td)
 	holiday_list_name = _resolve_project_holiday_list(project)
@@ -1726,8 +1742,17 @@ def _story_point_map() -> dict[str, float]:
 	return {r.name: flt(r.value) for r in frappe.get_all("Story Point", fields=["name", "value"])}
 
 
-def _mval(name: str, doc: dict | None, sp_map: dict[str, float], measure: str) -> float:
+def _mval(
+	name: str,
+	doc: dict | None,
+	sp_map: dict[str, float],
+	measure: str,
+	use_task_weight: bool = False,
+) -> float:
 	if measure == "task_count":
+		if use_task_weight:
+			w = flt((doc or {}).get("task_weight"))
+			return w if w > 0 else 0.0
 		return 1.0
 	if measure == "story_points":
 		sp = (doc or {}).get("story_point")
@@ -1742,6 +1767,7 @@ def _task_measure_burndown(
 	group_by: str,
 	measure: str,
 	exclude_group: bool,
+	use_task_weight: bool = False,
 ) -> dict[str, Any]:
 	sp_map = _story_point_map() if measure == "story_points" else {}
 	buckets = get_period_buckets(project, fd, td, group_by)
@@ -1753,10 +1779,10 @@ def _task_measure_burndown(
 	end_rem = [0.0] * len(buckets)
 
 	for i, (_lb, bs, be) in enumerate(buckets):
-		added[i] = _measure_new_scope(tasks, bs, be, sp_map, measure)
-		completed[i] = _measure_completed_hist(tasks, bs, be, sp_map, measure)
+		added[i] = _measure_new_scope(tasks, bs, be, sp_map, measure, use_task_weight)
+		completed[i] = _measure_completed_hist(tasks, bs, be, sp_map, measure, use_task_weight)
 
-	running = _initial_remaining(tasks, fd, sp_map, measure)
+	running = _initial_remaining(tasks, fd, sp_map, measure, use_task_weight)
 	for i, (_lb, bs, be) in enumerate(buckets):
 		start_scope[i] = running
 		running = running + added[i] - completed[i]
@@ -1828,7 +1854,11 @@ def _derive_start_scope_series(
 
 
 def _initial_remaining(
-	tasks: list[str], from_date: date, sp_map: dict[str, float], measure: str
+	tasks: list[str],
+	from_date: date,
+	sp_map: dict[str, float],
+	measure: str,
+	use_task_weight: bool = False,
 ) -> float:
 	"""Approximate remaining scope just before from_date using forecast task starts."""
 	if not tasks:
@@ -1843,6 +1873,7 @@ def _initial_remaining(
 				"progress",
 				"story_point",
 				"expected_time",
+				"task_weight",
 				"exp_start_date",
 				"custom_planned_start_date",
 			],
@@ -1853,14 +1884,19 @@ def _initial_remaining(
 		scope_start = doc.get("exp_start_date") or doc.get("custom_planned_start_date") or doc.creation
 		if getdate(scope_start) >= from_date:
 			continue
-		m = _mval(name, doc, sp_map, measure)
+		m = _mval(name, doc, sp_map, measure, use_task_weight)
 		p = flt(doc.progress)
 		total += m * (1.0 - p / 100.0)
 	return total
 
 
 def _measure_new_scope(
-	tasks: list[str], bs: date, be: date, sp_map: dict[str, float], measure: str
+	tasks: list[str],
+	bs: date,
+	be: date,
+	sp_map: dict[str, float],
+	measure: str,
+	use_task_weight: bool = False,
 ) -> float:
 	if not tasks:
 		return 0.0
@@ -1872,6 +1908,7 @@ def _measure_new_scope(
 			task.progress,
 			task.story_point,
 			task.expected_time,
+			task.task_weight,
 			task.exp_start_date,
 			task.custom_planned_start_date,
 		)
@@ -1881,13 +1918,18 @@ def _measure_new_scope(
 	)
 	s = 0.0
 	for r in rows:
-		m = _mval(r.name, r, sp_map, measure)
+		m = _mval(r.name, r, sp_map, measure, use_task_weight)
 		s += m * (1.0 - flt(r.progress) / 100.0)
 	return s
 
 
 def _measure_completed_hist(
-	tasks: list[str], bs: date, be: date, sp_map: dict[str, float], measure: str
+	tasks: list[str],
+	bs: date,
+	be: date,
+	sp_map: dict[str, float],
+	measure: str,
+	use_task_weight: bool = False,
 ) -> float:
 	if not tasks:
 		return 0.0
@@ -1906,25 +1948,31 @@ def _measure_completed_hist(
 	s = 0.0
 	for r in rows:
 		doc = frappe.db.get_value(
-			"Task", r.parent, ["story_point", "expected_time"], as_dict=True
+			"Task", r.parent, ["story_point", "expected_time", "task_weight"], as_dict=True
 		)
-		m = _mval(r.parent, doc, sp_map, measure)
+		m = _mval(r.parent, doc, sp_map, measure, use_task_weight)
 		s += m * (flt(r.np) - flt(r.op)) / 100.0
 	return s
 
 
 def _measure_remaining_snapshot(
-	tasks: list[str], sp_map: dict[str, float], measure: str
+	tasks: list[str],
+	sp_map: dict[str, float],
+	measure: str,
+	use_task_weight: bool = False,
 ) -> float:
 	if not tasks:
 		return 0.0
 	s = 0.0
 	for name in tasks:
 		doc = frappe.db.get_value(
-			"Task", name, ["progress", "story_point", "expected_time"], as_dict=True
+			"Task",
+			name,
+			["progress", "story_point", "expected_time", "task_weight"],
+			as_dict=True,
 		)
 		if not doc:
 			continue
-		m = _mval(name, doc, sp_map, measure)
+		m = _mval(name, doc, sp_map, measure, use_task_weight)
 		s += m * (1.0 - flt(doc.progress) / 100.0)
 	return s

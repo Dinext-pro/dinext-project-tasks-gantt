@@ -39,6 +39,13 @@ frappe.query_reports["Task Epic Burndown"] = {
 			default: "hours",
 		},
 		{
+			fieldname: "use_task_weight",
+			label: __("Учитывать вес задачи"),
+			fieldtype: "Check",
+			default: 0,
+			depends_on: "eval: doc.measure == 'task_count'",
+		},
+		{
 			fieldname: "exclude_group_tasks",
 			label: __("Exclude group tasks"),
 			fieldtype: "Check",
@@ -148,6 +155,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							use_progress: useProgress ? 1 : 0,
 							forecast_periods: filters.forecast_periods || 6,
 							show_completion_forecast: filters.show_completion_forecast ? 1 : 0,
+							use_task_weight: filters.use_task_weight ? 1 : 0,
 						},
 						callback: function (r) {
 							if (requestId !== renderRequestId) {
