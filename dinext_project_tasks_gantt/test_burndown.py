@@ -11,6 +11,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_current_date_marker,
 	_derive_start_scope_series,
 	_forecast_progress_to_completion,
+	_mval,
 	_measure_completed_scope_from_rows,
 	_measure_created_scope_from_rows,
 	_measure_open_scope_from_rows,
@@ -24,6 +25,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_task_names_created_from_rows,
 	_task_names_completed_from_rows,
 	_task_names_open_from_rows,
+	_task_volume,
 	_timesheet_limit_bands,
 	_timesheet_role_series_from_rows,
 	get_period_buckets,
@@ -769,3 +771,27 @@ class TestBurndownBuckets(FrappeTestCase):
 				{"name": "Block limit", "color": "red", "from": 120.0, "to": 165.0},
 			],
 		)
+
+
+class TestTaskCountVolume(FrappeTestCase):
+	def test_task_volume_task_count_unweighted(self):
+		task = {"name": "T-1", "task_weight": 3}
+		self.assertEqual(_task_volume(task, "task_count", use_task_weight=False), 1.0)
+
+	def test_task_volume_task_count_weighted(self):
+		task = {"name": "T-1", "task_weight": 3}
+		self.assertEqual(_task_volume(task, "task_count", use_task_weight=True), 3.0)
+
+	def test_task_volume_task_count_weighted_zero_or_missing(self):
+		self.assertEqual(_task_volume({"name": "T-1", "task_weight": 0}, "task_count", use_task_weight=True), 0.0)
+		self.assertEqual(_task_volume({"name": "T-1"}, "task_count", use_task_weight=True), 0.0)
+
+	def test_mval_task_count_unweighted(self):
+		self.assertEqual(_mval("T-1", {"task_weight": 5}, {}, "task_count", use_task_weight=False), 1.0)
+
+	def test_mval_task_count_weighted(self):
+		self.assertEqual(_mval("T-1", {"task_weight": 5}, {}, "task_count", use_task_weight=True), 5.0)
+
+	def test_mval_task_count_weighted_zero_or_missing(self):
+		self.assertEqual(_mval("T-1", {"task_weight": 0}, {}, "task_count", use_task_weight=True), 0.0)
+		self.assertEqual(_mval("T-1", {}, {}, "task_count", use_task_weight=True), 0.0)
