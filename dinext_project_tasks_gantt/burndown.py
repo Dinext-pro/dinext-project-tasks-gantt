@@ -1185,6 +1185,16 @@ def _task_trend_fields() -> list[str]:
 	return [field for field in candidates if field == "name" or meta.has_field(field)]
 
 
+def _task_trend_forecasts_suppressed(task_row: dict) -> bool:
+	"""When task is fully complete, progress and hours forecast lines are not meaningful."""
+	return min(max(flt(task_row.get("progress")), 0.0), 100.0) >= 100.0
+
+
+def _empty_axis_forecast_for_buckets(buckets: list[tuple[str, date, date]]) -> dict[str, Any]:
+	"""Same shape as early exits from _forecast_progress_to_completion / _forecast_hours_to_plan."""
+	return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
+
+
 @frappe.whitelist()
 def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> dict[str, Any]:
 	if not task:
@@ -1230,30 +1240,34 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	task_start = getdate(task_row.get("actual_start_date") or task_row.get("exp_start_date")) if (
 		task_row.get("actual_start_date") or task_row.get("exp_start_date")
 	) else None
+	skip_forecasts = _task_trend_forecasts_suppressed(task_row)
 	factual = _task_actual_progress_series(buckets, progress_rows, task_start)
 	planned = _planned_progress_series(buckets, planned_start, planned_end)
-	forecast = _forecast_progress_to_completion(
-		buckets,
-		factual,
-		task_row.get("exp_start_date"),
-		max_forecast_date=max_forecast_date,
-	)
-	if forecast.get("completion_date") and getdate(forecast.get("completion_date")) > td:
-		td = getdate(forecast.get("completion_date"))
-		if group_by == "day":
-			buckets = iter_day_buckets(fd, td)
-		elif group_by == "month":
-			buckets = iter_month_buckets(fd, td)
-		else:
-			buckets = iter_week_buckets(fd, td)
-		factual = _task_actual_progress_series(buckets, progress_rows, task_start)
-		planned = _planned_progress_series(buckets, planned_start, planned_end)
+	if skip_forecasts:
+		forecast = _empty_axis_forecast_for_buckets(buckets)
+	else:
 		forecast = _forecast_progress_to_completion(
 			buckets,
 			factual,
 			task_row.get("exp_start_date"),
 			max_forecast_date=max_forecast_date,
 		)
+		if forecast.get("completion_date") and getdate(forecast.get("completion_date")) > td:
+			td = getdate(forecast.get("completion_date"))
+			if group_by == "day":
+				buckets = iter_day_buckets(fd, td)
+			elif group_by == "month":
+				buckets = iter_month_buckets(fd, td)
+			else:
+				buckets = iter_week_buckets(fd, td)
+			factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+			planned = _planned_progress_series(buckets, planned_start, planned_end)
+			forecast = _forecast_progress_to_completion(
+				buckets,
+				factual,
+				task_row.get("exp_start_date"),
+				max_forecast_date=max_forecast_date,
+			)
 	task_names_for_hours = _task_tree_names(task_row.get("project"), task)
 	planned_hours_by_role = _planned_hours_by_role(task_row.get("project"), task)
 	scale_planned_hours_by_role = (
@@ -1273,44 +1287,47 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 		project_limits,
 		scale_planned_hours=scale_planned_hours,
 	)
-	hours_forecast = _forecast_hours_to_plan(
-		buckets,
-		hours_by_role,
-		flt(timesheet_limits.get("planned_hours")),
-		max_forecast_date=max_forecast_date,
-	)
-	if hours_forecast.get("completion_date") and getdate(hours_forecast.get("completion_date")) > td:
-		td = getdate(hours_forecast.get("completion_date"))
-		if group_by == "day":
-			buckets = iter_day_buckets(fd, td)
-		elif group_by == "month":
-			buckets = iter_month_buckets(fd, td)
-		else:
-			buckets = iter_week_buckets(fd, td)
-		factual = _task_actual_progress_series(buckets, progress_rows, task_start)
-		planned = _planned_progress_series(buckets, planned_start, planned_end)
-		forecast = _forecast_progress_to_completion(
-			buckets,
-			factual,
-			task_row.get("exp_start_date"),
-			max_forecast_date=max_forecast_date,
-		)
-		hours_by_role = _timesheet_role_series_from_rows(
-			buckets,
-			_load_task_timesheet_role_rows(task_names_for_hours, buckets[0][1], buckets[-1][2]) if buckets else [],
-		)
-		timesheet_limits = _timesheet_limit_bands(
-			planned_hours_by_role,
-			hours_by_role,
-			project_limits,
-			scale_planned_hours=scale_planned_hours,
-		)
+	if skip_forecasts:
+		hours_forecast = _empty_axis_forecast_for_buckets(buckets)
+	else:
 		hours_forecast = _forecast_hours_to_plan(
 			buckets,
 			hours_by_role,
 			flt(timesheet_limits.get("planned_hours")),
 			max_forecast_date=max_forecast_date,
 		)
+		if hours_forecast.get("completion_date") and getdate(hours_forecast.get("completion_date")) > td:
+			td = getdate(hours_forecast.get("completion_date"))
+			if group_by == "day":
+				buckets = iter_day_buckets(fd, td)
+			elif group_by == "month":
+				buckets = iter_month_buckets(fd, td)
+			else:
+				buckets = iter_week_buckets(fd, td)
+			factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+			planned = _planned_progress_series(buckets, planned_start, planned_end)
+			forecast = _forecast_progress_to_completion(
+				buckets,
+				factual,
+				task_row.get("exp_start_date"),
+				max_forecast_date=max_forecast_date,
+			)
+			hours_by_role = _timesheet_role_series_from_rows(
+				buckets,
+				_load_task_timesheet_role_rows(task_names_for_hours, buckets[0][1], buckets[-1][2]) if buckets else [],
+			)
+			timesheet_limits = _timesheet_limit_bands(
+				planned_hours_by_role,
+				hours_by_role,
+				project_limits,
+				scale_planned_hours=scale_planned_hours,
+			)
+			hours_forecast = _forecast_hours_to_plan(
+				buckets,
+				hours_by_role,
+				flt(timesheet_limits.get("planned_hours")),
+				max_forecast_date=max_forecast_date,
+			)
 
 	raw_date_markers = [
 		marker

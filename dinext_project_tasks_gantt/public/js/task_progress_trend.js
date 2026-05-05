@@ -279,6 +279,7 @@
 			emphasis: { focus: "series" },
 		}));
 		const dateMarkerLines = marker_lines(data.date_markers || [], theme);
+		const progressForecastHasData = (progress.forecast.values || []).length > 0;
 		const progressLegend = {
 			type: "scroll",
 			top: 0,
@@ -286,7 +287,7 @@
 			data: [
 				progress.actual.label,
 				progress.planned.label,
-				progress.forecast.label,
+				...(progressForecastHasData ? [progress.forecast.label] : []),
 			],
 		};
 		const roleLegend = {
@@ -466,19 +467,23 @@
 						z: 8,
 						zlevel: 8,
 					},
-					{
-						name: progress.forecast.label,
-						type: "line",
-						yAxisIndex: 0,
-						smooth: true,
-						symbol: null,
-						symbolSize: 0,
-						itemStyle: { color: PROGRESS_COLORS.forecast, borderColor: PROGRESS_COLORS.forecast },
-						lineStyle: { color: PROGRESS_COLORS.forecast, type: progress.forecast.line_style },
-						data: progress.forecast.values && progress.forecast.values.length ? progress.forecast.values : [],
-						z: 8,
-						zlevel: 8,
-					},
+					...(progressForecastHasData
+						? [
+								{
+									name: progress.forecast.label,
+									type: "line",
+									yAxisIndex: 0,
+									smooth: true,
+									symbol: null,
+									symbolSize: 0,
+									itemStyle: { color: PROGRESS_COLORS.forecast, borderColor: PROGRESS_COLORS.forecast },
+									lineStyle: { color: PROGRESS_COLORS.forecast, type: progress.forecast.line_style },
+									data: progress.forecast.values || [],
+									z: 8,
+									zlevel: 8,
+								},
+							]
+						: []),
 					...(dateMarkerLines
 						? [
 								{
