@@ -11,6 +11,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_current_date_marker,
 	_derive_start_scope_series,
 	_forecast_progress_to_completion,
+	get_task_progress_trend,
 	_mval,
 	_measure_completed_scope_from_rows,
 	_measure_created_scope_from_rows,
@@ -21,6 +22,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_task_actual_progress_series,
 	_task_actual_or_forecast_date_markers,
 	_task_progress_history_start_date,
+	_task_trend_forecasts_suppressed,
 	_task_widget_planned_dates,
 	_task_names_created_from_rows,
 	_task_names_completed_from_rows,
@@ -771,6 +773,76 @@ class TestBurndownBuckets(FrappeTestCase):
 				{"name": "Block limit", "color": "red", "from": 120.0, "to": 165.0},
 			],
 		)
+
+
+class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
+	def test_task_trend_forecasts_suppressed_at_full_progress(self):
+		self.assertTrue(_task_trend_forecasts_suppressed({"progress": 100}))
+		self.assertTrue(_task_trend_forecasts_suppressed({"progress": 100.0}))
+		self.assertFalse(_task_trend_forecasts_suppressed({"progress": 99.9}))
+		self.assertFalse(_task_trend_forecasts_suppressed({"progress": 0}))
+
+	@patch("dinext_project_tasks_gantt.burndown._load_task_timesheet_role_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._task_trend_fields",
+		return_value=[
+			"name",
+			"subject",
+			"project",
+			"progress",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"actual_start_date",
+			"actual_end_date",
+			"completed_on",
+			"closing_date",
+			"type",
+			"is_group",
+			"is_milestone",
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 1, 15) if value is None else frappe_getdate(value),
+	)
+	def test_get_task_progress_trend_omits_forecasts_when_progress_complete(
+		self,
+		_mock_getdate,
+		_mock_trend_fields,
+		mock_get_value,
+		_mock_perm,
+		_mock_hist,
+		_mock_ts,
+	):
+		mock_get_value.return_value = {
+			"name": "T-DONE",
+			"subject": "Done task",
+			"progress": 100,
+			"project": None,
+			"is_group": 0,
+			"is_milestone": 0,
+			"type": "Task",
+			"exp_start_date": None,
+			"exp_end_date": None,
+			"custom_planned_start_date": None,
+			"custom_planned_end_date": None,
+			"actual_start_date": None,
+			"actual_end_date": None,
+			"completed_on": None,
+			"closing_date": None,
+		}
+		out = get_task_progress_trend(task="T-DONE", group_by="day")
+		self.assertEqual(out["progress"]["forecast"], [])
+		self.assertEqual(out["hours_forecast"]["values"], [])
+		self.assertIsNone(out["hours_forecast"]["completion_date"])
+		types = [m["type"] for m in out["date_markers"]]
+		self.assertNotIn("forecast_progress_end", types)
+		self.assertNotIn("forecast_work_hours_end", types)
 
 
 class TestTaskCountVolume(FrappeTestCase):
