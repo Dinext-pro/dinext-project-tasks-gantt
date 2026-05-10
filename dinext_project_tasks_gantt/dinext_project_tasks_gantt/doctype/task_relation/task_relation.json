@@ -1,0 +1,74 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format: {predecessor}-{parent}-{type}",
+ "creation": "2025-11-09 13:59:02.961261",
+ "description": "Task Relation",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "predecessor",
+  "type",
+  "buffer_days",
+  "is_active",
+  "project"
+ ],
+ "fields": [
+  {
+   "fieldname": "predecessor",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Predecessor",
+   "options": "Task",
+   "reqd": 1
+  },
+  {
+   "default": "FS (Finish \u2192 Start)",
+   "fieldname": "type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Type",
+   "options": "FS (Finish \u2192 Start)\nSS (Start \u2192 Start)\nFF (Finish \u2192 Finish)\nSF (Start \u2192 Finish)",
+   "reqd": 1,
+   "translatable": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "buffer_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Buffer Days"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "is active"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Project",
+   "options": "Project"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-11 22:15:56.518598",
+ "modified_by": "Administrator",
+ "module": "Dinext Project Tasks Gantt",
+ "name": "Task Relation",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
