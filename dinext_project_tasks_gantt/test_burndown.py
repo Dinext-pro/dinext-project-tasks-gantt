@@ -16,6 +16,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_measure_completed_scope_from_rows,
 	_measure_created_scope_from_rows,
 	_measure_open_scope_from_rows,
+	_period_volume_burndown,
 	_period_progress_series,
 	_planned_progress_series,
 	_task_tree_names_from_rows,
@@ -867,3 +868,64 @@ class TestTaskCountVolume(FrappeTestCase):
 	def test_mval_task_count_weighted_zero_or_missing(self):
 		self.assertEqual(_mval("T-1", {"task_weight": 0}, {}, "task_count", use_task_weight=True), 0.0)
 		self.assertEqual(_mval("T-1", {}, {}, "task_count", use_task_weight=True), 0.0)
+
+
+class TestForecastWithoutProgress(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown._fact_end_index", return_value=1)
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=1.5)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-DONE",
+				"creation": date(2026, 4, 20),
+				"exp_start_date": date(2026, 4, 20),
+				"status": "Completed",
+				"completed_on": date(2026, 5, 4),
+				"volume": 5.0,
+			},
+			{
+				"name": "TASK-OPEN",
+				"creation": date(2026, 4, 20),
+				"exp_start_date": date(2026, 4, 20),
+				"status": "Working",
+				"progress": 30.0,
+				"volume": 10.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-05-03", date(2026, 5, 3), date(2026, 5, 3)),
+			("2026-05-04", date(2026, 5, 4), date(2026, 5, 4)),
+			("2026-05-05", date(2026, 5, 5), date(2026, 5, 5)),
+		],
+	)
+	def test_period_volume_burndown_forecast_uses_binary_velocity_when_progress_disabled(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_utp,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+		_mock_fact_end,
+	):
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 3),
+			td=date(2026, 5, 5),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=True,
+		)
+
+		self.assertEqual(out["forecast_from_index"], 2)
+		self.assertEqual(out["forecast_remaining"], [15.0, 10.0, 7.5])
+		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 2.5])

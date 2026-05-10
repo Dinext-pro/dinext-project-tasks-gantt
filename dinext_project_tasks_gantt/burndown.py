@@ -1533,6 +1533,7 @@ def _period_volume_burndown(
 	open_volume: list[float] = []
 	completed: list[float] = []
 	created_completed: list[float] = []
+	forecast_completed_total: list[float] = []
 	task_filters = {"created": [], "open": [], "completed": [], "created_completed": []}
 	for _label, bs, be in buckets:
 		created_tasks = _tasks_created_from_rows(tasks, bs, be)
@@ -1561,6 +1562,7 @@ def _period_volume_burndown(
 		created.append(max(0.0, created_raw - created_completed_value))
 		created_completed.append(created_completed_value)
 		completed.append(max(0.0, completed_raw - created_completed_value))
+		forecast_completed_total.append(progress_completed)
 		task_filters["created"].append(created_task_names)
 		task_filters["open"].append(
 			_task_names_open_from_rows(
@@ -1593,6 +1595,7 @@ def _period_volume_burndown(
 
 	categories = [bucket[0] for bucket in buckets]
 	completed_total = [flt(completed[i]) + flt(created_completed[i]) for i in range(len(categories))]
+	velocity_completed_total = forecast_completed_total if not use_progress else completed_total
 	fact_end_idx = _fact_end_index(buckets)
 	forecast_completed = [0.0 for _ in categories]
 	forecast_open = list(open_volume)
@@ -1606,7 +1609,7 @@ def _period_volume_burndown(
 			progress_rows=progress_rows,
 		)
 		velocity_window = _velocity_window_values(
-			buckets, completed_total, fact_end_idx, group_by, holiday_dates
+			buckets, velocity_completed_total, fact_end_idx, group_by, holiday_dates
 		)
 		velocity = _weighted_velocity(velocity_window)
 		remaining_open = flt(forecast_baseline_open)
