@@ -1,93 +1,150 @@
 # Dinext Project Tasks Gantt
 
+## 📖 Обзор
 
+**Dinext Project Tasks Gantt** — приложение на [Frappe](https://frappeframework.com/), расширяющее ERPNext **Project / Task** для Dinext: представления Gantt и дерева, работа с зависимостями, оценки в story points, **журнал изменений поля «% выполнения»** (`progress`) у задач, а также **серии для графиков** (тренд прогноза/факта на форме задачи и отчёт Epic Burndown).
 
-## Getting started
+В составе приложения — **фикстуры** (Custom Field, Client Script, Server Script, записи Story Point) и **DocTypes** (например `Task Relation`, `Story Point`, `Task Progress History`). Серверная логика аудита прогресса вызывается при каждом сохранении `Task` через `doc_events`, поэтому изменения фиксируются при сохранении из формы, через API и в скриптах — не только из интерфейса Desk. Данные для графиков отдаёт модуль [`burndown.py`](dinext_project_tasks_gantt/burndown.py) (whitelisted-методы для клиента и отчёта).
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## ✨ Возможности
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- **Расширение UI задачи** — Client Script на `Task` (дерево, Gantt, оформление и поведение зависимостей).
+- **Логика зависимостей** — Server Script и дочерняя таблица **`Task Relation`** на `Task` (`custom_relations`) для связей предшественник/последователь и связанной автоматизации.
+- **Story points** — DocType **`Story Point`** и поле-связь **`story_point`** на `Task`.
+- **Аудит прогресса** — при сохранении уже существующей задачи, если **`progress`** реально изменился, в **`custom_progress_history`** (таблица **`Task Progress History`**) добавляется строка с `changed_on`, `changed_by`, `old_progress`, `new_progress`. При первой вставке документа строка не создаётся; при неизменном прогрессе дубликаты не пишутся.
+- **Progress Trend на форме Task** — виджет в дашборде формы (подключается через `hooks.py`: `doctype_js` / `app_include_css`). Данные: `dinext_project_tasks_gantt.burndown.get_task_progress_trend`; клиент: [`public/js/task_progress_trend.js`](dinext_project_tasks_gantt/public/js/task_progress_trend.js) (ECharts). Вертикальные маркеры дат на оси X по возможности совпадают по цвету с соответствующими линиями рядов: **Today** — фактический прогресс, **Progress forecast end** — прогноз прогресса, **Work hours forecast end** — прогноз трудозатрат; если в одном bucket объединены маркеры разных типов, используется нейтральный цвет темы.
+- **Отчёт Task Epic Burndown** — Script Report в модуле приложения; график строится из `get_burndown_series` (см. `dinext_project_tasks_gantt/report/task_epic_burndown/`).
+- **Инструменты качества** — `pre-commit` с ruff, ESLint, Prettier, pyupgrade (см. `.pre-commit-config.yaml`).
 
-## Add your files
+## 🚀 Установка
 
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+Нужна рабочая среда [bench](https://github.com/frappe/bench) с уже установленным на целевом сайте **ERPNext** (и Frappe).
 
+```bash
+cd /path/to/frappe-bench
+bench get-app https://github.com/YOUR_ORG/dinext_project_tasks_gantt.git --branch develop
+bench --site your-site.local install-app dinext_project_tasks_gantt
+bench --site your-site.local migrate
+bench build --app dinext_project_tasks_gantt
 ```
-cd existing_repo
-git remote add origin https://dinord.gitlab.yandexcloud.net/dinext/dinext/dinext-project-tasks-gantt.git
-git branch -M main
-git push -uf origin main
+
+После установки перезагрузите сайт и убедитесь, что **migrate** выполнился успешно, чтобы появились Custom Field и таблицы DocType.
+
+## 🛠️ Использование
+
+- **Desk** — откройте **Task** как обычно; блок **Progress History** отображается после поля **% Progress**, если кастомное поле есть. Строки заполняются автоматически; таблица только для чтения. Секция **Progress Trend** (если задача не новая и не milestone) показывает график по периоду (день / неделя / месяц).
+- **Разработчикам** — аудит прогресса: `dinext_project_tasks_gantt.task_progress_audit.before_save_task` (регистрация в `hooks.py` в `doc_events["Task"]["before_save"]`). Логика — в `dinext_project_tasks_gantt/task_progress_audit.py`. Burndown и тренд — `dinext_project_tasks_gantt/burndown.py`; тесты — `test_burndown.py`.
+
+Запуск тестов:
+
+```bash
+bench --site your-site.local run-tests --app dinext_project_tasks_gantt
 ```
 
-## Integrate with your tools
+## 📦 Технологии
 
-* [Set up project integrations](https://dinord.gitlab.yandexcloud.net/dinext/dinext/dinext-project-tasks-gantt/-/settings/integrations)
+- **Python** 3.10+ (см. `pyproject.toml`)
+- **Frappe Framework** / **ERPNext** (через bench)
+- **JavaScript** — Client Script (фикстуры) для Desk
+- **Линтинг / форматирование** — Ruff, ESLint, Prettier, pyupgrade через pre-commit
 
-## Collaborate with your team
+## 🔧 Конфигурация
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+- **Hooks** — `dinext_project_tasks_gantt/hooks.py`: `app_name`, `fixtures` (Custom Field, Story Point, Client Script, Server Script), `doc_events` для аудита прогресса `Task`.
+- **Фикстуры** — экспортированные метаданные в `dinext_project_tasks_gantt/fixtures/`. Новые Custom Field не добавляют правкой файлов вручную: создают в системе (или через MCP) и выполняют `bench export-fixtures` по принятому у команды процессу (см. `AGENTS.md`).
+- **Патчи** — `dinext_project_tasks_gantt/patches.txt` для патчей миграций при необходимости.
 
-## Test and Deploy
+## ✅ Требования
 
-Use the built-in continuous integration in GitLab.
+- [bench](https://github.com/frappe/bench) и сайт с установленным **ERPNext**
+- **Python** >= 3.10
+- **MariaDB** (или СУБД, поддерживаемая вашей версией Frappe), **Redis**, **Node** — как требует ваш стек bench
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+## 🤝 Участие в разработке
 
-***
+1. Клонируйте приложение в `apps/dinext_project_tasks_gantt`.
+2. Установите pre-commit и включите его для репозитория:
 
-# Editing this README
+```bash
+cd apps/dinext_project_tasks_gantt
+pre-commit install
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+3. Соблюдайте соглашения проекта в [`AGENTS.md`](AGENTS.md) (метаданные Frappe, фикстуры, правила MCP-first где применимо).
 
-## Suggestions for a good README
+## 📄 Документация
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+- **[AGENTS.md](AGENTS.md)** — руководство по разработке в этом проекте (паттерны Frappe, DocType, фикстуры, тесты).
+- **Frappe** — [документация Frappe](https://frappeframework.com/docs)
+- **ERPNext** — [документация ERPNext](https://docs.erpnext.com)
 
-## Name
-Choose a self-explaining name for your project.
+## ❤️ Благодарности
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Разработано **Dinext** для ERPNext/Frappe. Используются [Frappe Framework](https://frappeframework.com/) и [ERPNext](https://erpnext.com/).
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## 📝 История изменений
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Недавние коммиты (полная история — `git log`):
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+- Виджет Progress Trend на Task: API `get_task_progress_trend`, маркеры дат согласованы с цветами рядов (при одном типе маркера в bucket).
+- Документация и навыки Cursor (AGENTS, инструменты для README).
+- DocType Story Point и связанное поведение.
+- Task Relation и фикстуры для зависимостей.
+- Первичная инициализация приложения.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+*Аудит прогресса (`Task Progress History`, `task_progress_audit`, тесты): см. текущую ветку и последние коммиты.*
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## 🗂️ Структура репозитория
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```text
+dinext_project_tasks_gantt/          # Корень репозитория
+├── README.md
+├── license.txt
+├── pyproject.toml                   # Метаданные пакета Python, ruff
+├── .pre-commit-config.yaml
+├── AGENTS.md                        # Руководство для контрибьюторов / Frappe
+└── dinext_project_tasks_gantt/      # Основной Python-пакет
+    ├── __init__.py
+    ├── hooks.py                     # Фикстуры, doc_events (аудит прогресса Task)
+    ├── task_progress_audit.py       # before_save: строки истории прогресса
+    ├── burndown.py                  # get_task_progress_trend, get_burndown_series, расчёт серий
+    ├── test_burndown.py
+    ├── modules.txt
+    ├── patches.txt
+    ├── fixtures/                    # JSON: Custom Field, Client/Server Script, Story Point
+    ├── dinext_project_tasks_gantt/  # Модуль «Dinext Project Tasks Gantt»
+    │   ├── doctype/                 # JSON DocType, контроллеры, тесты
+    │   │   ├── story_point/
+    │   │   ├── task_relation/
+    │   │   └── task_progress_history/
+    │   └── report/                  # Script Report Task Epic Burndown (+ JS графика)
+    │       └── task_epic_burndown/
+    ├── api/
+    ├── config/
+    ├── public/                      # JS/CSS ассеты (например js/task_progress_trend.js, css/task_progress_trend.css)
+    ├── templates/
+    └── www/
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+- **`fixtures/`** — сериализованные метаданные Desk для установки/миграции; при `export-fixtures` источником истины остаётся целевой сайт.
+- **`doctype/`** — DocType приложения (дочерняя таблица `Task Progress History`, `Task Relation`, `Story Point` и др.).
+- **`task_progress_audit.py`** — серверный аудит при изменении `Task.progress`.
+- **`burndown.py`** — расчёт серий для виджета Progress Trend и отчёта Epic Burndown.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## 🔗 Схема потока
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Упрощённая логика фиксации изменения прогресса:
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```mermaid
+flowchart TD
+    save[Сохранение Task] --> hook[before_save_task]
+    hook --> checkField{Есть custom_progress_history?}
+    checkField -->|нет| skip1[Выход]
+    checkField -->|да| checkNew{doc.is_new?}
+    checkNew -->|да| skip2[Выход — при вставке аудит не пишем]
+    checkNew -->|нет| loadPrev[get_doc_before_save]
+    loadPrev --> compare{progress изменился?}
+    compare -->|нет| skip3[Выход]
+    compare -->|да| append[Добавить строку: changed_on, changed_by, old, new]
+    append --> persist[Frappe сохраняет Task и дочерние строки]
+```
