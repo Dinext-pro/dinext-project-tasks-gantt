@@ -4,7 +4,7 @@ app_publisher = "Dinext"
 app_description = "Dinext Project Tasks Gantt"
 app_email = "info@dinext.ru"
 app_license = "mit"
-'''
+
 fixtures = [
     {
         "doctype": "Custom Field",
@@ -39,7 +39,8 @@ fixtures = [
     #        ["is_active", "=", 1]            
     #    ]
     #}    
-]'''
+]
+''''''
 
 # Apps
 # ------------------
