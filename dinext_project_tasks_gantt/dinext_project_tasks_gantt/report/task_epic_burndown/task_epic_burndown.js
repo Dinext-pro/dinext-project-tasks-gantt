@@ -798,15 +798,23 @@ frappe.query_reports["Task Epic Burndown"] = {
 									rowData && rowData.value !== undefined && rowData.value !== null
 										? rowData.value
 										: params.dataIndex;
-								const taskNames =
+								const docNames =
 									((d.task_filters || {})[segment] || [])[bucketIndex] || [];
-								if (!taskNames.length) {
+								if (!docNames.length) {
 									return;
 								}
 								frappe.route_options = {
 									project: ["=", filters.project],
-									name: ["in", taskNames],
+									name: ["in", docNames],
 								};
+								const measureKey = (filters.measure || "hours").toLowerCase();
+								if (
+									measureKey === "hours" &&
+									(segment === "completed" || segment === "created_completed")
+								) {
+									frappe.set_route("List", "User Timesheet Position");
+									return;
+								}
 								frappe.set_route("List", "Task");
 							});
 						},
