@@ -32,6 +32,12 @@ fixtures = [
             ["disabled", "=", 0]
         ]
     },
+    {
+        "doctype": "Property Setter",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]]
+        ]
+    },
     #{
     #    "doctype": "Workflow",
     #    "filters": [
