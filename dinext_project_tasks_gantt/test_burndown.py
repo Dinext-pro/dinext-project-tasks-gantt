@@ -879,6 +879,10 @@ class TestForecastWithoutProgress(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
 	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		return_value=[],
+	)
 	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=1.5)
 	@patch(
 		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
@@ -914,6 +918,7 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		_mock_buckets,
 		_mock_tasks,
 		_mock_utp,
+		_mock_utp_parent_names,
 		mock_utp_by_task,
 		_mock_progress,
 		_mock_holiday_list,
@@ -951,6 +956,10 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
 	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
 	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		side_effect=[["UTP-OLD-0"], ["UTP-OLD-1"], ["UTP-NEW-CC"]],
+	)
+	@patch(
 		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
 		return_value=[
 			{
@@ -982,6 +991,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self,
 		_mock_buckets,
 		_mock_tasks,
+		mock_utp_parent_names,
 		mock_utp_by_task,
 		_mock_utp_sum,
 		_mock_progress,
@@ -1012,8 +1022,8 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["open"], [7.0, 3.0])
 		self.assertEqual(out["remaining"], [7.0, 3.0])
 		self.assertEqual(out["task_filters"]["created"], [[], ["TASK-NEW"]])
-		self.assertEqual(out["task_filters"]["created_completed"], [[], ["TASK-NEW"]])
-		self.assertEqual(out["task_filters"]["completed"], [["TASK-OLD"], ["TASK-OLD"]])
+		self.assertEqual(out["task_filters"]["created_completed"], [[], ["UTP-NEW-CC"]])
+		self.assertEqual(out["task_filters"]["completed"], [["UTP-OLD-0"], ["UTP-OLD-1"]])
 		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"], ["TASK-OLD"]])
 
 
@@ -1088,6 +1098,10 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
 	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
 	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		side_effect=[[], [], ["UTP-LATE-CC"], [], []],
+	)
+	@patch(
 		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
 		return_value=[
 			{
@@ -1114,6 +1128,7 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 		self,
 		_mock_buckets,
 		_mock_tasks,
+		mock_utp_parent_names,
 		mock_utp_by_task,
 		_mock_utp_sum,
 		_mock_progress,
@@ -1148,7 +1163,8 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["open"], [0.0, 0.0, 6.0, 6.0])
 		self.assertEqual(out["task_filters"]["open"], [[], [], ["TASK-LATE"], ["TASK-LATE"]])
 		self.assertEqual(out["task_filters"]["created"], [[], ["TASK-LATE"], [], []])
-		self.assertEqual(out["task_filters"]["created_completed"], [[], ["TASK-LATE"], [], []])
+		self.assertEqual(out["task_filters"]["created_completed"], [[], ["UTP-LATE-CC"], [], []])
+		self.assertEqual(out["task_filters"]["completed"], [[], [], [], []])
 
 
 class TestGetBurndownSeriesHoursIgnoresUseProgress(FrappeTestCase):

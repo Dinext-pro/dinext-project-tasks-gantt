@@ -1469,6 +1469,30 @@ def _utp_hours_by_task(
 	return {row.task_name: flt(row.hours) for row in rows if row.get("task_name")}
 
 
+def _utp_parent_names_in_bucket_for_tasks(
+	project: str, date_from: date, date_to: date, task_document_names: list[str]
+) -> list[str]:
+	"""Distinct User Timesheet Position names with approved detail hours in the bucket for given tasks."""
+	if not task_document_names:
+		return []
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	rows = (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.select(utp.name)
+		.where(utp.project == project)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+		.where(utp.document_name.isin(task_document_names))
+		.where(detail.date.between(date_from, date_to))
+		.groupby(utp.name)
+		.run(as_dict=True)
+	)
+	return sorted({row.get("name") for row in rows if row.get("name")})
+
+
 def _utp_min_date_by_task(project: str, task_names: list[str] | None = None) -> dict[str, date]:
 	if task_names is not None and not task_names:
 		return {}
@@ -1639,14 +1663,19 @@ def _period_volume_burndown(
 			forecast_completed_total.append(completed_total_in_bucket)
 			task_filters["created"].append(created_task_names)
 			task_filters["open"].append(sorted(open_names))
-			task_filters["completed"].append(
-				sorted(
-					name
-					for name, hours in bucket_hours_by_task.items()
-					if flt(hours) > 0 and name not in created_completed_names_set
-				)
+			completed_task_names = sorted(
+				name
+				for name, hours in bucket_hours_by_task.items()
+				if flt(hours) > 0 and name not in created_completed_names_set
 			)
-			task_filters["created_completed"].append(created_completed_names)
+			task_filters["completed"].append(
+				_utp_parent_names_in_bucket_for_tasks(project, bs, be, completed_task_names)
+			)
+			task_filters["created_completed"].append(
+				_utp_parent_names_in_bucket_for_tasks(project, bs, be, created_completed_names)
+				if created_completed_names
+				else []
+			)
 			continue
 		open_volume.append(
 			_measure_open_scope_from_rows(
