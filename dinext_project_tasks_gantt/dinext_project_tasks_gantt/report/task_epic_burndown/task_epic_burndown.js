@@ -12,6 +12,33 @@ function task_epic_burndown_strip_standard_toolbar() {
 	});
 }
 
+function task_epic_burndown_normalize_list(value) {
+	if (!value) {
+		return [];
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => `${item}`.trim()).filter(Boolean);
+	}
+	if (typeof value === "string") {
+		const text = value.trim();
+		if (!text) {
+			return [];
+		}
+		if (text.startsWith("[")) {
+			try {
+				return task_epic_burndown_normalize_list(JSON.parse(text));
+			} catch (e) {
+				// Fall through to comma-separated parsing.
+			}
+		}
+		return text
+			.split(",")
+			.map((item) => item.trim())
+			.filter(Boolean);
+	}
+	return [`${value}`.trim()].filter(Boolean);
+}
+
 frappe.query_reports["Task Epic Burndown"] = {
 	filters: [
 		{
@@ -48,6 +75,68 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldtype: "Select",
 			options: ["hours", "story_points", "task_count"],
 			default: "hours",
+		},
+		{
+			fieldname: "task_types",
+			label: __("Task Types"),
+			fieldtype: "MultiSelectList",
+			placeholder: __("Task Types"),
+			get_data: function (txt) {
+				const qr = frappe.query_report;
+				const project = qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+				if (!project) {
+					return [];
+				}
+				return frappe
+					.call({
+						method: "dinext_project_tasks_gantt.burndown.get_project_task_type_options",
+						args: { project },
+					})
+					.then((r) => {
+						// Keep "__not_set__" option from API (see burndown.TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET); only drop Sprint.
+						const options = (r.message || []).filter((option) => option && option.value !== "Sprint");
+						if (!txt) {
+							return options;
+						}
+						const q = txt.toLowerCase();
+						return options.filter((option) =>
+							(option.label || option.value || "").toLowerCase().includes(q)
+						);
+					});
+			},
+		},
+		{
+			fieldname: "issue_types",
+			label: __("Issue Types"),
+			fieldtype: "MultiSelectList",
+			placeholder: __("Issue types"),
+			depends_on: "eval: (doc.task_types || []).includes('Issue')",
+			get_data: function (txt) {
+				const qr = frappe.query_report;
+				const project = qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+				const taskTypes =
+					qr && typeof qr.get_filter_value === "function"
+						? task_epic_burndown_normalize_list(qr.get_filter_value("task_types"))
+						: [];
+				if (!project || !taskTypes.includes("Issue")) {
+					return [];
+				}
+				return frappe
+					.call({
+						method: "dinext_project_tasks_gantt.burndown.get_project_issue_type_options",
+						args: { project },
+					})
+					.then((r) => {
+						const options = r.message || [];
+						if (!txt) {
+							return options;
+						}
+						const q = txt.toLowerCase();
+						return options.filter((option) =>
+							(option.label || option.value || "").toLowerCase().includes(q)
+						);
+					});
+			},
 		},
 		{
 			fieldname: "use_task_weight",
@@ -146,10 +235,29 @@ frappe.query_reports["Task Epic Burndown"] = {
 					if (typeof originalOnChange === "function") {
 						originalOnChange.apply(this, arguments);
 					}
+					if (filter.df.fieldname === "task_types") {
+						ensureIssueTypeFilterState();
+					}
 					scheduleRender();
 				};
 				filter.__task_epic_burndown_bound = true;
 			});
+		}
+
+		function ensureIssueTypeFilterState() {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function") {
+				return;
+			}
+			const taskTypes = task_epic_burndown_normalize_list(qr.get_filter_value("task_types"));
+			const issueTypesFilter = qr.get_filter("issue_types");
+			if (!issueTypesFilter) {
+				return;
+			}
+			if (!taskTypes.includes("Issue")) {
+				issueTypesFilter.set_value([]);
+			}
+			qr.refresh_filters_dependency();
 		}
 
 		/** Query Report omits falsy values from get_filter_values(); Check returns 0 when off. */
@@ -185,6 +293,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 			const excludeGroupTasks = getCheckFilterValue("exclude_group_tasks", true);
 			const showCompletionForecastFilter = getCheckFilterValue("show_completion_forecast", false);
 			const useTaskWeight = getCheckFilterValue("use_task_weight", false);
+			const taskTypes = task_epic_burndown_normalize_list(filters.task_types);
+			const issueTypes = task_epic_burndown_normalize_list(filters.issue_types);
 
 			frappe.require(
 				["/assets/dinext_common/js/echarts.min.js"],
@@ -202,6 +312,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 							forecast_periods: filters.forecast_periods || 6,
 							show_completion_forecast: showCompletionForecastFilter ? 1 : 0,
 							use_task_weight: useTaskWeight ? 1 : 0,
+							task_type_filters: taskTypes,
+							issue_type_filters: taskTypes.includes("Issue") ? issueTypes : [],
 						},
 						callback: function (r) {
 							if (requestId !== renderRequestId) {
@@ -1100,7 +1212,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 			);
 		}
 
+		applyBurndownStyle();
 		bindFilterAutoRefresh();
+		ensureIssueTypeFilterState();
 		window.__task_epic_burndown_render = renderBurndown;
 		window.__task_epic_burndown_schedule = scheduleRender;
 
@@ -1161,3 +1275,15 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}
 	},
 };
+
+function applyBurndownStyle() {
+	var styles = `
+        .multiselect-list.dropdown {
+	        width: 100%;
+        }
+    `;
+
+	var styleSheet = document.createElement("style");
+	styleSheet.textContent = styles;
+	document.head.appendChild(styleSheet);
+}
