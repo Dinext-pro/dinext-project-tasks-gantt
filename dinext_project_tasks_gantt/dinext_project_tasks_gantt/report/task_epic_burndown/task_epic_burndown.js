@@ -110,6 +110,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 			return value || fallback;
 		}
 
+		function getEChartsThemeName() {
+			const root = document.documentElement;
+			return root && root.getAttribute("data-theme") === "dark" ? "dark" : undefined;
+		}
+
 		function scheduleRender(delay = 120) {
 			if (renderTimer) {
 				clearTimeout(renderTimer);
@@ -288,26 +293,72 @@ frappe.query_reports["Task Epic Burndown"] = {
 								}
 								return text;
 							};
-							const segmentColors = {
-								created: "#0b2f5a",
-								open: "#1f77b4",
-								completed: "#6fdc6f",
-								created_completed: "#0f5b5b",
-							};
-							const segmentLabelColor = {
-								created: "#ffffff",
-								open: "#ffffff",
-								completed: "#0a5c0a",
-								created_completed: "#a8ffb0",
-							};
-							const segmentLabelColorForecast = {
-								created: "#ffffff",
-								open: "#ffffff",
-								completed: "#02240a",
-								created_completed: "#e6ffea",
-							};
+							const isDark = getEChartsThemeName() === "dark";
+							const segmentColors = isDark
+								? {
+										created: "#3d6fa8",
+										open: "#5eb0e8",
+										completed: "#4d9e5c",
+										created_completed: "#3d9090",
+									}
+								: {
+										created: "#0b2f5a",
+										open: "#1f77b4",
+										completed: "#6fdc6f",
+										created_completed: "#0f5b5b",
+									};
+							const segmentLabelColor = isDark
+								? {
+										created: "#f8fafc",
+										open: "#f8fafc",
+										completed: "#bbf7d0",
+										created_completed: "#ccfbf1",
+									}
+								: {
+										created: "#ffffff",
+										open: "#ffffff",
+										completed: "#0a5c0a",
+										created_completed: "#a8ffb0",
+									};
+							const segmentLabelColorForecast = isDark
+								? {
+										created: "#f8fafc",
+										open: "#f8fafc",
+										completed: "#86efac",
+										created_completed: "#ecfdf5",
+									}
+								: {
+										created: "#ffffff",
+										open: "#ffffff",
+										completed: "#02240a",
+										created_completed: "#e6ffea",
+									};
 							const forecastFillOpacity = 0.42;
-							const holidayBandFill = "rgba(120, 120, 120, 0.12)";
+							const holidayBandFill = isDark
+								? "rgba(148, 163, 184, 0.14)"
+								: "rgba(120, 120, 120, 0.12)";
+							const forecastBoundaryStroke = isDark
+								? "rgba(226, 232, 240, 0.88)"
+								: "rgba(70, 70, 70, 0.9)";
+							const axisTextColor = getThemeVariableColor(
+								"--text-color",
+								isDark ? "#d1d5db" : "#383838"
+							);
+							const gridLineColor = getThemeVariableColor(
+								"--border-color",
+								isDark ? "rgba(148, 163, 184, 0.22)" : "rgba(148, 163, 184, 0.28)"
+							);
+							const yAxisSplitLineColor = isDark
+								? "rgba(186, 198, 215, 0.52)"
+								: "rgba(71, 85, 105, 0.42)";
+							const tooltipBg = getThemeVariableColor(
+								"--popover-bg",
+								getThemeVariableColor("--card-bg", "#ffffff")
+							);
+							const tooltipBorder = getThemeVariableColor(
+								"--border-color",
+								isDark ? "#475569" : "#e2e8f0"
+							);
 							const waterfallData = [];
 							const holidayBandData = [];
 							const forecastBoundaryData = [];
@@ -455,11 +506,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 								$wrap.append($chartRoot);
 							}
 							const dom = $chartRoot.get(0);
-							if (!chart || chart.isDisposed()) {
-								chart = echarts.init(dom, null, { renderer: "canvas" });
-							} else {
-								chart.clear();
+							if (chart && !chart.isDisposed()) {
+								chart.dispose();
+								chart = null;
 							}
+							chart = echarts.init(dom, getEChartsThemeName(), { renderer: "canvas" });
 
 							chart.setOption(
 								{
@@ -476,14 +527,26 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 									tooltip: {
 										trigger: "item",
+										backgroundColor: tooltipBg,
+										borderColor: tooltipBorder,
+										borderWidth: 1,
+										textStyle: {
+											color: axisTextColor,
+										},
 										formatter: function (params) {
 											if (!params || !params.data) {
 												return "";
 											}
 											const rowData = params.data;
 											const lines = [
-												rowData.category +
-													'<table style="margin-top:4px;border-collapse:collapse;">',
+												'<span style="color:' +
+													axisTextColor +
+													';font-weight:600">' +
+													rowData.category +
+													"</span>" +
+													'<table style="margin-top:4px;border-collapse:collapse;color:' +
+													axisTextColor +
+													'">',
 											];
 											const row = (k, v) =>
 												"<tr><td style=\"padding:2px 8px 2px 0\">" +
@@ -518,6 +581,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 										right: 8,
 										top: 4,
 										itemSize: 16,
+										iconStyle: {
+											borderColor: getThemeVariableColor("--text-muted", axisTextColor),
+										},
 										feature: {
 											saveAsImage: {
 												title: __("Save as Image"),
@@ -534,19 +600,57 @@ frappe.query_reports["Task Epic Burndown"] = {
 											__("Created in period"),
 											__("Created and completed"),
 										],
+										textStyle: {
+											color: axisTextColor,
+											fontSize: 12,
+										},
 									},
 									grid: { left: 48, right: 24, top: 48, bottom: 80 },
 									xAxis: {
 										type: "category",
 										data: cats,
-										axisLabel: { rotate: cats.length > 8 ? 35 : 0 },
+										axisLine: {
+											lineStyle: {
+												color: gridLineColor,
+											},
+										},
+										axisLabel: {
+											rotate: cats.length > 8 ? 35 : 0,
+											color: axisTextColor,
+										},
+										splitLine: {
+											show: true,
+											lineStyle: {
+												color: gridLineColor,
+												type: "dashed",
+											},
+										},
 									},
 									yAxis: {
 										type: "value",
 										name: d.y_axis_label || "",
+										nameTextStyle: {
+											color: axisTextColor,
+										},
 										scale: false,
 										min: 0,
 										max: shiftedYMax,
+										axisLine: {
+											show: true,
+											lineStyle: {
+												color: gridLineColor,
+											},
+										},
+										axisLabel: {
+											color: axisTextColor,
+										},
+										splitLine: {
+											show: true,
+											lineStyle: {
+												color: yAxisSplitLineColor,
+												type: "dashed",
+											},
+										},
 									},
 									series: [
 										{
@@ -635,7 +739,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 															},
 															transition: ["shape", "style"],
 															style: {
-																stroke: "rgba(70, 70, 70, 0.9)",
+																stroke: forecastBoundaryStroke,
 																lineWidth: 3,
 																lineDash: [6, 4],
 																opacity: 1,
@@ -851,6 +955,41 @@ frappe.query_reports["Task Epic Burndown"] = {
 
 		bindFilterAutoRefresh();
 		window.__task_epic_burndown_render = renderBurndown;
+		window.__task_epic_burndown_schedule = scheduleRender;
+
+		function ensureBurndownThemeObserver() {
+			if (typeof MutationObserver === "undefined" || window.__task_epic_burndown_theme_observed) {
+				return;
+			}
+			window.__task_epic_burndown_theme_observed = true;
+			const root = document.documentElement;
+			if (!root) {
+				return;
+			}
+			let theme = root.getAttribute("data-theme");
+			const observer = new MutationObserver(function () {
+				const next = root.getAttribute("data-theme");
+				if (next === theme) {
+					return;
+				}
+				theme = next;
+				const qr = frappe.query_report;
+				if (!qr || typeof qr.get_filter_values !== "function") {
+					return;
+				}
+				const fv = qr.get_filter_values();
+				if (!fv || !fv.project) {
+					return;
+				}
+				if (typeof window.__task_epic_burndown_schedule === "function") {
+					window.__task_epic_burndown_schedule(0);
+				}
+			});
+			observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+		}
+
+		ensureBurndownThemeObserver();
+
 		setTimeout(function () {
 			scheduleRender(0);
 		}, 400);
