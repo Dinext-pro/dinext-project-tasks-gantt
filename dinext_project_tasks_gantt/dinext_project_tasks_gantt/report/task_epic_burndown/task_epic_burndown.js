@@ -12,6 +12,52 @@ function task_epic_burndown_strip_standard_toolbar() {
 	});
 }
 
+function task_epic_burndown_format_summaryPercent(value) {
+	const n = Number(value);
+	if (!Number.isFinite(n)) {
+		return "0";
+	}
+	return String(Math.round(n));
+}
+
+function task_epic_burndown_render_summary($summaryEl, d) {
+	if (!$summaryEl || !$summaryEl.length) {
+		return;
+	}
+	const s = d && d.summary;
+	if (!s) {
+		$summaryEl.empty();
+		return;
+	}
+	const isDark =
+		document.documentElement && document.documentElement.getAttribute("data-theme") === "dark";
+	const muted = isDark ? "#94a3b8" : "#64748b";
+	const unsetStrong = isDark ? "#fb7185" : "#e11d48";
+	const doneStrong = isDark ? "#38bdf8" : "#0b2f5a";
+	const pDone = task_epic_burndown_format_summaryPercent(s.completed_percent);
+	const volumeLabel = (d && (d.y_axis_label || d.measure)) || "";
+	const volumeText = String(volumeLabel);
+	const completedTailRaw = volumeText
+		? __("completed ({0})", [volumeText])
+		: __("completed");
+	const completedTail = frappe.utils.escape_html(String(completedTailRaw));
+	const unestimatedLabel = frappe.utils.escape_html(String(__("Tasks without estimate")));
+	const unsetNames = Array.isArray(s.unestimated_task_names) ? s.unestimated_task_names : [];
+	const unsetClickable = s.show_unestimated && unsetNames.length > 0;
+	const unsetTitle = frappe.utils.escape_html(String(__("Open task list")));
+	const unsetCursor = unsetClickable ? "cursor:pointer;" : "";
+	const unsetClass = unsetClickable ? " task-epic-burndown-summary-unestimated" : "";
+	let left = "";
+	if (s.show_unestimated) {
+		const pUnset = task_epic_burndown_format_summaryPercent(s.unestimated_percent);
+		left = `<span class="${unsetClass.trim()}" style="margin-right:22px;display:inline-block;vertical-align:middle;${unsetCursor}" title="${unsetTitle}"><strong style="color:${unsetStrong};font-weight:600;">${pUnset}%</strong> <span style="color:${muted};font-size:12px;">${unestimatedLabel}</span></span>`;
+	}
+	const right = `<span style="display:inline-block;vertical-align:middle;"><strong style="color:${doneStrong};font-weight:600;">${pDone}%</strong> <span style="color:${muted};font-size:12px;">${completedTail}</span></span>`;
+	$summaryEl.html(
+		`<div class="task-epic-burndown-summary-inner" style="width:100%;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-start;margin:8px 0 4px 0;padding:0 4px;">${left}${right}</div>`
+	);
+}
+
 function task_epic_burndown_normalize_list(value) {
 	if (!value) {
 		return [];
@@ -168,33 +214,83 @@ frappe.query_reports["Task Epic Burndown"] = {
 
 	onload: function (report) {
 		let $wrap = null;
-		if (report.page && report.page.main) {
-			$wrap = report.page.main.find(".task-epic-burndown-chart").first();
-			if (!$wrap.length) {
-				$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
-				report.page.main.prepend($wrap);
+		let $summary = null;
+
+		function ensureContainers() {
+			if (report.page && report.page.main) {
+				const $main = report.page.main;
+				$wrap = $main.find(".task-epic-burndown-chart").first();
+				if (!$wrap.length) {
+					$wrap = $(
+						'<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>'
+					);
+					$main.prepend($wrap);
+				}
+				$summary = $main.find(".task-epic-burndown-summary").first();
+				if (!$summary.length) {
+					$summary = $('<div class="task-epic-burndown-summary" style="width:100%;"></div>');
+					$main.prepend($summary);
+				}
+				$summary.insertBefore($wrap);
+			} else if (report.parent) {
+				const $parent = $(report.parent);
+				$wrap = $parent.find(".task-epic-burndown-chart").first();
+				if (!$wrap.length) {
+					$wrap = $(
+						'<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>'
+					);
+					$parent.prepend($wrap);
+				}
+				$summary = $parent.find(".task-epic-burndown-summary").first();
+				if (!$summary.length) {
+					$summary = $('<div class="task-epic-burndown-summary" style="width:100%;"></div>');
+					$parent.prepend($summary);
+				}
+				$summary.insertBefore($wrap);
+			} else {
+				$wrap = $(
+					'<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>'
+				);
+				$summary = null;
 			}
-		} else if (report.parent) {
-			$wrap = $(report.parent).find(".task-epic-burndown-chart").first();
-			if (!$wrap.length) {
-				$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
-				$(report.parent).prepend($wrap);
-			}
-		} else {
-			$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
+			report.$chart_area = $wrap;
 		}
-		report.$chart_area = $wrap;
+
+		ensureContainers();
+
+		let lastUnestimatedTaskNames = [];
+		let lastSummaryProject = null;
+		if ($summary && $summary.length) {
+			$summary.off("click.task_epic_burndown_unset");
+			$summary.on("click.task_epic_burndown_unset", ".task-epic-burndown-summary-unestimated", function () {
+				if (!lastSummaryProject || !lastUnestimatedTaskNames || !lastUnestimatedTaskNames.length) {
+					return;
+				}
+				frappe.route_options = {
+					project: ["=", lastSummaryProject],
+					name: ["in", lastUnestimatedTaskNames],
+				};
+				frappe.set_route("List", "Task");
+			});
+		}
 
 		let chart = null;
 		let renderTimer = null;
 		let renderRequestId = 0;
 
 		function destroyChart() {
+			lastSummaryProject = null;
+			lastUnestimatedTaskNames = [];
 			if (chart) {
 				chart.dispose();
 				chart = null;
 			}
-			$wrap.empty();
+			if ($wrap && $wrap.length) {
+				$wrap.empty();
+			}
+			if ($summary && $summary.length) {
+				$summary.empty();
+			}
 		}
 
 		function getThemeVariableColor(variableName, fallback) {
@@ -286,6 +382,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				destroyChart();
 				return;
 			}
+			ensureContainers();
 			const requestId = ++renderRequestId;
 			const measureKey = (filters.measure || "hours").toLowerCase();
 			const useProgress =
@@ -320,9 +417,20 @@ frappe.query_reports["Task Epic Burndown"] = {
 								return;
 							}
 							if (!r.message || r.exc) {
+								lastSummaryProject = null;
+								lastUnestimatedTaskNames = [];
+								if ($summary && $summary.length) {
+									$summary.empty();
+								}
 								return;
 							}
 							const d = r.message;
+							lastSummaryProject = filters.project;
+							lastUnestimatedTaskNames =
+								d.summary && Array.isArray(d.summary.unestimated_task_names)
+									? d.summary.unestimated_task_names.slice()
+									: [];
+							task_epic_burndown_render_summary($summary, d);
 							const z = (a) => (a || []).map((x) => (x === null || x === undefined ? 0 : x));
 							const cats = d.categories || [];
 							const created = z(d.created || d.added);

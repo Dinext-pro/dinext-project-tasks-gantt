@@ -1840,6 +1840,59 @@ def get_burndown_series(
 	)
 
 
+def _task_epic_burndown_chart_summary(
+	tasks: list[dict],
+	measure: str,
+	use_task_weight: bool,
+	completed_total: list[float],
+	total_forecast_volume: float,
+) -> dict[str, Any]:
+	"""Summary metrics for Task Epic Burndown header (same task scope as the chart)."""
+	total_task_count = len(tasks)
+	total_volume = flt(total_forecast_volume)
+	completed_volume = sum(flt(x) for x in completed_total)
+	completed_percent = (100.0 * completed_volume / total_volume) if total_volume > 1e-9 else 0.0
+
+	show_unestimated = False
+	unestimated_count = 0
+	unestimated_task_names: list[str] = []
+	if measure == "hours" or measure == "story_points":
+		show_unestimated = total_task_count > 0
+		unestimated_task_names = sorted(
+			n
+			for t in tasks
+			if (n := (t.get("name") or "").strip())
+			and flt(t.get("volume")) <= 0.0
+		)
+		unestimated_count = len(unestimated_task_names)
+	elif measure == "task_count" and use_task_weight:
+		show_unestimated = total_task_count > 0
+		unestimated_task_names = sorted(
+			n
+			for t in tasks
+			if (n := (t.get("name") or "").strip())
+			and flt(t.get("task_weight")) <= 0.0
+		)
+		unestimated_count = len(unestimated_task_names)
+
+	unestimated_percent = (
+		(100.0 * float(unestimated_count) / float(total_task_count))
+		if show_unestimated and total_task_count
+		else 0.0
+	)
+
+	return {
+		"show_unestimated": bool(show_unestimated),
+		"unestimated_count": int(unestimated_count),
+		"unestimated_task_names": unestimated_task_names,
+		"total_task_count": int(total_task_count),
+		"unestimated_percent": round(unestimated_percent, 2),
+		"completed_volume": round(completed_volume, 6),
+		"total_volume": round(total_volume, 6),
+		"completed_percent": round(completed_percent, 2),
+	}
+
+
 def _period_volume_burndown(
 	project: str,
 	fd: date,
@@ -1980,6 +2033,13 @@ def _period_volume_burndown(
 
 	categories = [bucket[0] for bucket in buckets]
 	completed_total = [flt(completed[i]) + flt(created_completed[i]) for i in range(len(categories))]
+	summary = _task_epic_burndown_chart_summary(
+		tasks,
+		measure,
+		use_task_weight,
+		completed_total,
+		total_forecast_volume,
+	)
 	velocity_completed_total = forecast_completed_total if not use_progress else completed_total
 	fact_end_idx = _fact_end_index(buckets)
 	forecast_completed = [0.0 for _ in categories]
@@ -2051,6 +2111,7 @@ def _period_volume_burndown(
 	return {
 		"measure": measure,
 		"categories": categories,
+		"summary": summary,
 		"created": created,
 		"open": open_volume,
 		"completed": completed,
