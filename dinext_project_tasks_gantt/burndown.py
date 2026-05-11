@@ -16,7 +16,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import Coalesce, Date, IfNull, Sum
+from frappe.query_builder.functions import Coalesce, Date, IfNull, Min, Sum
 from frappe.utils import add_months, flt, get_datetime, getdate
 
 UTP_STATUS_APPROVED = "Согласовано"
@@ -338,9 +338,16 @@ def _load_task_volume_rows(
 	tasks = frappe.get_all("Task", filters={"name": ["in", task_names]}, fields=fields)
 	sp_map = _story_point_map() if measure == "story_points" else {}
 	pwe_by_task = _pwe_plan_by_task(project, task_names) if measure == "hours" else {}
+	hours_creation_by_task = _utp_min_date_by_task(project, task_names) if measure == "hours" else {}
 
 	for task in tasks:
 		task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task, use_task_weight)
+		if measure == "hours":
+			created_on = getdate(task.get("creation")) if task.get("creation") else None
+			utp_created_on = hours_creation_by_task.get(task.get("name"))
+			task["hours_creation"] = utp_created_on if utp_created_on and (
+				not created_on or utp_created_on < created_on
+			) else created_on
 	return tasks
 
 
@@ -369,7 +376,7 @@ def _scope_start(task: dict) -> date | None:
 
 
 def _creation_date(task: dict) -> date | None:
-	value = task.get("creation")
+	value = task.get("hours_creation") or task.get("creation")
 	return getdate(value) if value else None
 
 
@@ -1435,6 +1442,61 @@ def _utp_sum_hours(
 	return flt(row[0].hours) if row else 0.0
 
 
+def _utp_hours_by_task(
+	project: str, date_from: date, date_to: date, task_names: list[str] | None
+) -> dict[str, float]:
+	if task_names is not None and not task_names:
+		return {}
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	query = (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.select(
+			utp.document_name.as_("task_name"),
+			Sum(IfNull(detail.hours, 0)).as_("hours"),
+		)
+		.where(utp.project == project)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+		.where(detail.date.between(date_from, date_to))
+		.groupby(utp.document_name)
+	)
+	if task_names is not None:
+		query = query.where(utp.document_name.isin(task_names))
+	rows = query.run(as_dict=True)
+	return {row.task_name: flt(row.hours) for row in rows if row.get("task_name")}
+
+
+def _utp_min_date_by_task(project: str, task_names: list[str] | None = None) -> dict[str, date]:
+	if task_names is not None and not task_names:
+		return {}
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	query = (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.select(
+			utp.document_name.as_("task_name"),
+			Min(detail.date).as_("min_date"),
+		)
+		.where(utp.project == project)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+		.groupby(utp.document_name)
+	)
+	if task_names is not None:
+		query = query.where(utp.document_name.isin(task_names))
+	rows = query.run(as_dict=True)
+	return {
+		row.task_name: getdate(row.min_date)
+		for row in rows
+		if row.get("task_name") and row.get("min_date")
+	}
+
+
 def _as_bool(value: Any, default: bool = True) -> bool:
 	if value is None:
 		return default
@@ -1468,12 +1530,10 @@ def get_burndown_series(
 		fd, td = td, fd
 
 	exclude_group = _as_bool(exclude_group_tasks)
-	progress_enabled = _as_bool(use_progress)
 	show_completion_forecast = _as_bool(show_completion_forecast, default=False)
 	use_task_weight_flag = _as_bool(use_task_weight, default=False)
 	measure = (measure or "hours").lower()
 	group_by = (group_by or "month").lower()
-
 	if measure == "hours":
 		return _period_volume_burndown(
 			project,
@@ -1482,10 +1542,11 @@ def get_burndown_series(
 			group_by,
 			"hours",
 			exclude_group,
-			progress_enabled,
+			False,
 			show_completion_forecast,
 			use_task_weight=False,
 		)
+	progress_enabled = _as_bool(use_progress)
 	if measure in ("story_points", "story_point", "sp"):
 		return _period_volume_burndown(
 			project,
@@ -1535,10 +1596,58 @@ def _period_volume_burndown(
 	created_completed: list[float] = []
 	forecast_completed_total: list[float] = []
 	task_filters = {"created": [], "open": [], "completed": [], "created_completed": []}
+	total_forecast_volume = sum(flt(task.get("volume")) for task in tasks)
 	for _label, bs, be in buckets:
 		created_tasks = _tasks_created_from_rows(tasks, bs, be)
 		created_task_names = [task["name"] for task in created_tasks]
 		created_raw = sum(flt(task.get("volume")) for task in created_tasks)
+		if measure == "hours":
+			bucket_hours_by_task = _utp_hours_by_task(project, bs, be, task_names)
+			cumulative_hours_by_task = _utp_hours_by_task(project, fd, be, task_names)
+			eligible_open_tasks = []
+			for task in tasks:
+				created_on = _creation_date(task)
+				if created_on and created_on > be:
+					continue
+				eligible_open_tasks.append(task)
+			eligible_forecast_volume = sum(flt(task.get("volume")) for task in eligible_open_tasks)
+			created_completed_names = sorted(
+				name for name in created_task_names if flt(bucket_hours_by_task.get(name)) > 0
+			)
+			created_completed_names_set = set(created_completed_names)
+			created_completed_value = sum(
+				flt(bucket_hours_by_task.get(name)) for name in created_completed_names
+			)
+			created_value = max(0.0, created_raw - created_completed_value)
+			completed_total_in_bucket = sum(flt(hours) for hours in bucket_hours_by_task.values())
+			completed_value = max(0.0, completed_total_in_bucket - created_completed_value)
+			completed_to_period = sum(flt(hours) for hours in cumulative_hours_by_task.values())
+			open_names = []
+			for task in eligible_open_tasks:
+				name = task["name"]
+				if name in created_task_names:
+					continue
+				remaining_hours = flt(task.get("volume")) - flt(cumulative_hours_by_task.get(name))
+				if remaining_hours > 0:
+					open_names.append(name)
+			open_volume.append(
+				max(0.0, eligible_forecast_volume - completed_to_period - created_raw - created_completed_value)
+			)
+			created.append(created_value)
+			created_completed.append(created_completed_value)
+			completed.append(completed_value)
+			forecast_completed_total.append(completed_total_in_bucket)
+			task_filters["created"].append(created_task_names)
+			task_filters["open"].append(sorted(open_names))
+			task_filters["completed"].append(
+				sorted(
+					name
+					for name, hours in bucket_hours_by_task.items()
+					if flt(hours) > 0 and name not in created_completed_names_set
+				)
+			)
+			task_filters["created_completed"].append(created_completed_names)
+			continue
 		open_volume.append(
 			_measure_open_scope_from_rows(
 				tasks, be, use_progress=use_progress, bucket_start=bs, progress_rows=progress_rows
@@ -1550,14 +1659,8 @@ def _period_volume_burndown(
 		progress_created_completed = _measure_created_and_completed_scope_from_rows(
 			tasks, progress_rows, bs, be, use_progress=use_progress
 		)
-		if measure == "hours":
-			actual_completed = _utp_sum_hours(project, bs, be, task_names)
-			actual_created_completed = _utp_sum_hours(project, bs, be, created_task_names)
-			completed_raw = actual_completed or progress_completed
-			created_completed_value = actual_created_completed or progress_created_completed
-		else:
-			completed_raw = progress_completed
-			created_completed_value = progress_created_completed
+		completed_raw = progress_completed
+		created_completed_value = progress_created_completed
 		created_completed_value = min(created_completed_value, completed_raw, created_raw)
 		created.append(max(0.0, created_raw - created_completed_value))
 		created_completed.append(created_completed_value)
@@ -1602,12 +1705,18 @@ def _period_volume_burndown(
 	forecast_from_index: int | None = None
 	if show_completion_forecast and categories and fact_end_idx >= 0 and fact_end_idx < len(categories) - 1:
 		_fact_label, _fact_bs, fact_be = buckets[fact_end_idx]
-		forecast_baseline_open = _measure_forecast_open_baseline_from_rows(
-			tasks,
-			fact_be,
-			use_progress=use_progress,
-			progress_rows=progress_rows,
-		)
+		if measure == "hours":
+			forecast_baseline_open = max(
+				0.0,
+				total_forecast_volume - _utp_sum_hours(project, fd, fact_be, task_names),
+			)
+		else:
+			forecast_baseline_open = _measure_forecast_open_baseline_from_rows(
+				tasks,
+				fact_be,
+				use_progress=use_progress,
+				progress_rows=progress_rows,
+			)
 		velocity_window = _velocity_window_values(
 			buckets, velocity_completed_total, fact_end_idx, group_by, holiday_dates
 		)
