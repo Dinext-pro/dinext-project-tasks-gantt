@@ -879,6 +879,7 @@ class TestForecastWithoutProgress(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
 	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
 	@patch(
 		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
 		return_value=[],
@@ -917,8 +918,9 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		self,
 		_mock_buckets,
 		_mock_tasks,
-		_mock_utp,
+		_mock_utp_sum,
 		_mock_utp_parent_names,
+		mock_utp_cumulative,
 		mock_utp_by_task,
 		_mock_progress,
 		_mock_holiday_list,
@@ -929,9 +931,12 @@ class TestForecastWithoutProgress(FrappeTestCase):
 			{"TASK-DONE": 1.5},
 			{"TASK-DONE": 1.5},
 			{"TASK-DONE": 1.5},
-			{"TASK-DONE": 3.0},
+		]
+		mock_utp_cumulative.side_effect = [
 			{"TASK-DONE": 1.5},
+			{"TASK-DONE": 3.0},
 			{"TASK-DONE": 4.5},
+			{"TASK-DONE": 3.0},
 		]
 		out = _period_volume_burndown(
 			project="PROJ-1",
@@ -945,7 +950,7 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		)
 
 		self.assertEqual(out["forecast_from_index"], 2)
-		self.assertEqual(out["forecast_remaining"], [13.5, 12.0, 12.0])
+		self.assertEqual(out["forecast_remaining"], [13.5, 12.0, 10.5])
 		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.5])
 
 
@@ -955,6 +960,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
 	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
 	@patch(
 		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
 		side_effect=[["UTP-OLD-0"], ["UTP-OLD-1"], ["UTP-NEW-CC"]],
@@ -992,6 +998,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		_mock_buckets,
 		_mock_tasks,
 		mock_utp_parent_names,
+		mock_utp_cumulative,
 		mock_utp_by_task,
 		_mock_utp_sum,
 		_mock_progress,
@@ -1000,8 +1007,10 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 	):
 		mock_utp_by_task.side_effect = [
 			{"TASK-OLD": 3.0},
-			{"TASK-OLD": 3.0},
 			{"TASK-OLD": 2.0, "TASK-NEW": 1.0},
+		]
+		mock_utp_cumulative.side_effect = [
+			{"TASK-OLD": 3.0},
 			{"TASK-OLD": 5.0, "TASK-NEW": 1.0},
 		]
 
@@ -1025,6 +1034,65 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["task_filters"]["created_completed"], [[], ["UTP-NEW-CC"]])
 		self.assertEqual(out["task_filters"]["completed"], [["UTP-OLD-0"], ["UTP-OLD-1"]])
 		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"], ["TASK-OLD"]])
+
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task", return_value={"TASK-OLD": 1.0})
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		return_value=["UTP-OLD"],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-OLD",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"progress": 0.0,
+				"volume": 10.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[("2026-05-10", date(2026, 5, 10), date(2026, 5, 10))],
+	)
+	def test_hours_open_subtracts_pre_period_approved_hours(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_utp_parent_names,
+		_mock_bucket_hours,
+		mock_cumulative_hours,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_cumulative_hours.return_value = {"TASK-OLD": 4.0}
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 10),
+			td=date(2026, 5, 10),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["created"], [0.0])
+		self.assertEqual(out["created_completed"], [0.0])
+		self.assertEqual(out["completed"], [1.0])
+		self.assertEqual(out["open"], [6.0])
+		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"]])
+		mock_cumulative_hours.assert_called_once()
 
 
 class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
@@ -1097,6 +1165,7 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
 	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
 	@patch(
 		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
 		side_effect=[[], [], ["UTP-LATE-CC"], [], []],
@@ -1129,6 +1198,7 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 		_mock_buckets,
 		_mock_tasks,
 		mock_utp_parent_names,
+		mock_utp_cumulative,
 		mock_utp_by_task,
 		_mock_utp_sum,
 		_mock_progress,
@@ -1137,12 +1207,14 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 	):
 		mock_utp_by_task.side_effect = [
 			{},
+			{"TASK-LATE": 2.0},
+			{},
+			{},
+		]
+		mock_utp_cumulative.side_effect = [
 			{},
 			{"TASK-LATE": 2.0},
 			{"TASK-LATE": 2.0},
-			{},
-			{"TASK-LATE": 2.0},
-			{},
 			{"TASK-LATE": 2.0},
 		]
 
@@ -1165,6 +1237,70 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["task_filters"]["created"], [[], ["TASK-LATE"], [], []])
 		self.assertEqual(out["task_filters"]["created_completed"], [[], ["UTP-LATE-CC"], [], []])
 		self.assertEqual(out["task_filters"]["completed"], [[], [], [], []])
+
+
+class TestCumulativeOpenAcrossMeasures(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-SP",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"progress": 0.0,
+				"volume": 8.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[("2026-05-10", date(2026, 5, 10), date(2026, 5, 10))],
+	)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows")
+	def test_story_points_open_uses_progress_history_before_filter_start(
+		self,
+		mock_load_progress_rows,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		progress_rows = [
+			{
+				"parent": "TASK-SP",
+				"changed_on": date(2026, 5, 5),
+				"old_progress": 0,
+				"new_progress": 50,
+			}
+		]
+
+		def load_progress_rows_side_effect(task_names, history_fd, history_td):
+			if history_fd == date(2026, 5, 1) and history_td == date(2026, 5, 10):
+				return progress_rows
+			return []
+
+		mock_load_progress_rows.side_effect = load_progress_rows_side_effect
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 10),
+			td=date(2026, 5, 10),
+			group_by="day",
+			measure="story_points",
+			exclude_group=False,
+			use_progress=True,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["created"], [0.0])
+		self.assertEqual(out["created_completed"], [0.0])
+		self.assertEqual(out["completed"], [0.0])
+		self.assertEqual(out["open"], [4.0])
+		self.assertEqual(out["task_filters"]["open"], [["TASK-SP"]])
+		mock_load_progress_rows.assert_called_once_with(["TASK-SP"], date(2026, 5, 1), date(2026, 5, 10))
 
 
 class TestGetBurndownSeriesHoursIgnoresUseProgress(FrappeTestCase):
