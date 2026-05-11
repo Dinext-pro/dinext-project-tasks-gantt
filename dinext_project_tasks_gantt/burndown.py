@@ -21,6 +21,7 @@ from frappe.utils import add_months, flt, get_datetime, getdate
 
 UTP_STATUS_APPROVED = "Согласовано"
 TASK_PERIOD_TYPES = {"phase": "Phase", "stage": "Stage", "sprint": "Sprint"}
+TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET = "__not_set__"
 
 
 def _fallback_company_holiday_list(company: str | None = None) -> str | None:
@@ -293,15 +294,111 @@ def _load_pwe_plan_rows(project: str, task_names: list[str] | None) -> list[dict
 	return query.run(as_dict=True)
 
 
+def _normalize_text_list(value: Any) -> list[str]:
+	if value is None:
+		return []
+	if isinstance(value, str):
+		text = value.strip()
+		if not text:
+			return []
+		if text.startswith("["):
+			try:
+				parsed = frappe.parse_json(text)
+			except Exception:
+				parsed = None
+			if parsed is not None:
+				return _normalize_text_list(parsed)
+		return [item.strip() for item in text.split(",") if item and item.strip()]
+	if isinstance(value, (list, tuple, set)):
+		return [str(item).strip() for item in value if str(item).strip()]
+	return [str(value).strip()]
+
+
+def _task_issue_name(task: dict[str, Any]) -> str | None:
+	return task.get("issue") or task.get("custom_linked_issue")
+
+
+def _issue_type_by_issue_names(issue_names: list[str]) -> dict[str, str]:
+	if not issue_names:
+		return {}
+	rows = frappe.get_all(
+		"Issue",
+		filters={"name": ["in", issue_names]},
+		fields=["name", "issue_type"],
+		limit_page_length=max(len(issue_names), 1),
+	)
+	return {
+		row["name"]: row.get("issue_type")
+		for row in rows
+		if row.get("name") and row.get("issue_type")
+	}
+
+
 def _task_name_list(
-	project: str, exclude_group: bool, task_type_filter: str | None
+	project: str,
+	exclude_group: bool,
+	task_type_filters: list[str] | None = None,
+	issue_type_filters: list[str] | None = None,
 ) -> list[str]:
-	filters: dict[str, Any] = {"project": project}
+	task_type_filters = _normalize_text_list(task_type_filters)
+	issue_type_filters = _normalize_text_list(issue_type_filters)
+	include_unset = TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET in task_type_filters
+	named_types = [
+		t
+		for t in task_type_filters
+		if t and t != TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET and t != "Sprint"
+	]
+	if task_type_filters and not include_unset and not named_types:
+		return []
+
+	base_filters: list[list[Any]] = [["project", "=", project]]
 	if exclude_group:
-		filters["is_group"] = 0
-	if task_type_filter:
-		filters["type"] = task_type_filter
-	return frappe.get_all("Task", filters=filters, pluck="name")
+		base_filters.append(["is_group", "=", 0])
+
+	fields = ["name", "type", "issue", "custom_linked_issue"] if issue_type_filters else ["name"]
+
+	if not task_type_filters:
+		tasks = frappe.get_all("Task", filters=base_filters, fields=fields, limit_page_length=0)
+	elif include_unset and not named_types:
+		base_filters.append(["type", "=", ""])
+		tasks = frappe.get_all("Task", filters=base_filters, fields=fields, limit_page_length=0)
+	elif include_unset and named_types:
+		or_filters = [["type", "in", named_types], ["type", "=", ""]]
+		tasks = frappe.get_all(
+			"Task",
+			filters=base_filters,
+			or_filters=or_filters,
+			fields=fields,
+			limit_page_length=0,
+		)
+	else:
+		type_filters: list[list[Any]] = (
+			[["type", "=", named_types[0]]]
+			if len(named_types) == 1
+			else [["type", "in", named_types]]
+		)
+		tasks = frappe.get_all(
+			"Task",
+			filters=base_filters + type_filters,
+			fields=fields,
+			limit_page_length=0,
+		)
+	if not issue_type_filters:
+		return [task["name"] for task in tasks if task.get("name")]
+	issue_task_rows = [task for task in tasks if task.get("type") == "Issue"]
+	issue_type_by_issue = _issue_type_by_issue_names(
+		sorted({_task_issue_name(task) for task in issue_task_rows if _task_issue_name(task)})
+	)
+	allowed_issue_types = set(issue_type_filters)
+	return [
+		task["name"]
+		for task in tasks
+		if task.get("name")
+		and (
+			task.get("type") != "Issue"
+			or issue_type_by_issue.get(_task_issue_name(task)) in allowed_issue_types
+		)
+	]
 
 
 def _pwe_plan_by_task(project: str, task_names: list[str] | None = None) -> dict[str, float]:
@@ -315,9 +412,14 @@ def _pwe_plan_by_task(project: str, task_names: list[str] | None = None) -> dict
 
 
 def _load_task_volume_rows(
-	project: str, exclude_group: bool, measure: str, use_task_weight: bool = False
+	project: str,
+	exclude_group: bool,
+	measure: str,
+	use_task_weight: bool = False,
+	task_type_filters: list[str] | None = None,
+	issue_type_filters: list[str] | None = None,
 ) -> list[dict]:
-	task_names = _task_name_list(project, exclude_group, None)
+	task_names = _task_name_list(project, exclude_group, task_type_filters, issue_type_filters)
 	if not task_names:
 		return []
 
@@ -349,6 +451,62 @@ def _load_task_volume_rows(
 				not created_on or utp_created_on < created_on
 			) else created_on
 	return tasks
+
+
+@frappe.whitelist()
+def get_project_task_type_options(project: str | None = None) -> list[dict[str, str]]:
+	if not project:
+		return []
+	if not frappe.has_permission("Project", "read", project):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	rows = frappe.get_all(
+		"Task",
+		filters={"project": project},
+		fields=["type"],
+		limit_page_length=0,
+	)
+	has_blank_type = any(not (row.get("type") or "").strip() for row in rows)
+	values = sorted({row.get("type") for row in rows if row.get("type") and row.get("type") != "Sprint"})
+	out = [{"label": value, "value": value, "description": ""} for value in values]
+	if has_blank_type:
+		out.insert(
+			0,
+			{
+				"label": _("Task type not set"),
+				"value": TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET,
+				"description": "",
+			},
+		)
+	return out
+
+
+@frappe.whitelist()
+def get_project_issue_type_options(project: str | None = None) -> list[dict[str, str]]:
+	if not project:
+		return []
+	if not frappe.has_permission("Project", "read", project):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	issue_task_rows = frappe.get_all(
+		"Task",
+		filters={"project": project, "type": "Issue"},
+		fields=["issue", "custom_linked_issue"],
+		limit_page_length=0,
+	)
+	issue_names = sorted(
+		{
+			row.get("issue") or row.get("custom_linked_issue")
+			for row in issue_task_rows
+			if row.get("issue") or row.get("custom_linked_issue")
+		}
+	)
+	values = sorted(
+		{
+			issue_type
+			for issue_type in _issue_type_by_issue_names(issue_names).values()
+			if issue_type
+		}
+	)
+	return [{"label": value, "value": value, "description": ""} for value in values]
 
 
 def _task_volume(
@@ -1614,10 +1772,12 @@ def get_burndown_series(
 	measure: str = "hours",
 	exclude_group_tasks: int | str = 1,
 	task_type_filter: str | None = None,
+	task_type_filters: list[str] | str | None = None,
 	forecast_periods: int = 6,
 	use_progress: int | str = 1,
 	show_completion_forecast: int | str = 0,
 	use_task_weight: int | str = 0,
+	issue_type_filters: list[str] | str | None = None,
 ) -> dict[str, Any]:
 	if not project:
 		frappe.throw(_("Project is required"))
@@ -1634,6 +1794,8 @@ def get_burndown_series(
 	use_task_weight_flag = _as_bool(use_task_weight, default=False)
 	measure = (measure or "hours").lower()
 	group_by = (group_by or "month").lower()
+	task_type_values = _normalize_text_list(task_type_filters or task_type_filter)
+	issue_type_values = _normalize_text_list(issue_type_filters)
 	if measure == "hours":
 		return _period_volume_burndown(
 			project,
@@ -1645,6 +1807,8 @@ def get_burndown_series(
 			False,
 			show_completion_forecast,
 			use_task_weight=False,
+			task_type_filters=task_type_values,
+			issue_type_filters=issue_type_values,
 		)
 	progress_enabled = _as_bool(use_progress)
 	if measure in ("story_points", "story_point", "sp"):
@@ -1658,6 +1822,8 @@ def get_burndown_series(
 			progress_enabled,
 			show_completion_forecast,
 			use_task_weight=False,
+			task_type_filters=task_type_values,
+			issue_type_filters=issue_type_values,
 		)
 	return _period_volume_burndown(
 		project,
@@ -1669,6 +1835,8 @@ def get_burndown_series(
 		progress_enabled,
 		show_completion_forecast,
 		use_task_weight=use_task_weight_flag,
+		task_type_filters=task_type_values,
+		issue_type_filters=issue_type_values,
 	)
 
 
@@ -1682,9 +1850,18 @@ def _period_volume_burndown(
 	use_progress: bool,
 	show_completion_forecast: bool = False,
 	use_task_weight: bool = False,
+	task_type_filters: list[str] | None = None,
+	issue_type_filters: list[str] | None = None,
 ) -> dict[str, Any]:
 	buckets = get_period_buckets(project, fd, td, group_by)
-	tasks = _load_task_volume_rows(project, exclude_group, measure, use_task_weight)
+	tasks = _load_task_volume_rows(
+		project,
+		exclude_group,
+		measure,
+		use_task_weight,
+		task_type_filters=task_type_filters,
+		issue_type_filters=issue_type_filters,
+	)
 	task_names = [task["name"] for task in tasks]
 	progress_rows = _load_progress_rows(task_names, _progress_history_start_for_tasks(tasks, fd), td)
 	holiday_list_name = _resolve_project_holiday_list(project)
