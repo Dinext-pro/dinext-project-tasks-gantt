@@ -56,6 +56,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			label: __("Use task progress"),
 			fieldtype: "Check",
 			default: 1,
+			depends_on: "eval: doc.measure != 'hours'",
 		},
 		{
 			fieldname: "show_completion_forecast",
@@ -149,7 +150,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 				return;
 			}
 			const requestId = ++renderRequestId;
-			const useProgress = getCheckFilterValue("use_progress", true);
+			const measureKey = (filters.measure || "hours").toLowerCase();
+			const useProgress =
+				measureKey === "hours" ? false : getCheckFilterValue("use_progress", true);
 			const excludeGroupTasks = getCheckFilterValue("exclude_group_tasks", true);
 			const showCompletionForecastFilter = getCheckFilterValue("show_completion_forecast", false);
 			const useTaskWeight = getCheckFilterValue("use_task_weight", false);

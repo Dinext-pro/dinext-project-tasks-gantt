@@ -9,9 +9,11 @@ from frappe.utils import getdate as frappe_getdate
 
 from dinext_project_tasks_gantt.burndown import (
 	_current_date_marker,
+	_creation_date,
 	_derive_start_scope_series,
 	_forecast_progress_to_completion,
 	get_task_progress_trend,
+	_load_task_volume_rows,
 	_mval,
 	_measure_completed_scope_from_rows,
 	_measure_created_scope_from_rows,
@@ -31,6 +33,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_task_volume,
 	_timesheet_limit_bands,
 	_timesheet_role_series_from_rows,
+	get_burndown_series,
 	get_period_buckets,
 	iter_day_buckets,
 	iter_task_type_period_buckets_from_rows,
@@ -875,6 +878,7 @@ class TestForecastWithoutProgress(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
 	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
 	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=1.5)
 	@patch(
 		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
@@ -910,11 +914,20 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		_mock_buckets,
 		_mock_tasks,
 		_mock_utp,
+		mock_utp_by_task,
 		_mock_progress,
 		_mock_holiday_list,
 		_mock_holidays,
 		_mock_fact_end,
 	):
+		mock_utp_by_task.side_effect = [
+			{"TASK-DONE": 1.5},
+			{"TASK-DONE": 1.5},
+			{"TASK-DONE": 1.5},
+			{"TASK-DONE": 3.0},
+			{"TASK-DONE": 1.5},
+			{"TASK-DONE": 4.5},
+		]
 		out = _period_volume_burndown(
 			project="PROJ-1",
 			fd=date(2026, 5, 3),
@@ -927,5 +940,269 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		)
 
 		self.assertEqual(out["forecast_from_index"], 2)
-		self.assertEqual(out["forecast_remaining"], [15.0, 10.0, 7.5])
-		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 2.5])
+		self.assertEqual(out["forecast_remaining"], [13.5, 12.0, 12.0])
+		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.5])
+
+
+class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-OLD",
+				"creation": date(2026, 4, 20),
+				"exp_start_date": date(2026, 4, 20),
+				"status": "Working",
+				"progress": 80.0,
+				"volume": 10.0,
+			},
+			{
+				"name": "TASK-NEW",
+				"creation": date(2026, 5, 2),
+				"exp_start_date": date(2026, 5, 2),
+				"status": "Open",
+				"progress": 0.0,
+				"volume": 6.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-05-01", date(2026, 5, 1), date(2026, 5, 1)),
+			("2026-05-02", date(2026, 5, 2), date(2026, 5, 2)),
+		],
+	)
+	def test_hours_buckets_use_only_approved_timesheet_hours_and_residual_open(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		mock_utp_by_task,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_utp_by_task.side_effect = [
+			{"TASK-OLD": 3.0},
+			{"TASK-OLD": 3.0},
+			{"TASK-OLD": 2.0, "TASK-NEW": 1.0},
+			{"TASK-OLD": 5.0, "TASK-NEW": 1.0},
+		]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 1),
+			td=date(2026, 5, 2),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["created"], [0.0, 5.0])
+		self.assertEqual(out["created_completed"], [0.0, 1.0])
+		self.assertEqual(out["completed"], [3.0, 2.0])
+		self.assertEqual(out["open"], [7.0, 3.0])
+		self.assertEqual(out["remaining"], [7.0, 3.0])
+		self.assertEqual(out["task_filters"]["created"], [[], ["TASK-NEW"]])
+		self.assertEqual(out["task_filters"]["created_completed"], [[], ["TASK-NEW"]])
+		self.assertEqual(out["task_filters"]["completed"], [["TASK-OLD"], ["TASK-OLD"]])
+		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"], ["TASK-OLD"]])
+
+
+class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown._task_name_list", return_value=["TASK-LATE"])
+	@patch("dinext_project_tasks_gantt.burndown._story_point_map", return_value={})
+	@patch("dinext_project_tasks_gantt.burndown._utp_min_date_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._pwe_plan_by_task", return_value={"TASK-LATE": 8.0})
+	@patch(
+		"dinext_project_tasks_gantt.burndown.frappe.get_all",
+		return_value=[
+			{
+				"name": "TASK-LATE",
+				"creation": "2026-05-10 09:00:00",
+				"progress": 0.0,
+				"status": "Open",
+				"completed_on": None,
+				"closing_date": None,
+				"story_point": None,
+				"task_weight": 0,
+				"exp_start_date": None,
+				"exp_end_date": None,
+				"custom_planned_start_date": None,
+				"custom_planned_end_date": None,
+			}
+		],
+	)
+	def test_load_task_volume_rows_uses_earliest_approved_utp_date_for_hours_only(
+		self,
+		_mock_get_all,
+		_mock_pwe,
+		mock_min_date,
+		_mock_story_point_map,
+		_mock_task_name_list,
+	):
+		mock_min_date.return_value = {"TASK-LATE": date(2026, 5, 8)}
+
+		hours_tasks = _load_task_volume_rows(
+			project="PROJ-1", exclude_group=False, measure="hours", use_task_weight=False
+		)
+		self.assertEqual(hours_tasks[0]["hours_creation"], date(2026, 5, 8))
+		self.assertEqual(_creation_date(hours_tasks[0]), date(2026, 5, 8))
+
+		_mock_get_all.return_value = [
+			{
+				"name": "TASK-LATE",
+				"creation": "2026-05-10 09:00:00",
+				"progress": 0.0,
+				"status": "Open",
+				"completed_on": None,
+				"closing_date": None,
+				"story_point": None,
+				"task_weight": 0,
+				"exp_start_date": None,
+				"exp_end_date": None,
+				"custom_planned_start_date": None,
+				"custom_planned_end_date": None,
+			}
+		]
+		mock_min_date.reset_mock()
+		mock_min_date.return_value = {"TASK-LATE": date(2026, 5, 8)}
+		story_point_tasks = _load_task_volume_rows(
+			project="PROJ-1", exclude_group=False, measure="story_points", use_task_weight=False
+		)
+		self.assertNotIn("hours_creation", story_point_tasks[0])
+		self.assertEqual(_creation_date(story_point_tasks[0]), date(2026, 5, 10))
+		mock_min_date.assert_not_called()
+
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-LATE",
+				"creation": date(2026, 5, 27),
+				"hours_creation": date(2026, 5, 26),
+				"exp_start_date": date(2026, 5, 27),
+				"status": "Open",
+				"progress": 0.0,
+				"volume": 8.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-05-25", date(2026, 5, 25), date(2026, 5, 25)),
+			("2026-05-26", date(2026, 5, 26), date(2026, 5, 26)),
+			("2026-05-27", date(2026, 5, 27), date(2026, 5, 27)),
+			("2026-05-28", date(2026, 5, 28), date(2026, 5, 28)),
+		],
+	)
+	def test_hours_buckets_use_effective_creation_from_earliest_approved_utp_date(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		mock_utp_by_task,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_utp_by_task.side_effect = [
+			{},
+			{},
+			{"TASK-LATE": 2.0},
+			{"TASK-LATE": 2.0},
+			{},
+			{"TASK-LATE": 2.0},
+			{},
+			{"TASK-LATE": 2.0},
+		]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 25),
+			td=date(2026, 5, 28),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["created"], [0.0, 6.0, 0.0, 0.0])
+		self.assertEqual(out["created_completed"], [0.0, 2.0, 0.0, 0.0])
+		self.assertEqual(out["completed"], [0.0, 0.0, 0.0, 0.0])
+		self.assertEqual(out["open"], [0.0, 0.0, 6.0, 6.0])
+		self.assertEqual(out["task_filters"]["open"], [[], [], ["TASK-LATE"], ["TASK-LATE"]])
+		self.assertEqual(out["task_filters"]["created"], [[], ["TASK-LATE"], [], []])
+		self.assertEqual(out["task_filters"]["created_completed"], [[], ["TASK-LATE"], [], []])
+
+
+class TestGetBurndownSeriesHoursIgnoresUseProgress(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown._period_volume_burndown")
+	def test_hours_always_passes_progress_disabled_to_burndown(
+		self, mock_pvb, _mock_perm
+	):
+		stub = {"measure": "hours", "categories": [], "use_progress": False}
+		mock_pvb.return_value = stub
+
+		out_on = get_burndown_series(
+			project="PROJ-1",
+			from_date="2026-05-01",
+			to_date="2026-05-31",
+			measure="hours",
+			use_progress=1,
+		)
+		self.assertIs(out_on, stub)
+		self.assertEqual(mock_pvb.call_args[0][6], False)
+
+		mock_pvb.reset_mock()
+		mock_pvb.return_value = stub
+		out_off = get_burndown_series(
+			project="PROJ-1",
+			from_date="2026-05-01",
+			to_date="2026-05-31",
+			measure="hours",
+			use_progress=0,
+		)
+		self.assertIs(out_off, stub)
+		self.assertEqual(mock_pvb.call_args[0][6], False)
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown._period_volume_burndown")
+	def test_story_points_respects_use_progress_flag(self, mock_pvb, _mock_perm):
+		mock_pvb.return_value = {"measure": "story_points", "categories": []}
+
+		get_burndown_series(
+			project="PROJ-1",
+			from_date="2026-05-01",
+			to_date="2026-05-31",
+			measure="story_points",
+			use_progress=1,
+		)
+		self.assertEqual(mock_pvb.call_args[0][6], True)
+
+		mock_pvb.reset_mock()
+		mock_pvb.return_value = {"measure": "story_points", "categories": []}
+		get_burndown_series(
+			project="PROJ-1",
+			from_date="2026-05-01",
+			to_date="2026-05-31",
+			measure="story_points",
+			use_progress=0,
+		)
+		self.assertEqual(mock_pvb.call_args[0][6], False)
