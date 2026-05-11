@@ -97,6 +97,19 @@ frappe.query_reports["Task Epic Burndown"] = {
 			$wrap.empty();
 		}
 
+		function getThemeVariableColor(variableName, fallback) {
+			if (
+				typeof getComputedStyle !== "function" ||
+				!document ||
+				!document.documentElement ||
+				!variableName
+			) {
+				return fallback;
+			}
+			const value = getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
+			return value || fallback;
+		}
+
 		function scheduleRender(delay = 120) {
 			if (renderTimer) {
 				clearTimeout(renderTimer);
@@ -499,6 +512,19 @@ frappe.query_reports["Task Epic Burndown"] = {
 											lines.push(row(__("Total visible volume"), formatValue(rowData.total || 0)));
 											lines.push("</table>");
 											return lines.join("");
+										},
+									},
+									toolbox: {
+										right: 8,
+										top: 4,
+										itemSize: 16,
+										feature: {
+											saveAsImage: {
+												title: __("Save as Image"),
+												name: "task-epic-burndown",
+												pixelRatio: 2,
+												backgroundColor: getThemeVariableColor("--card-bg", "#ffffff"),
+											},
 										},
 									},
 									legend: {
