@@ -575,6 +575,32 @@ def _task_names_open_from_rows(
 	]
 
 
+def _discrete_forecast_bucket_completion(tasks: list[dict], capacity: float) -> tuple[list[dict], float]:
+	if capacity <= 0 or not tasks:
+		return list(tasks), 0.0
+	remaining_capacity = flt(capacity)
+	selected_names: set[str] = set()
+	completed_total = 0.0
+	ordered_tasks = sorted(
+		tasks,
+		key=lambda task: (
+			flt(task.get("volume")),
+			getdate(created_on) if (created_on := _creation_date(task)) else date.max,
+			str(task.get("name") or ""),
+		),
+	)
+	for task in ordered_tasks:
+		volume = flt(task.get("volume"))
+		if volume <= 0:
+			continue
+		if volume <= remaining_capacity + 1e-9:
+			selected_names.add(task.get("name"))
+			completed_total += volume
+			remaining_capacity = max(0.0, remaining_capacity - volume)
+	remaining_tasks = [task for task in tasks if task.get("name") not in selected_names]
+	return remaining_tasks, completed_total
+
+
 def _task_names_completed_from_rows(
 	tasks: list[dict],
 	progress_rows: list[dict],
@@ -1807,15 +1833,38 @@ def _period_volume_burndown(
 		remaining_open = flt(forecast_baseline_open)
 		if velocity > 0 and remaining_open > 0:
 			forecast_from_index = fact_end_idx + 1
-			for index in range(forecast_from_index, len(categories)):
-				bucket_forecast = min(velocity, remaining_open)
-				forecast_completed[index] = bucket_forecast
-				remaining_open = max(0.0, remaining_open - bucket_forecast)
-				forecast_open[index] = remaining_open
-				if remaining_open <= 0:
-					for tail_index in range(index + 1, len(categories)):
-						forecast_open[tail_index] = 0.0
-					break
+			if measure != "hours" and not use_progress:
+				open_tasks_for_forecast = _tasks_open_from_rows(
+					tasks,
+					fact_be,
+					use_progress=False,
+					bucket_start=None,
+					progress_rows=progress_rows,
+				)
+				accumulated_capacity = 0.0
+				for index in range(forecast_from_index, len(categories)):
+					accumulated_capacity += velocity
+					open_tasks_for_forecast, bucket_forecast = _discrete_forecast_bucket_completion(
+						open_tasks_for_forecast, accumulated_capacity
+					)
+					accumulated_capacity = max(0.0, accumulated_capacity - bucket_forecast)
+					forecast_completed[index] = bucket_forecast
+					remaining_open = sum(flt(task.get("volume")) for task in open_tasks_for_forecast)
+					forecast_open[index] = remaining_open
+					if remaining_open <= 0:
+						for tail_index in range(index + 1, len(categories)):
+							forecast_open[tail_index] = 0.0
+						break
+			else:
+				for index in range(forecast_from_index, len(categories)):
+					bucket_forecast = min(velocity, remaining_open)
+					forecast_completed[index] = bucket_forecast
+					remaining_open = max(0.0, remaining_open - bucket_forecast)
+					forecast_open[index] = remaining_open
+					if remaining_open <= 0:
+						for tail_index in range(index + 1, len(categories)):
+							forecast_open[tail_index] = 0.0
+						break
 	y_label = {
 		"hours": _("Hours"),
 		"story_points": _("Story Points"),

@@ -953,6 +953,93 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		self.assertEqual(out["forecast_remaining"], [13.5, 12.0, 10.5])
 		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.5])
 
+	@patch("dinext_project_tasks_gantt.burndown._fact_end_index", return_value=1)
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-D1",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Completed",
+				"completed_on": date(2026, 5, 1),
+				"volume": 1.0,
+			},
+			{
+				"name": "TASK-D2",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Completed",
+				"completed_on": date(2026, 5, 2),
+				"volume": 1.0,
+			},
+			{
+				"name": "TASK-D3",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Completed",
+				"completed_on": date(2026, 5, 2),
+				"volume": 1.0,
+			},
+			{
+				"name": "TASK-O1",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"volume": 1.0,
+			},
+			{
+				"name": "TASK-O2",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"volume": 1.0,
+			},
+			{
+				"name": "TASK-O3",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"volume": 1.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-05-01", date(2026, 5, 1), date(2026, 5, 1)),
+			("2026-05-02", date(2026, 5, 2), date(2026, 5, 2)),
+			("2026-05-03", date(2026, 5, 3), date(2026, 5, 3)),
+			("2026-05-04", date(2026, 5, 4), date(2026, 5, 4)),
+		],
+	)
+	def test_task_count_forecast_without_progress_uses_whole_tasks(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+		_mock_fact_end,
+	):
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 1),
+			td=date(2026, 5, 4),
+			group_by="day",
+			measure="task_count",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=True,
+		)
+
+		self.assertEqual(out["forecast_from_index"], 2)
+		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.0, 2.0])
+		self.assertEqual(out["forecast_remaining"], [0.0, 3.0, 2.0, 0.0])
+
 
 class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
