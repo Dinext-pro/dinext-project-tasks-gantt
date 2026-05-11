@@ -710,7 +710,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									legend: {
 										show: true,
 										orient: "horizontal",
-										bottom: 40,
+										bottom: 24,
 										left: "center",
 										width: "92%",
 										z: 20,
@@ -718,7 +718,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										itemWidth: 18,
 										itemHeight: 10,
 										itemGap: 28,
-										padding: [8, 8, 6, 8],
+										padding: [8, 8, 2, 8],
 										data: legendData,
 										formatter: function (name) {
 											return legendDescriptionByName[name] || name;
@@ -733,7 +733,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										left: 48,
 										right: 24,
 										top: 52,
-										bottom: 132,
+										bottom: 56,
 										containLabel: true,
 									},
 									xAxis: {
