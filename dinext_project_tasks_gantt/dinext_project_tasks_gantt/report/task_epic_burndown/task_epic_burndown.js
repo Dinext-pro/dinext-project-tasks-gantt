@@ -512,8 +512,122 @@ frappe.query_reports["Task Epic Burndown"] = {
 							}
 							chart = echarts.init(dom, getEChartsThemeName(), { renderer: "canvas" });
 
+							const legendSegmentLabels = {
+								completed: __("Completed in period"),
+								open: __("Open at period end"),
+								created: __("Created in period"),
+								created_completed: __("Created and completed"),
+							};
+							const legendLCompleted = legendSegmentLabels.completed;
+							const legendLOpen = legendSegmentLabels.open;
+							const legendLCreated = legendSegmentLabels.created;
+							const legendLCreatedCompleted = legendSegmentLabels.created_completed;
+							const legendDescriptionByName = {
+								[legendLCompleted]:
+									legendLCompleted,
+								[legendLOpen]:
+									legendLOpen,
+								[legendLCreated]:
+									legendLCreated,
+								[legendLCreatedCompleted]:
+									legendLCreatedCompleted,
+							};
+							const legendData = [
+								{
+									name: legendLCompleted,
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.completed },
+								},
+								{
+									name: legendLOpen,
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.open },
+								},
+								{
+									name: legendLCreated,
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.created },
+								},
+								{
+									name: legendLCreatedCompleted,
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.created_completed },
+								},
+							];
+							const legendProxySeries = [
+								{
+									name: legendLCompleted,
+									type: "line",
+									color: segmentColors.completed,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.completed,
+									},
+									lineStyle: {
+										color: segmentColors.completed,
+										width: 8,
+									},
+								},
+								{
+									name: legendLOpen,
+									type: "line",
+									color: segmentColors.open,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.open,
+									},
+									lineStyle: {
+										color: segmentColors.open,
+										width: 8,
+									},
+								},
+								{
+									name: legendLCreated,
+									type: "line",
+									color: segmentColors.created,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.created,
+									},
+									lineStyle: {
+										color: segmentColors.created,
+										width: 8,
+									},
+								},
+								{
+									name: legendLCreatedCompleted,
+									type: "line",
+									color: segmentColors.created_completed,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.created_completed,
+									},
+									lineStyle: {
+										color: segmentColors.created_completed,
+										width: 8,
+									},
+								},
+							];
+
 							chart.setOption(
 								{
+									backgroundColor: "transparent",
 									animation: true,
 									animationDuration: 500,
 									animationEasing: "cubicOut",
@@ -594,18 +708,34 @@ frappe.query_reports["Task Epic Burndown"] = {
 										},
 									},
 									legend: {
-										data: [
-											__("Completed in period"),
-											__("Open at period end"),
-											__("Created in period"),
-											__("Created and completed"),
-										],
+										show: true,
+										orient: "horizontal",
+										bottom: 40,
+										left: "center",
+										width: "92%",
+										z: 20,
+										selectedMode: false,
+										itemWidth: 18,
+										itemHeight: 10,
+										itemGap: 28,
+										padding: [8, 8, 6, 8],
+										data: legendData,
+										formatter: function (name) {
+											return legendDescriptionByName[name] || name;
+										},
 										textStyle: {
 											color: axisTextColor,
-											fontSize: 12,
+											fontSize: 11,
+											lineHeight: 14,
 										},
 									},
-									grid: { left: 48, right: 24, top: 48, bottom: 80 },
+									grid: {
+										left: 48,
+										right: 24,
+										top: 52,
+										bottom: 132,
+										containLabel: true,
+									},
 									xAxis: {
 										type: "category",
 										data: cats,
@@ -635,6 +765,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										scale: false,
 										min: 0,
 										max: shiftedYMax,
+										minInterval: 1,
 										axisLine: {
 											show: true,
 											lineStyle: {
@@ -643,6 +774,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 										},
 										axisLabel: {
 											color: axisTextColor,
+											formatter: function (value) {
+												const n = Number(value);
+												return Number.isFinite(n) ? String(Math.round(n)) : value;
+											},
 										},
 										splitLine: {
 											show: true,
@@ -653,6 +788,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										},
 									},
 									series: [
+										...legendProxySeries,
 										{
 											name: "__holiday_bands",
 											type: "custom",
