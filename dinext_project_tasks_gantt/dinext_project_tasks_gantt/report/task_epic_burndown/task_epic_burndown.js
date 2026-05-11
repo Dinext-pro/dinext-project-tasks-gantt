@@ -1,6 +1,17 @@
 // Copyright (c) 2026, Dinext and contributors
 // For license information, please see license.txt
 
+function task_epic_burndown_strip_standard_toolbar() {
+	const page = frappe.query_report && frappe.query_report.page;
+	if (!page || typeof page.remove_inner_button !== "function") {
+		return;
+	}
+	const grp = __("Actions");
+	["Set Chart", "Add Chart to Dashboard", "Create Card", "Download Report"].forEach(function (lbl) {
+		page.remove_inner_button(lbl, grp);
+	});
+}
+
 frappe.query_reports["Task Epic Burndown"] = {
 	filters: [
 		{
@@ -1129,11 +1140,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 		setTimeout(function () {
 			scheduleRender(0);
 		}, 400);
-		if (report.page && report.page.add_inner_button) {
-			report.page.add_inner_button(__("Refresh chart"), function () {
-				scheduleRender(0);
-			});
-		}
 
 		$(window).on("resize.task_epic_burndown", function () {
 			if (chart) {
@@ -1146,6 +1152,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 		if (window.__task_epic_burndown_render) {
 			window.__task_epic_burndown_render();
 		}
+		setTimeout(task_epic_burndown_strip_standard_toolbar, 0);
 	},
 
 	after_datatable_refresh: function () {
