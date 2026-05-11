@@ -634,6 +634,11 @@ def _load_progress_rows(task_names: list[str], fd: date, td: date) -> list[dict]
 	)
 
 
+def _progress_history_start_for_tasks(tasks: list[dict], fallback_start: date) -> date:
+	start_candidates = [getdate(created_on) for task in tasks if (created_on := _creation_date(task))]
+	return min(start_candidates) if start_candidates else fallback_start
+
+
 def _period_progress_series(
 	buckets: list[tuple[str, date, date]], progress_rows: list[dict], current_progress: float | int | None
 ) -> list[float]:
@@ -1493,6 +1498,51 @@ def _utp_parent_names_in_bucket_for_tasks(
 	return sorted({row.get("name") for row in rows if row.get("name")})
 
 
+def _utp_cumulative_hours_by_task(
+	project: str, date_to: date, tasks: list[dict], task_names: list[str] | None = None
+) -> dict[str, float]:
+	if task_names is not None and not task_names:
+		return {}
+	task_start_dates = {
+		task["name"]: getdate(created_on)
+		for task in tasks
+		if task.get("name") and (created_on := _creation_date(task)) and getdate(created_on) <= date_to
+	}
+	if not task_start_dates:
+		return {}
+	query_start = min(task_start_dates.values())
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	query = (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.select(
+			utp.document_name.as_("task_name"),
+			detail.date.as_("work_date"),
+			IfNull(detail.hours, 0).as_("hours"),
+		)
+		.where(utp.project == project)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+		.where(detail.date.between(query_start, date_to))
+	)
+	if task_names is not None:
+		query = query.where(utp.document_name.isin(task_names))
+	rows = query.run(as_dict=True)
+	hours_by_task: dict[str, float] = {}
+	for row in rows:
+		task_name = row.get("task_name")
+		if not task_name:
+			continue
+		task_start = task_start_dates.get(task_name)
+		work_date = row.get("work_date")
+		if not task_start or not work_date or getdate(work_date) < task_start:
+			continue
+		hours_by_task[task_name] = flt(hours_by_task.get(task_name)) + flt(row.get("hours"))
+	return hours_by_task
+
+
 def _utp_min_date_by_task(project: str, task_names: list[str] | None = None) -> dict[str, date]:
 	if task_names is not None and not task_names:
 		return {}
@@ -1610,7 +1660,7 @@ def _period_volume_burndown(
 	buckets = get_period_buckets(project, fd, td, group_by)
 	tasks = _load_task_volume_rows(project, exclude_group, measure, use_task_weight)
 	task_names = [task["name"] for task in tasks]
-	progress_rows = _load_progress_rows(task_names, fd, td)
+	progress_rows = _load_progress_rows(task_names, _progress_history_start_for_tasks(tasks, fd), td)
 	holiday_list_name = _resolve_project_holiday_list(project)
 	holiday_dates = _holiday_dates_in_range(holiday_list_name, fd, td)
 
@@ -1627,7 +1677,7 @@ def _period_volume_burndown(
 		created_raw = sum(flt(task.get("volume")) for task in created_tasks)
 		if measure == "hours":
 			bucket_hours_by_task = _utp_hours_by_task(project, bs, be, task_names)
-			cumulative_hours_by_task = _utp_hours_by_task(project, fd, be, task_names)
+			cumulative_hours_by_task = _utp_cumulative_hours_by_task(project, be, tasks, task_names)
 			eligible_open_tasks = []
 			for task in tasks:
 				created_on = _creation_date(task)
@@ -1737,7 +1787,11 @@ def _period_volume_burndown(
 		if measure == "hours":
 			forecast_baseline_open = max(
 				0.0,
-				total_forecast_volume - _utp_sum_hours(project, fd, fact_be, task_names),
+				total_forecast_volume
+				- sum(
+					flt(hours)
+					for hours in _utp_cumulative_hours_by_task(project, fact_be, tasks, task_names).values()
+				),
 			)
 		else:
 			forecast_baseline_open = _measure_forecast_open_baseline_from_rows(
