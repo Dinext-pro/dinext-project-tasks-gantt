@@ -20,6 +20,63 @@ function task_epic_burndown_format_summaryPercent(value) {
 	return String(Math.round(n));
 }
 
+function task_epic_burndown_format_measure_value(d, value) {
+	const v = Number(value);
+	if (!Number.isFinite(v)) {
+		return "0";
+	}
+	const weightedTaskCount =
+		d &&
+		(d.use_task_weight === true ||
+			d.use_task_weight === 1 ||
+			String(d.use_task_weight || "").toLowerCase() === "true");
+	if (
+		d &&
+		(d.measure || "") === "task_count" &&
+		!d.use_progress &&
+		!weightedTaskCount
+	) {
+		return String(Math.round(v));
+	}
+	return v.toFixed(2);
+}
+
+function task_epic_burndown_render_forecast_legend($wrap, d) {
+	if (!$wrap || !$wrap.length) {
+		return;
+	}
+	$wrap.find(".task-epic-burndown-forecast-legend").remove();
+	const fs = d && d.forecast_summary;
+	if (!fs || fs.show !== true) {
+		return;
+	}
+	const isDark =
+		document.documentElement && document.documentElement.getAttribute("data-theme") === "dark";
+	function themeVar(name, fb) {
+		if (typeof getComputedStyle !== "function" || !document.documentElement) {
+			return fb;
+		}
+		const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+		return raw || fb;
+	}
+	const muted = themeVar("--text-muted", isDark ? "#94a3b8" : "#64748b");
+	const strong = themeVar("--text-color", isDark ? "#f1f5f9" : "#1e293b");
+	const title = frappe.utils.escape_html(String(fs.remaining_periods_label || ""));
+	const vel = task_epic_burndown_format_measure_value(d, fs.velocity);
+	const yUnit = frappe.utils.escape_html(String((d && d.y_axis_label) || ""));
+	const per = frappe.utils.escape_html(String(fs.period_label || ""));
+	const rem = task_epic_burndown_format_measure_value(d, fs.remaining_volume);
+	const volTail = frappe.utils.escape_html(String(fs.volume_label || ""));
+	const line2 = `${frappe.utils.escape_html(vel)} ${yUnit} / ${per}`;
+	const line3 = `${frappe.utils.escape_html(rem)} ${volTail}`;
+	const block = `<div class="task-epic-burndown-forecast-legend" style="position:absolute;top:0px;right:56px;z-index:30;max-width:46%;text-align:right;font-size:11px;line-height:1.35;pointer-events:none;">
+<div style="font-weight:600;color:${strong};">${title}</div>
+<div style="color:${muted};margin-top:2px;">${line2}</div>
+<div style="color:${muted};margin-top:1px;">${line3}</div>
+</div>`;
+	$wrap.append(block);
+}
+
 function task_epic_burndown_render_summary($summaryEl, d) {
 	if (!$summaryEl || !$summaryEl.length) {
 		return;
@@ -222,7 +279,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				$wrap = $main.find(".task-epic-burndown-chart").first();
 				if (!$wrap.length) {
 					$wrap = $(
-						'<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>'
+						'<div class="task-epic-burndown-chart" style="position:relative;width:100%;min-height:460px;margin-bottom:12px;"></div>'
 					);
 					$main.prepend($wrap);
 				}
@@ -237,7 +294,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				$wrap = $parent.find(".task-epic-burndown-chart").first();
 				if (!$wrap.length) {
 					$wrap = $(
-						'<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>'
+						'<div class="task-epic-burndown-chart" style="position:relative;width:100%;min-height:460px;margin-bottom:12px;"></div>'
 					);
 					$parent.prepend($wrap);
 				}
@@ -249,9 +306,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 				$summary.insertBefore($wrap);
 			} else {
 				$wrap = $(
-					'<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>'
+					'<div class="task-epic-burndown-chart" style="position:relative;width:100%;min-height:460px;margin-bottom:12px;"></div>'
 				);
 				$summary = null;
+			}
+			if ($wrap && $wrap.length) {
+				$wrap.css("position", "relative");
 			}
 			report.$chart_area = $wrap;
 		}
@@ -421,6 +481,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 								lastUnestimatedTaskNames = [];
 								if ($summary && $summary.length) {
 									$summary.empty();
+								}
+								if ($wrap && $wrap.length) {
+									$wrap.find(".task-epic-burndown-forecast-legend").remove();
 								}
 								return;
 							}
@@ -736,6 +799,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 								$chartRoot = $('<div class="task-epic-burndown-chart-root" style="width:100%;min-height:460px;"></div>');
 								$wrap.append($chartRoot);
 							}
+							task_epic_burndown_render_forecast_legend($wrap, d);
 							const dom = $chartRoot.get(0);
 							if (chart && !chart.isDisposed()) {
 								chart.dispose();
