@@ -1246,6 +1246,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 													if (height < 16) {
 														return null;
 													}
+													const textY = Math.min(topY, bottomY) + height / 2;
+													const isVerticalDayLabel = isDayGroup;
 													const labelPalette = rowData.isForecast
 														? segmentLabelColorForecast
 														: segmentLabelColor;
@@ -1253,17 +1255,23 @@ frappe.query_reports["Task Epic Burndown"] = {
 														type: "text",
 														id: `${rowData.category}-${segment}-text`,
 														silent: true,
+														rotation: isVerticalDayLabel ? Math.PI / 2 : 0,
+														originX: xCenter,
+														originY: textY,
 														enterFrom: {
+															rotation: isVerticalDayLabel ? -Math.PI / 2 : 0,
+															originX: xCenter,
+															originY: textY,
 															style: {
 																x: xCenter,
-																y: Math.min(topY, bottomY) + height / 2 + 8,
+																y: textY + 8,
 																opacity: 0,
 															},
 														},
 														transition: ["style"],
 														style: {
 															x: xCenter,
-															y: Math.min(topY, bottomY) + height / 2,
+															y: textY,
 															text: segmentLabel(segment, rawValue),
 															textAlign: "center",
 															textVerticalAlign: "middle",
