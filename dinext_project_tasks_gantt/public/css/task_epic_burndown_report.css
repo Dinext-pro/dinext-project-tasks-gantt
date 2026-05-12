@@ -1,0 +1,121 @@
+/* Task Epic Burndown Query Report — loaded via frappe.dom.set_style from task_epic_burndown.js */
+
+.task-epic-burndown-chart {
+	position: relative;
+	width: 100%;
+	min-height: 460px;
+	margin-bottom: 12px;
+}
+
+.task-epic-burndown-summary {
+	width: 100%;
+}
+
+.task-epic-burndown-chart-root {
+	width: 100%;
+	min-height: 460px;
+}
+
+.task-epic-burndown-summary-inner {
+	width: 100%;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: flex-start;
+	margin: 8px 0 4px 0;
+	padding: 0 4px;
+}
+
+.task-epic-burndown-summary__unset {
+	margin-right: 22px;
+	display: inline-block;
+	vertical-align: middle;
+}
+
+.task-epic-burndown-summary-unestimated {
+	cursor: pointer;
+}
+
+.task-epic-burndown-summary__percent--unset {
+	font-weight: 600;
+	color: #e11d48;
+}
+
+[data-theme="dark"] .task-epic-burndown-summary__percent--unset {
+	color: #fb7185;
+}
+
+.task-epic-burndown-summary__label {
+	color: var(--text-muted, #64748b);
+	font-size: 12px;
+}
+
+.task-epic-burndown-summary__done {
+	display: inline-block;
+	vertical-align: middle;
+}
+
+.task-epic-burndown-summary__percent--done {
+	font-weight: 600;
+	color: #0b2f5a;
+}
+
+[data-theme="dark"] .task-epic-burndown-summary__percent--done {
+	color: #38bdf8;
+}
+
+.task-epic-burndown-forecast-legend {
+	position: absolute;
+	top: 0px;
+	right: 55px;
+	z-index: 30;
+	max-width: 46%;
+	text-align: right;
+	font-size: 11px;
+	line-height: 1.35;
+	pointer-events: none;
+}
+
+.task-epic-burndown-forecast-legend__title {
+	font-weight: 600;
+	color: var(--text-color, #1e293b);
+}
+
+.task-epic-burndown-forecast-legend__line {
+	color: var(--text-muted, #64748b);
+	margin-top: 2px;
+}
+
+.task-epic-burndown-forecast-legend__line + .task-epic-burndown-forecast-legend__line {
+	margin-top: 1px;
+}
+
+/* ECharts tooltip formatter HTML */
+.task-epic-burndown-tooltip {
+	color: var(--text-color, #383838);
+}
+
+.task-epic-burndown-tooltip__category {
+	font-weight: 600;
+	color: var(--text-color, #383838);
+}
+
+.task-epic-burndown-tooltip__table {
+	margin-top: 4px;
+	border-collapse: collapse;
+	color: var(--text-color, #383838);
+}
+
+.task-epic-burndown-tooltip__row-label {
+	padding: 2px 8px 2px 0;
+}
+
+.task-epic-burndown-tooltip__row-value {
+	text-align: right;
+	font-weight: 600;
+}
+
+/* MultiSelectList filters on report */
+.multiselect-list.dropdown {
+	width: 100%;
+}
