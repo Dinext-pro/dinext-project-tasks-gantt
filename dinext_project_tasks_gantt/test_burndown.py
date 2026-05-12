@@ -1,6 +1,7 @@
 # Copyright (c) 2026, Dinext and contributors
 # For license information, please see license.txt
 
+import math
 from datetime import date
 from unittest.mock import patch
 
@@ -952,6 +953,17 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		self.assertEqual(out["forecast_from_index"], 2)
 		self.assertEqual(out["forecast_remaining"], [13.5, 12.0, 10.5])
 		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.5])
+		fs = out["forecast_summary"]
+		self.assertTrue(fs["show"])
+		self.assertGreater(fs["remaining_volume"], 0)
+		self.assertGreater(fs["velocity"], 0)
+		self.assertEqual(
+			fs["remaining_periods"],
+			int(math.ceil(fs["remaining_volume"] / fs["velocity"])),
+		)
+		self.assertIsInstance(fs["remaining_periods_label"], str)
+		self.assertIsInstance(fs["period_label"], str)
+		self.assertIsInstance(fs["volume_label"], str)
 
 	@patch("dinext_project_tasks_gantt.burndown._fact_end_index", return_value=1)
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
@@ -1117,6 +1129,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["completed"], [3.0, 2.0])
 		self.assertEqual(out["open"], [7.0, 3.0])
 		self.assertEqual(out["remaining"], [7.0, 3.0])
+		self.assertFalse(out["forecast_summary"]["show"])
 		self.assertEqual(out["task_filters"]["created"], [[], ["TASK-NEW"]])
 		self.assertEqual(out["task_filters"]["created_completed"], [[], ["UTP-NEW-CC"]])
 		self.assertEqual(out["task_filters"]["completed"], [["UTP-OLD-0"], ["UTP-OLD-1"]])

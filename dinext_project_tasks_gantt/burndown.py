@@ -11,6 +11,7 @@ Story points / task count: Task + Task Progress History.
 from __future__ import annotations
 
 import calendar
+import math
 from datetime import date, timedelta
 from typing import Any
 
@@ -138,6 +139,20 @@ def _velocity_window_values(
 				continue
 		values.append(value)
 	return values
+
+
+def _forecast_period_unit_labels(group_by: str | None) -> tuple[str, str]:
+	"""Singular and plural period unit labels for completion forecast summary."""
+	key = (group_by or "").strip().lower()
+	mapping: dict[str, tuple[str, str]] = {
+		"day": (_("day"), _("days")),
+		"week": (_("week"), _("weeks")),
+		"month": (_("month"), _("months")),
+		"sprint": (_("sprint"), _("sprints")),
+		"stage": (_("stage"), _("stages")),
+		"phase": (_("phase"), _("phases")),
+	}
+	return mapping.get(key, (_("period"), _("periods")))
 
 
 def fiscal_month_end_date(fiscal_year: str, month_number: int) -> date | None:
@@ -2032,6 +2047,12 @@ def _period_volume_burndown(
 		)
 
 	categories = [bucket[0] for bucket in buckets]
+	y_label = {
+		"hours": _("Hours"),
+		"story_points": _("Story Points"),
+		"task_count": _("Tasks"),
+	}.get(measure, _("Volume"))
+	forecast_summary: dict[str, Any] = {"show": False}
 	completed_total = [flt(completed[i]) + flt(created_completed[i]) for i in range(len(categories))]
 	summary = _task_epic_burndown_chart_summary(
 		tasks,
@@ -2070,6 +2091,31 @@ def _period_volume_burndown(
 		remaining_open = flt(forecast_baseline_open)
 		if velocity > 0 and remaining_open > 0:
 			forecast_from_index = fact_end_idx + 1
+			_initial_remaining = remaining_open
+			_velocity_flt = flt(velocity)
+			remaining_periods = (
+				int(math.ceil(_initial_remaining / _velocity_flt)) if _velocity_flt > 0 else 0
+			)
+			_period_singular, _period_plural = _forecast_period_unit_labels(group_by)
+			remaining_periods_label = (
+				_("1 {0} remaining").format(_period_singular)
+				if remaining_periods == 1
+				else _("{0} {1} remaining").format(remaining_periods, _period_plural)
+			)
+			_volume_tail = {
+				"hours": _("remaining hours"),
+				"story_points": _("remaining story points"),
+				"task_count": _("remaining tasks"),
+			}.get(measure, _("remaining volume"))
+			forecast_summary = {
+				"show": True,
+				"remaining_periods": remaining_periods,
+				"remaining_periods_label": remaining_periods_label,
+				"velocity": _velocity_flt,
+				"remaining_volume": _initial_remaining,
+				"period_label": _period_singular,
+				"volume_label": _volume_tail,
+			}
 			if measure != "hours" and not use_progress:
 				open_tasks_for_forecast = _tasks_open_from_rows(
 					tasks,
@@ -2102,16 +2148,11 @@ def _period_volume_burndown(
 						for tail_index in range(index + 1, len(categories)):
 							forecast_open[tail_index] = 0.0
 						break
-	y_label = {
-		"hours": _("Hours"),
-		"story_points": _("Story Points"),
-		"task_count": _("Tasks"),
-	}.get(measure, _("Volume"))
-
 	return {
 		"measure": measure,
 		"categories": categories,
 		"summary": summary,
+		"forecast_summary": forecast_summary,
 		"created": created,
 		"open": open_volume,
 		"completed": completed,
