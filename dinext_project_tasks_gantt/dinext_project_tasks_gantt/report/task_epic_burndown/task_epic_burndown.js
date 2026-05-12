@@ -1,6 +1,16 @@
 // Copyright (c) 2026, Dinext and contributors
 // For license information, please see license.txt
 
+const TASK_EPIC_BURNDOWN_REPORT_CSS = "/assets/dinext_project_tasks_gantt/css/task_epic_burndown_report.css";
+
+function task_epic_burndown_ensure_report_styles() {
+	if (window.__task_epic_burndown_report_css_promise) {
+		return window.__task_epic_burndown_report_css_promise;
+	}
+	window.__task_epic_burndown_report_css_promise = frappe.require([TASK_EPIC_BURNDOWN_REPORT_CSS]);
+	return window.__task_epic_burndown_report_css_promise;
+}
+
 function task_epic_burndown_strip_standard_toolbar() {
 	const page = frappe.query_report && frappe.query_report.page;
 	if (!page || typeof page.remove_inner_button !== "function") {
@@ -50,17 +60,6 @@ function task_epic_burndown_render_forecast_legend($wrap, d) {
 	if (!fs || fs.show !== true) {
 		return;
 	}
-	const isDark =
-		document.documentElement && document.documentElement.getAttribute("data-theme") === "dark";
-	function themeVar(name, fb) {
-		if (typeof getComputedStyle !== "function" || !document.documentElement) {
-			return fb;
-		}
-		const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-		return raw || fb;
-	}
-	const muted = themeVar("--text-muted", isDark ? "#94a3b8" : "#64748b");
-	const strong = themeVar("--text-color", isDark ? "#f1f5f9" : "#1e293b");
 	const title = frappe.utils.escape_html(String(fs.remaining_periods_label || ""));
 	const vel = task_epic_burndown_format_measure_value(d, fs.velocity);
 	const yUnit = frappe.utils.escape_html(String((d && d.y_axis_label) || ""));
@@ -69,10 +68,10 @@ function task_epic_burndown_render_forecast_legend($wrap, d) {
 	const volTail = frappe.utils.escape_html(String(fs.volume_label || ""));
 	const line2 = `${frappe.utils.escape_html(vel)} ${yUnit} / ${per}`;
 	const line3 = `${frappe.utils.escape_html(rem)} ${volTail}`;
-	const block = `<div class="task-epic-burndown-forecast-legend" style="position:absolute;top:0px;right:56px;z-index:30;max-width:46%;text-align:right;font-size:11px;line-height:1.35;pointer-events:none;">
-<div style="font-weight:600;color:${strong};">${title}</div>
-<div style="color:${muted};margin-top:2px;">${line2}</div>
-<div style="color:${muted};margin-top:1px;">${line3}</div>
+	const block = `<div class="task-epic-burndown-forecast-legend">
+<div class="task-epic-burndown-forecast-legend__title">${title}</div>
+<div class="task-epic-burndown-forecast-legend__line">${line2}</div>
+<div class="task-epic-burndown-forecast-legend__line">${line3}</div>
 </div>`;
 	$wrap.append(block);
 }
@@ -86,11 +85,6 @@ function task_epic_burndown_render_summary($summaryEl, d) {
 		$summaryEl.empty();
 		return;
 	}
-	const isDark =
-		document.documentElement && document.documentElement.getAttribute("data-theme") === "dark";
-	const muted = isDark ? "#94a3b8" : "#64748b";
-	const unsetStrong = isDark ? "#fb7185" : "#e11d48";
-	const doneStrong = isDark ? "#38bdf8" : "#0b2f5a";
 	const pDone = task_epic_burndown_format_summaryPercent(s.completed_percent);
 	const volumeLabel = (d && (d.y_axis_label || d.measure)) || "";
 	const volumeText = String(volumeLabel);
@@ -102,17 +96,17 @@ function task_epic_burndown_render_summary($summaryEl, d) {
 	const unsetNames = Array.isArray(s.unestimated_task_names) ? s.unestimated_task_names : [];
 	const unsetClickable = s.show_unestimated && unsetNames.length > 0;
 	const unsetTitle = frappe.utils.escape_html(String(__("Open task list")));
-	const unsetCursor = unsetClickable ? "cursor:pointer;" : "";
-	const unsetClass = unsetClickable ? " task-epic-burndown-summary-unestimated" : "";
 	let left = "";
 	if (s.show_unestimated) {
 		const pUnset = task_epic_burndown_format_summaryPercent(s.unestimated_percent);
-		left = `<span class="${unsetClass.trim()}" style="margin-right:22px;display:inline-block;vertical-align:middle;${unsetCursor}" title="${unsetTitle}"><strong style="color:${unsetStrong};font-weight:600;">${pUnset}%</strong> <span style="color:${muted};font-size:12px;">${unestimatedLabel}</span></span>`;
+		const unsetClasses = ["task-epic-burndown-summary__unset"];
+		if (unsetClickable) {
+			unsetClasses.push("task-epic-burndown-summary-unestimated");
+		}
+		left = `<span class="${unsetClasses.join(" ")}" title="${unsetTitle}"><strong class="task-epic-burndown-summary__percent--unset">${pUnset}%</strong> <span class="task-epic-burndown-summary__label">${unestimatedLabel}</span></span>`;
 	}
-	const right = `<span style="display:inline-block;vertical-align:middle;"><strong style="color:${doneStrong};font-weight:600;">${pDone}%</strong> <span style="color:${muted};font-size:12px;">${completedTail}</span></span>`;
-	$summaryEl.html(
-		`<div class="task-epic-burndown-summary-inner" style="width:100%;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-start;margin:8px 0 4px 0;padding:0 4px;">${left}${right}</div>`
-	);
+	const right = `<span class="task-epic-burndown-summary__done"><strong class="task-epic-burndown-summary__percent--done">${pDone}%</strong> <span class="task-epic-burndown-summary__label">${completedTail}</span></span>`;
+	$summaryEl.html(`<div class="task-epic-burndown-summary-inner">${left}${right}</div>`);
 }
 
 function task_epic_burndown_normalize_list(value) {
@@ -270,6 +264,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 	],
 
 	onload: function (report) {
+		task_epic_burndown_ensure_report_styles()
+			.catch(function (err) {
+				console.error(err);
+			})
+			.then(function () {
 		let $wrap = null;
 		let $summary = null;
 
@@ -278,14 +277,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 				const $main = report.page.main;
 				$wrap = $main.find(".task-epic-burndown-chart").first();
 				if (!$wrap.length) {
-					$wrap = $(
-						'<div class="task-epic-burndown-chart" style="position:relative;width:100%;min-height:460px;margin-bottom:12px;"></div>'
-					);
+					$wrap = $('<div class="task-epic-burndown-chart"></div>');
 					$main.prepend($wrap);
 				}
 				$summary = $main.find(".task-epic-burndown-summary").first();
 				if (!$summary.length) {
-					$summary = $('<div class="task-epic-burndown-summary" style="width:100%;"></div>');
+					$summary = $('<div class="task-epic-burndown-summary"></div>');
 					$main.prepend($summary);
 				}
 				$summary.insertBefore($wrap);
@@ -293,25 +290,18 @@ frappe.query_reports["Task Epic Burndown"] = {
 				const $parent = $(report.parent);
 				$wrap = $parent.find(".task-epic-burndown-chart").first();
 				if (!$wrap.length) {
-					$wrap = $(
-						'<div class="task-epic-burndown-chart" style="position:relative;width:100%;min-height:460px;margin-bottom:12px;"></div>'
-					);
+					$wrap = $('<div class="task-epic-burndown-chart"></div>');
 					$parent.prepend($wrap);
 				}
 				$summary = $parent.find(".task-epic-burndown-summary").first();
 				if (!$summary.length) {
-					$summary = $('<div class="task-epic-burndown-summary" style="width:100%;"></div>');
+					$summary = $('<div class="task-epic-burndown-summary"></div>');
 					$parent.prepend($summary);
 				}
 				$summary.insertBefore($wrap);
 			} else {
-				$wrap = $(
-					'<div class="task-epic-burndown-chart" style="position:relative;width:100%;min-height:460px;margin-bottom:12px;"></div>'
-				);
+				$wrap = $('<div class="task-epic-burndown-chart"></div>');
 				$summary = null;
-			}
-			if ($wrap && $wrap.length) {
-				$wrap.css("position", "relative");
 			}
 			report.$chart_area = $wrap;
 		}
@@ -796,7 +786,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							let $chartRoot = $wrap.find(".task-epic-burndown-chart-root").first();
 							if (!$chartRoot.length) {
 								$wrap.empty();
-								$chartRoot = $('<div class="task-epic-burndown-chart-root" style="width:100%;min-height:460px;"></div>');
+								$chartRoot = $('<div class="task-epic-burndown-chart-root"></div>');
 								$wrap.append($chartRoot);
 							}
 							task_epic_burndown_render_forecast_legend($wrap, d);
@@ -948,19 +938,16 @@ frappe.query_reports["Task Epic Burndown"] = {
 											}
 											const rowData = params.data;
 											const lines = [
-												'<span style="color:' +
-													axisTextColor +
-													';font-weight:600">' +
+												'<div class="task-epic-burndown-tooltip">',
+												'<span class="task-epic-burndown-tooltip__category">' +
 													rowData.category +
 													"</span>" +
-													'<table style="margin-top:4px;border-collapse:collapse;color:' +
-													axisTextColor +
-													'">',
+													'<table class="task-epic-burndown-tooltip__table">',
 											];
 											const row = (k, v) =>
-												"<tr><td style=\"padding:2px 8px 2px 0\">" +
+												'<tr><td class="task-epic-burndown-tooltip__row-label">' +
 												k +
-												'</td><td style="text-align:right;font-weight:600">' +
+												'</td><td class="task-epic-burndown-tooltip__row-value">' +
 												v +
 												"</td></tr>";
 											lines.push(
@@ -982,7 +969,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 												)
 											);
 											lines.push(row(__("Total visible volume"), formatValue(rowData.total || 0)));
-											lines.push("</table>");
+											lines.push("</table></div>");
 											return lines.join("");
 										},
 									},
@@ -1384,7 +1371,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 			);
 		}
 
-		applyBurndownStyle();
 		bindFilterAutoRefresh();
 		ensureIssueTypeFilterState();
 		window.__task_epic_burndown_render = renderBurndown;
@@ -1432,6 +1418,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				chart.resize();
 			}
 		});
+			});
 	},
 
 	after_datatable_render: function () {
@@ -1447,15 +1434,3 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}
 	},
 };
-
-function applyBurndownStyle() {
-	var styles = `
-        .multiselect-list.dropdown {
-	        width: 100%;
-        }
-    `;
-
-	var styleSheet = document.createElement("style");
-	styleSheet.textContent = styles;
-	document.head.appendChild(styleSheet);
-}
