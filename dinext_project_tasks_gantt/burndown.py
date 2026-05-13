@@ -492,7 +492,7 @@ def get_project_task_type_options(project: str | None = None) -> list[dict[str, 
 	)
 	has_blank_type = any(not (row.get("type") or "").strip() for row in rows)
 	values = sorted({row.get("type") for row in rows if row.get("type") and row.get("type") != "Sprint"})
-	out = [{"label": value, "value": value, "description": ""} for value in values]
+	out = [{"label": _(value), "value": value, "description": ""} for value in values]
 	if has_blank_type:
 		out.insert(
 			0,
@@ -531,7 +531,7 @@ def get_project_issue_type_options(project: str | None = None) -> list[dict[str,
 			if issue_type
 		}
 	)
-	return [{"label": value, "value": value, "description": ""} for value in values]
+	return [{"label": _(value), "value": value, "description": ""} for value in values]
 
 
 def _task_volume(
