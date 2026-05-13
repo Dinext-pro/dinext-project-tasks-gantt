@@ -17,7 +17,12 @@ function task_epic_burndown_strip_standard_toolbar() {
 		return;
 	}
 	const grp = __("Actions");
-	["Set Chart", "Add Chart to Dashboard", "Create Card", "Download Report"].forEach(function (lbl) {
+	[
+		__("Set Chart"),
+		__("Add Chart to Dashboard"),
+		__("Create Card"),
+		__("Download Report"),
+	].forEach(function (lbl) {
 		page.remove_inner_button(lbl, grp);
 	});
 }
@@ -51,6 +56,89 @@ function task_epic_burndown_format_measure_value(d, value) {
 	return v.toFixed(2);
 }
 
+function task_epic_burndown_measure_label_for_summary(d) {
+	const m = (d && d.measure) || "hours";
+	if (m === "story_points") {
+		return __("Story Points");
+	}
+	if (m === "task_count") {
+		return __("Tasks");
+	}
+	return __("Hours");
+}
+
+function task_epic_burndown_forecast_group_by_key() {
+	const qr = frappe.query_report;
+	const raw =
+		(qr && typeof qr.get_filter_value === "function" && qr.get_filter_value("group_by")) || "month";
+	return String(raw || "month").toLowerCase();
+}
+
+function task_epic_burndown_forecast_period_unit_singular() {
+	const key = task_epic_burndown_forecast_group_by_key();
+	const m = {
+		day: __("day"),
+		week: __("week"),
+		month: __("month"),
+		sprint: __("sprint"),
+		stage: __("stage"),
+		phase: __("phase"),
+	};
+	return m[key] || __("period");
+}
+
+function task_epic_burndown_forecast_period_unit_plural() {
+	const key = task_epic_burndown_forecast_group_by_key();
+	const m = {
+		day: __("days"),
+		week: __("weeks"),
+		month: __("months"),
+		sprint: __("sprints"),
+		stage: __("stages"),
+		phase: __("phases"),
+	};
+	return m[key] || __("periods");
+}
+
+function task_epic_burndown_forecast_remaining_title(fs) {
+	const n = Number(fs && fs.remaining_periods);
+	if (!Number.isFinite(n) || n < 1) {
+		return String((fs && fs.remaining_periods_label) || "");
+	}
+	if (n === 1) {
+		return String(__("1 {0} remaining", [task_epic_burndown_forecast_period_unit_singular()]));
+	}
+	return String(
+		__("{0} {1} remaining", [String(n), task_epic_burndown_forecast_period_unit_plural()])
+	);
+}
+
+function task_epic_burndown_forecast_volume_tail(d) {
+	const m = (d && d.measure) || "hours";
+	if (m === "story_points") {
+		return __("remaining story points");
+	}
+	if (m === "task_count") {
+		return __("remaining tasks");
+	}
+	return __("remaining hours");
+}
+
+/** Stable legend/series id; label resolved via __() when legend/tooltip render (not only at setOption time). */
+function task_epic_burndown_segment_legend_label(nameOrKey) {
+	const k = String(nameOrKey || "").trim();
+	const byKey = {
+		completed: __("Completed in period"),
+		open: __("Open at period end"),
+		created: __("Created in period"),
+		created_completed: __("Created and completed"),
+	};
+	if (Object.prototype.hasOwnProperty.call(byKey, k)) {
+		return byKey[k];
+	}
+	return __(k);
+}
+
 function task_epic_burndown_render_forecast_legend($wrap, d) {
 	if (!$wrap || !$wrap.length) {
 		return;
@@ -60,14 +148,15 @@ function task_epic_burndown_render_forecast_legend($wrap, d) {
 	if (!fs || fs.show !== true) {
 		return;
 	}
-	const title = frappe.utils.escape_html(String(fs.remaining_periods_label || ""));
+	const title = frappe.utils.escape_html(task_epic_burndown_forecast_remaining_title(fs));
 	const vel = task_epic_burndown_format_measure_value(d, fs.velocity);
-	const yUnit = frappe.utils.escape_html(String((d && d.y_axis_label) || ""));
-	const per = frappe.utils.escape_html(String(fs.period_label || ""));
+	const unitLabel = task_epic_burndown_measure_label_for_summary(d);
+	const perSingular = task_epic_burndown_forecast_period_unit_singular();
+	const line2Raw = __("{0} {1} per {2}", [vel, unitLabel, perSingular]);
+	const line2 = frappe.utils.escape_html(String(line2Raw));
 	const rem = task_epic_burndown_format_measure_value(d, fs.remaining_volume);
-	const volTail = frappe.utils.escape_html(String(fs.volume_label || ""));
-	const line2 = `${frappe.utils.escape_html(vel)} ${yUnit} / ${per}`;
-	const line3 = `${frappe.utils.escape_html(rem)} ${volTail}`;
+	const line3Raw = `${rem} ${task_epic_burndown_forecast_volume_tail(d)}`;
+	const line3 = frappe.utils.escape_html(String(line3Raw));
 	const block = `<div class="task-epic-burndown-forecast-legend">
 <div class="task-epic-burndown-forecast-legend__title">${title}</div>
 <div class="task-epic-burndown-forecast-legend__line">${line2}</div>
@@ -86,10 +175,9 @@ function task_epic_burndown_render_summary($summaryEl, d) {
 		return;
 	}
 	const pDone = task_epic_burndown_format_summaryPercent(s.completed_percent);
-	const volumeLabel = (d && (d.y_axis_label || d.measure)) || "";
-	const volumeText = String(volumeLabel);
-	const completedTailRaw = volumeText
-		? __("completed ({0})", [volumeText])
+	const unitLabel = task_epic_burndown_measure_label_for_summary(d);
+	const completedTailRaw = unitLabel
+		? __("completed ({0})", [unitLabel])
 		: __("completed");
 	const completedTail = frappe.utils.escape_html(String(completedTailRaw));
 	const unestimatedLabel = frappe.utils.escape_html(String(__("Tasks without estimate")));
@@ -163,14 +251,25 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldname: "group_by",
 			label: __("X Axis Period"),
 			fieldtype: "Select",
-			options: ["month", "week", "day", "Sprint", "Stage", "Phase"],
+			options: [
+				{ value: "month", label: __("Month") },
+				{ value: "week", label: __("Week") },
+				{ value: "day", label: __("Day") },
+				{ value: "sprint", label: __("Sprint") },
+				{ value: "stage", label: __("Stage") },
+				{ value: "phase", label: __("Phase") },
+			],
 			default: "month",
 		},
 		{
 			fieldname: "measure",
 			label: __("Measure"),
 			fieldtype: "Select",
-			options: ["hours", "story_points", "task_count"],
+			options: [
+				{ value: "hours", label: __("Hours") },
+				{ value: "story_points", label: __("Story Points") },
+				{ value: "task_count", label: __("Tasks") },
+			],
 			default: "hours",
 		},
 		{
@@ -237,7 +336,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 		},
 		{
 			fieldname: "use_task_weight",
-			label: __("Учитывать вес задачи"),
+			label: __("Use task weight in count"),
 			fieldtype: "Check",
 			default: 0,
 			depends_on: "eval: doc.measure == 'task_count'",
@@ -257,7 +356,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 		},
 		{
 			fieldname: "show_completion_forecast",
-			label: __("Прогноз выполнения"),
+			label: __("Completion forecast"),
 			fieldtype: "Check",
 			default: 0,
 		},
@@ -917,51 +1016,31 @@ frappe.query_reports["Task Epic Burndown"] = {
 							}
 							chart = echarts.init(dom, nextThemeName, { renderer: "canvas" });
 
-							const legendSegmentLabels = {
-								completed: __("Completed in period"),
-								open: __("Open at period end"),
-								created: __("Created in period"),
-								created_completed: __("Created and completed"),
-							};
-							const legendLCompleted = legendSegmentLabels.completed;
-							const legendLOpen = legendSegmentLabels.open;
-							const legendLCreated = legendSegmentLabels.created;
-							const legendLCreatedCompleted = legendSegmentLabels.created_completed;
-							const legendDescriptionByName = {
-								[legendLCompleted]:
-									legendLCompleted,
-								[legendLOpen]:
-									legendLOpen,
-								[legendLCreated]:
-									legendLCreated,
-								[legendLCreatedCompleted]:
-									legendLCreatedCompleted,
-							};
 							const legendData = [
 								{
-									name: legendLCompleted,
+									name: "completed",
 									icon: "roundRect",
 									itemStyle: { color: segmentColors.completed },
 								},
 								{
-									name: legendLOpen,
+									name: "open",
 									icon: "roundRect",
 									itemStyle: { color: segmentColors.open },
 								},
 								{
-									name: legendLCreated,
+									name: "created",
 									icon: "roundRect",
 									itemStyle: { color: segmentColors.created },
 								},
 								{
-									name: legendLCreatedCompleted,
+									name: "created_completed",
 									icon: "roundRect",
 									itemStyle: { color: segmentColors.created_completed },
 								},
 							];
 							const legendProxySeries = [
 								{
-									name: legendLCompleted,
+									name: "completed",
 									type: "line",
 									color: segmentColors.completed,
 									data: [],
@@ -978,7 +1057,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 								},
 								{
-									name: legendLOpen,
+									name: "open",
 									type: "line",
 									color: segmentColors.open,
 									data: [],
@@ -995,7 +1074,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 								},
 								{
-									name: legendLCreated,
+									name: "created",
 									type: "line",
 									color: segmentColors.created,
 									data: [],
@@ -1012,7 +1091,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 								},
 								{
-									name: legendLCreatedCompleted,
+									name: "created_completed",
 									type: "line",
 									color: segmentColors.created_completed,
 									data: [],
@@ -1072,19 +1151,25 @@ frappe.query_reports["Task Epic Burndown"] = {
 												"</td></tr>";
 											lines.push(
 												row(
-													__("Completed in period"),
+													task_epic_burndown_segment_legend_label("completed"),
 													segmentLabel("completed", rowData.completed || 0)
 												)
 											);
 											lines.push(
-												row(__("Open at period end"), segmentLabel("open", rowData.open || 0))
-											);
-											lines.push(
-												row(__("Created in period"), segmentLabel("created", rowData.created || 0))
+												row(
+													task_epic_burndown_segment_legend_label("open"),
+													segmentLabel("open", rowData.open || 0)
+												)
 											);
 											lines.push(
 												row(
-													__("Created and completed"),
+													task_epic_burndown_segment_legend_label("created"),
+													segmentLabel("created", rowData.created || 0)
+												)
+											);
+											lines.push(
+												row(
+													task_epic_burndown_segment_legend_label("created_completed"),
 													segmentLabel("created_completed", rowData.created_completed || 0)
 												)
 											);
@@ -1123,7 +1208,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										padding: [8, 8, 2, 8],
 										data: legendData,
 										formatter: function (name) {
-											return legendDescriptionByName[name] || name;
+											return task_epic_burndown_segment_legend_label(name);
 										},
 										textStyle: {
 											color: axisTextColor,
@@ -1160,7 +1245,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 									yAxis: {
 										type: "value",
-										name: d.y_axis_label || "",
+										name: task_epic_burndown_measure_label_for_summary(d),
 										nameTextStyle: {
 											color: axisTextColor,
 										},
