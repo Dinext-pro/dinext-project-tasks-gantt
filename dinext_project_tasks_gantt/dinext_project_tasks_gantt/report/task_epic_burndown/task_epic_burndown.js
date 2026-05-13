@@ -1172,6 +1172,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 											type: "custom",
 											data: waterfallData,
 											z: 10,
+											animationDelay: 0,
+											animationDelayUpdate: 0,
 											renderItem: function (params, api) {
 												const rowData = waterfallData[params.dataIndex];
 												const geometry = rowData.geometry;
@@ -1180,6 +1182,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 												const bandWidth = api.size([1, 0])[0] * 0.72;
 												const left = xCenter - bandWidth / 2;
 												const coord = (value) => api.coord([categoryIndex, value])[1];
+												const barTopY = coord(geometry.barTop);
 												const segmentRect = (segment, topValue, bottomValue) => {
 													const topY = coord(topValue);
 													const bottomY = coord(bottomValue);
@@ -1216,18 +1219,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 																cursor: segmentCursor,
 															},
 														},
-														enterFrom: {
-															shape: {
-																x: rect.x,
-																y: rect.y + rect.height,
-																width: rect.width,
-																height: 0,
-															},
-															style: {
-																opacity: 0,
-															},
-														},
-														transition: ["shape", "style"],
 														style: {
 															fill: segmentColors[segment],
 															fillOpacity: rowData.isForecast ? forecastFillOpacity : 1,
@@ -1258,17 +1249,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 														rotation: isVerticalDayLabel ? Math.PI / 2 : 0,
 														originX: xCenter,
 														originY: textY,
-														enterFrom: {
-															rotation: isVerticalDayLabel ? -Math.PI / 2 : 0,
-															originX: xCenter,
-															originY: textY,
-															style: {
-																x: xCenter,
-																y: textY + 8,
-																opacity: 0,
-															},
-														},
-														transition: ["style"],
 														style: {
 															x: xCenter,
 															y: textY,
@@ -1314,6 +1294,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 												return {
 													type: "group",
 													cursor: rowData.isForecast ? "default" : "pointer",
+													originX: xCenter,
+													originY: barTopY,
+													scaleY: 1,
+													enterFrom: {
+														scaleY: 0,
+													},
+													enterAnimation: {
+														delay: categoryIndex * 10,
+														duration: 400,
+														easing: "cubicOut",
+													},
 													children,
 												};
 											},
