@@ -34,6 +34,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_task_volume,
 	_timesheet_limit_bands,
 	_timesheet_role_series_from_rows,
+	_weighted_velocity,
 	get_burndown_series,
 	get_period_buckets,
 	iter_day_buckets,
@@ -41,6 +42,26 @@ from dinext_project_tasks_gantt.burndown import (
 	iter_month_buckets,
 	iter_week_buckets,
 )
+
+
+class TestWeightedVelocityForForecast(FrappeTestCase):
+	def test_weighted_velocity_day_uses_last_ten_and_weights_1112222333(self):
+		values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+		v = _weighted_velocity(values, "day")
+		self.assertAlmostEqual(v, 131.0 / 20.0, places=10)
+
+	def test_weighted_velocity_non_day_uses_last_five_and_weights_12333(self):
+		values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+		v = _weighted_velocity(values, "month")
+		self.assertAlmostEqual(v, 101.0 / 12.0, places=10)
+
+	def test_weighted_velocity_none_group_by_same_as_non_day(self):
+		values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+		self.assertEqual(_weighted_velocity(values, None), _weighted_velocity(values, "week"))
+
+	def test_weighted_velocity_short_window_day_and_week_share_tail_weights(self):
+		short = [10.0, 20.0, 30.0]
+		self.assertEqual(_weighted_velocity(short, "day"), _weighted_velocity(short, "week"))
 
 
 class TestBurndownBuckets(FrappeTestCase):
