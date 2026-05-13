@@ -327,10 +327,26 @@ frappe.query_reports["Task Epic Burndown"] = {
 		let chart = null;
 		let renderTimer = null;
 		let renderRequestId = 0;
+		let pendingRenderOptions = {};
+		let isNormalizingIssueTypeFilter = false;
+		const renderState = {
+			lastCompletedKey: null,
+			lastRequestedKey: null,
+			lastRequestedSignature: null,
+			lastContainerSize: null,
+			lastThemeName: null,
+			isInitialRenderDone: false,
+		};
 
 		function destroyChart() {
 			lastSummaryProject = null;
 			lastUnestimatedTaskNames = [];
+			renderState.lastCompletedKey = null;
+			renderState.lastRequestedKey = null;
+			renderState.lastRequestedSignature = null;
+			renderState.lastContainerSize = null;
+			renderState.lastThemeName = null;
+			renderState.isInitialRenderDone = false;
 			if (chart) {
 				chart.dispose();
 				chart = null;
@@ -361,13 +377,69 @@ frappe.query_reports["Task Epic Burndown"] = {
 			return root && root.getAttribute("data-theme") === "dark" ? "dark" : undefined;
 		}
 
-		function scheduleRender(delay = 120) {
+		function getContainerSize() {
+			if (!$wrap || !$wrap.length) {
+				return null;
+			}
+			const rect = $wrap.get(0).getBoundingClientRect();
+			return {
+				width: Math.round(rect.width || 0),
+				height: Math.round(rect.height || 0),
+			};
+		}
+
+		function isSameContainerSize(left, right) {
+			if (!left && !right) {
+				return true;
+			}
+			if (!left || !right) {
+				return false;
+			}
+			return left.width === right.width && left.height === right.height;
+		}
+
+		function buildRenderKey(filters, normalized) {
+			return JSON.stringify({
+				project: filters.project || null,
+				from_date: filters.from_date || null,
+				to_date: filters.to_date || null,
+				group_by: filters.group_by || "month",
+				measure: filters.measure || "hours",
+				forecast_periods: filters.forecast_periods || 6,
+				exclude_group_tasks: normalized.excludeGroupTasks ? 1 : 0,
+				use_progress: normalized.useProgress ? 1 : 0,
+				show_completion_forecast: normalized.showCompletionForecastFilter ? 1 : 0,
+				use_task_weight: normalized.useTaskWeight ? 1 : 0,
+				task_types: normalized.taskTypes,
+				issue_types: normalized.issueTypes,
+			});
+		}
+
+		function resizeChartIfNeeded(nextSize) {
+			if (!chart || chart.isDisposed()) {
+				return false;
+			}
+			if (!nextSize || nextSize.width <= 0 || nextSize.height <= 0) {
+				return false;
+			}
+			if (isSameContainerSize(renderState.lastContainerSize, nextSize)) {
+				return false;
+			}
+			chart.resize();
+			renderState.lastContainerSize = nextSize;
+			return true;
+		}
+
+		function scheduleRender(delay = 120, options = {}) {
 			if (renderTimer) {
 				clearTimeout(renderTimer);
 			}
+			pendingRenderOptions = options || {};
 			renderTimer = setTimeout(function () {
+				const nextOptions = pendingRenderOptions || {};
+				pendingRenderOptions = {};
 				renderTimer = null;
-				renderBurndown();
+				renderBurndown(nextOptions);
 			}, delay);
 		}
 
@@ -381,10 +453,13 @@ frappe.query_reports["Task Epic Burndown"] = {
 					if (typeof originalOnChange === "function") {
 						originalOnChange.apply(this, arguments);
 					}
+					if (isNormalizingIssueTypeFilter && filter.df.fieldname === "issue_types") {
+						return;
+					}
 					if (filter.df.fieldname === "task_types") {
 						ensureIssueTypeFilterState();
 					}
-					scheduleRender();
+					scheduleRender(120, { reason: "filter-change" });
 				};
 				filter.__task_epic_burndown_bound = true;
 			});
@@ -401,7 +476,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 				return;
 			}
 			if (!taskTypes.includes("Issue")) {
-				issueTypesFilter.set_value([]);
+				const currentIssueTypes = task_epic_burndown_normalize_list(issueTypesFilter.get_value());
+				if (currentIssueTypes.length) {
+					isNormalizingIssueTypeFilter = true;
+					issueTypesFilter.set_value([]);
+					isNormalizingIssueTypeFilter = false;
+				}
 			}
 			qr.refresh_filters_dependency();
 		}
@@ -426,14 +506,13 @@ frappe.query_reports["Task Epic Burndown"] = {
 			return !!raw;
 		}
 
-		function renderBurndown() {
+		function renderBurndown(options = {}) {
 			const filters = frappe.query_report.get_filter_values();
 			if (!filters.project) {
 				destroyChart();
 				return;
 			}
 			ensureContainers();
-			const requestId = ++renderRequestId;
 			const measureKey = (filters.measure || "hours").toLowerCase();
 			const useProgress =
 				measureKey === "hours" ? false : getCheckFilterValue("use_progress", true);
@@ -442,6 +521,45 @@ frappe.query_reports["Task Epic Burndown"] = {
 			const useTaskWeight = getCheckFilterValue("use_task_weight", false);
 			const taskTypes = task_epic_burndown_normalize_list(filters.task_types);
 			const issueTypes = task_epic_burndown_normalize_list(filters.issue_types);
+			const normalized = {
+				useProgress,
+				excludeGroupTasks,
+				showCompletionForecastFilter,
+				useTaskWeight,
+				taskTypes,
+				issueTypes: taskTypes.includes("Issue") ? issueTypes : [],
+			};
+			const nextContainerSize = getContainerSize();
+			const nextThemeName = getEChartsThemeName();
+			const nextRenderKey = buildRenderKey(filters, normalized);
+			const nextRequestSignature = JSON.stringify({
+				key: nextRenderKey,
+				theme: nextThemeName || null,
+				size: nextContainerSize,
+			});
+			const shouldForce = !!options.force;
+			const hasSameData = renderState.lastCompletedKey === nextRenderKey;
+			const hasSameTheme = renderState.lastThemeName === nextThemeName;
+			const hasSameSize = isSameContainerSize(renderState.lastContainerSize, nextContainerSize);
+			const hasSamePendingRequest = renderState.lastRequestedSignature === nextRequestSignature;
+
+			if (!shouldForce && hasSamePendingRequest) {
+				if (resizeChartIfNeeded(nextContainerSize)) {
+					return;
+				}
+				return;
+			}
+
+			if (!shouldForce && hasSameData && hasSameTheme) {
+				if (resizeChartIfNeeded(nextContainerSize)) {
+					return;
+				}
+				return;
+			}
+
+			renderState.lastRequestedKey = nextRenderKey;
+			renderState.lastRequestedSignature = nextRequestSignature;
+			const requestId = ++renderRequestId;
 
 			frappe.require(
 				["/assets/dinext_common/js/echarts.min.js"],
@@ -467,6 +585,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 								return;
 							}
 							if (!r.message || r.exc) {
+								renderState.lastRequestedKey = null;
+								renderState.lastRequestedSignature = null;
 								lastSummaryProject = null;
 								lastUnestimatedTaskNames = [];
 								if ($summary && $summary.length) {
@@ -795,7 +915,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 								chart.dispose();
 								chart = null;
 							}
-							chart = echarts.init(dom, getEChartsThemeName(), { renderer: "canvas" });
+							chart = echarts.init(dom, nextThemeName, { renderer: "canvas" });
 
 							const legendSegmentLabels = {
 								completed: __("Completed in period"),
@@ -1313,6 +1433,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 								},
 								true
 							);
+							renderState.lastCompletedKey = nextRenderKey;
+							renderState.lastThemeName = nextThemeName;
+							renderState.lastContainerSize = getContainerSize() || nextContainerSize;
+							renderState.isInitialRenderDone = true;
 							chart.off("mousemove");
 							chart.on("mousemove", function (params) {
 								const segment = params.info && params.info.segment;
@@ -1409,27 +1533,39 @@ frappe.query_reports["Task Epic Burndown"] = {
 		ensureBurndownThemeObserver();
 
 		setTimeout(function () {
-			scheduleRender(0);
+			const nextSize = getContainerSize();
+			if (!renderState.isInitialRenderDone) {
+				scheduleRender(0, { reason: "initial-layout-check" });
+				return;
+			}
+			if (resizeChartIfNeeded(nextSize)) {
+				return;
+			}
+			if (!isSameContainerSize(renderState.lastContainerSize, nextSize)) {
+				scheduleRender(0, { reason: "layout-change-after-initial" });
+			}
 		}, 400);
 
 		$(window).on("resize.task_epic_burndown", function () {
-			if (chart) {
+			const nextSize = getContainerSize();
+			if (!resizeChartIfNeeded(nextSize) && chart) {
 				chart.resize();
+				renderState.lastContainerSize = nextSize || renderState.lastContainerSize;
 			}
 		});
 			});
 	},
 
 	after_datatable_render: function () {
-		if (window.__task_epic_burndown_render) {
-			window.__task_epic_burndown_render();
+		if (window.__task_epic_burndown_schedule) {
+			window.__task_epic_burndown_schedule(0, { reason: "after-datatable-render" });
 		}
 		setTimeout(task_epic_burndown_strip_standard_toolbar, 0);
 	},
 
 	after_datatable_refresh: function () {
-		if (window.__task_epic_burndown_render) {
-			window.__task_epic_burndown_render();
+		if (window.__task_epic_burndown_schedule) {
+			window.__task_epic_burndown_schedule(0, { reason: "after-datatable-refresh" });
 		}
 	},
 };
