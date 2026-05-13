@@ -109,11 +109,21 @@ def _fact_end_index(buckets: list[tuple[str, date, date]]) -> int:
 	return fact_end_idx
 
 
-def _weighted_velocity(values: list[float]) -> float:
+_WEIGHTED_VELOCITY_WEIGHTS_DEFAULT = [1, 2, 3, 3, 3]
+_WEIGHTED_VELOCITY_WEIGHTS_DAY = [1, 1, 1, 2, 2, 2, 2, 3, 3, 3]
+
+
+def _weighted_velocity(values: list[float], group_by: str | None = None) -> float:
 	if not values:
 		return 0.0
-	window = values[-5:]
-	weights = [1, 2, 3, 3, 3][-len(window) :]
+	is_day = (group_by or "").strip().lower() == "day"
+	if is_day:
+		window = values[-10:]
+		weights_full = _WEIGHTED_VELOCITY_WEIGHTS_DAY
+	else:
+		window = values[-5:]
+		weights_full = _WEIGHTED_VELOCITY_WEIGHTS_DEFAULT
+	weights = weights_full[-len(window) :]
 	weighted_sum = sum(value * weight for value, weight in zip(window, weights, strict=False))
 	weight_total = sum(weights)
 	return weighted_sum / weight_total if weight_total else 0.0
@@ -2087,7 +2097,7 @@ def _period_volume_burndown(
 		velocity_window = _velocity_window_values(
 			buckets, velocity_completed_total, fact_end_idx, group_by, holiday_dates
 		)
-		velocity = _weighted_velocity(velocity_window)
+		velocity = _weighted_velocity(velocity_window, group_by)
 		remaining_open = flt(forecast_baseline_open)
 		if velocity > 0 and remaining_open > 0:
 			forecast_from_index = fact_end_idx + 1
