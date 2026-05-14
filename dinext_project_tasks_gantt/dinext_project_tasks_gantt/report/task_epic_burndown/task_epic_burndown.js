@@ -363,6 +363,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 	],
 
 	onload: function (report) {
+		// Query Report's run_serially does not await onload's inner promise; install
+		// before any async so the first refresh() is wrapped (see frappe.run_serially).
+		if (!report.__task_epic_burndown_refresh_wrapped) {
+			report.__task_epic_burndown_refresh_wrapped = true;
+			const originalRefresh = report.refresh.bind(report);
+			report.refresh = function (have_filters_changed) {
+				report.__task_epic_burndown_force_chart_after_table = have_filters_changed !== true;
+				return originalRefresh.apply(this, arguments);
+			};
+		}
+
 		task_epic_burndown_ensure_report_styles()
 			.catch(function (err) {
 				console.error(err);
@@ -1642,15 +1653,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 	},
 
 	after_datatable_render: function () {
+		const qr = frappe.query_report;
+		const force = !!(qr && qr.__task_epic_burndown_force_chart_after_table);
+		if (qr) {
+			qr.__task_epic_burndown_force_chart_after_table = false;
+		}
 		if (window.__task_epic_burndown_schedule) {
-			window.__task_epic_burndown_schedule(0, { reason: "after-datatable-render" });
+			window.__task_epic_burndown_schedule(0, {
+				reason: force ? "after-datatable-render-user-reload" : "after-datatable-render",
+				force: force,
+			});
 		}
 		setTimeout(task_epic_burndown_strip_standard_toolbar, 0);
-	},
-
-	after_datatable_refresh: function () {
-		if (window.__task_epic_burndown_schedule) {
-			window.__task_epic_burndown_schedule(0, { reason: "after-datatable-refresh" });
-		}
 	},
 };
