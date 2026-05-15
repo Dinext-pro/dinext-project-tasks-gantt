@@ -1504,7 +1504,6 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 		forecast = _forecast_progress_to_completion(
 			buckets,
 			factual,
-			task_row.get("exp_start_date"),
 			max_forecast_date=max_forecast_date,
 			group_by=group_by,
 		)
@@ -1523,7 +1522,6 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			forecast = _forecast_progress_to_completion(
 				buckets,
 				factual,
-				task_row.get("exp_start_date"),
 				max_forecast_date=max_forecast_date,
 				group_by=group_by,
 			)
@@ -1571,7 +1569,6 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			forecast = _forecast_progress_to_completion(
 				buckets,
 				factual,
-				task_row.get("exp_start_date"),
 				max_forecast_date=max_forecast_date,
 				group_by=group_by,
 			)

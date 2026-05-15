@@ -685,6 +685,21 @@ class TestBurndownBuckets(FrappeTestCase):
 		)
 		self.assertEqual(forecast["completion_date"], date(2026, 1, 10))
 
+	def test_forecast_progress_to_completion_without_start_date_uses_first_factual_point(self):
+		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
+
+		forecast = _forecast_progress_to_completion(
+			buckets,
+			[None, None, 20.0, 20.0, 50.0, 50.0],
+			group_by="day",
+		)
+
+		self.assertEqual(forecast["series"][:5], [None, None, 17.0, 29.0, 41.0])
+		self.assertEqual(
+			forecast["categories"][:5],
+			["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"],
+		)
+
 	def test_planned_progress_series_interpolates_between_planned_dates(self):
 		buckets = [
 			("2026-W01", date(2026, 1, 1), date(2026, 1, 4)),
@@ -1024,6 +1039,77 @@ class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
 		self.assertEqual(out["progress"]["factual"][start_index : start_index + 7], [0.0, 0.0, 10.0, 10.0, 40.0, 40.0, 70.0])
 		self.assertTrue(any(value is not None for value in out["progress"]["forecast"]))
 		self.assertEqual(out["categories"][start_index], "2026-01-10")
+
+	@patch("dinext_project_tasks_gantt.burndown._fallback_company_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_task_timesheet_role_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_progress_rows",
+		return_value=[
+			{"changed_on": date(2026, 1, 12), "old_progress": 0, "new_progress": 10},
+			{"changed_on": date(2026, 1, 14), "old_progress": 10, "new_progress": 40},
+			{"changed_on": date(2026, 1, 16), "old_progress": 40, "new_progress": 70},
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._task_trend_fields",
+		return_value=[
+			"name",
+			"subject",
+			"project",
+			"progress",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"actual_start_date",
+			"actual_end_date",
+			"completed_on",
+			"closing_date",
+			"type",
+			"is_group",
+			"is_milestone",
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 1, 20) if value is None else frappe_getdate(value),
+	)
+	def test_get_task_progress_trend_forecast_no_longer_starts_from_expected_start(
+		self,
+		_mock_getdate,
+		_mock_trend_fields,
+		mock_get_value,
+		_mock_perm,
+		_mock_hist,
+		_mock_ts,
+		_mock_fallback_company_hl,
+	):
+		mock_get_value.return_value = {
+			"name": "TASK-2026-00160",
+			"subject": "Regression task",
+			"progress": 70,
+			"project": None,
+			"is_group": 0,
+			"is_milestone": 0,
+			"type": "Task",
+			"exp_start_date": date(2026, 1, 12),
+			"exp_end_date": date(2026, 1, 25),
+			"custom_planned_start_date": date(2026, 1, 10),
+			"custom_planned_end_date": date(2026, 1, 25),
+			"actual_start_date": None,
+			"actual_end_date": None,
+			"completed_on": date(2026, 1, 8),
+			"closing_date": None,
+		}
+
+		out = get_task_progress_trend(task="TASK-2026-00160", group_by="day")
+
+		forecast = out["progress"]["forecast"]
+		first_forecast_index = next(index for index, value in enumerate(forecast) if value is not None)
+		self.assertEqual(out["categories"][first_forecast_index], "2026-01-10")
+		self.assertNotEqual(out["categories"][first_forecast_index], "2026-01-12")
 
 	@patch("dinext_project_tasks_gantt.burndown._nonworking_holiday_dates_in_range", return_value=["2026-01-20"])
 	@patch("dinext_project_tasks_gantt.burndown._fallback_company_holiday_list", return_value="Co-HL")
