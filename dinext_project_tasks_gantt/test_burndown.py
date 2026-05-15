@@ -12,6 +12,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_current_date_marker,
 	_creation_date,
 	_derive_start_scope_series,
+	_extended_forecast_bucket_label,
 	_forecast_progress_to_completion,
 	get_task_progress_trend,
 	_load_task_volume_rows,
@@ -87,6 +88,24 @@ class TestBurndownBuckets(FrappeTestCase):
 				("2026-02-01", date(2026, 2, 1), date(2026, 2, 1)),
 				("2026-02-02", date(2026, 2, 2), date(2026, 2, 2)),
 			],
+		)
+
+	def test_extended_forecast_bucket_label_formats_by_group(self):
+		buckets = [
+			("2026-W01", date(2026, 1, 1), date(2026, 1, 4)),
+			("2026-W02", date(2026, 1, 5), date(2026, 1, 11)),
+		]
+		self.assertEqual(
+			_extended_forecast_bucket_label("day", buckets, 10, date(2026, 2, 1)),
+			"2026-02-01",
+		)
+		self.assertEqual(
+			_extended_forecast_bucket_label("week", buckets, 10, date(2026, 1, 25)),
+			"2026-W04",
+		)
+		self.assertEqual(
+			_extended_forecast_bucket_label("month", buckets, 10, date(2026, 3, 15)),
+			"2026-03",
 		)
 
 	def test_get_period_buckets_dispatches_day_group(self):
@@ -543,7 +562,7 @@ class TestBurndownBuckets(FrappeTestCase):
 	def test_forecast_progress_to_completion_continues_after_last_actual_point(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
 
-		forecast = _forecast_progress_to_completion(buckets, [None, 0.0, 20.0, 20.0, 50.0, None])
+		forecast = _forecast_progress_to_completion(buckets, [None, 0.0, 20.0, 20.0, 50.0, None], group_by="day")
 
 		self.assertEqual(forecast["series"], [None, 0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 100.0])
 		self.assertEqual(
@@ -555,9 +574,9 @@ class TestBurndownBuckets(FrappeTestCase):
 				"2026-01-04",
 				"2026-01-05",
 				"2026-01-06",
-				"Forecast 1",
-				"Forecast 2",
-				"Forecast 3",
+				"2026-01-07",
+				"2026-01-08",
+				"2026-01-09",
 			],
 		)
 		self.assertEqual(forecast["completion_date"], date(2026, 1, 9))
@@ -565,7 +584,7 @@ class TestBurndownBuckets(FrappeTestCase):
 	def test_forecast_progress_to_completion_uses_all_factual_period_points_for_linear_regression(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
 
-		forecast = _forecast_progress_to_completion(buckets, [0.0, 0.0, 0.0, 60.0, 60.0, 60.0])
+		forecast = _forecast_progress_to_completion(buckets, [0.0, 0.0, 0.0, 60.0, 60.0, 60.0], group_by="day")
 
 		self.assertEqual(
 			forecast["series"],
@@ -580,9 +599,9 @@ class TestBurndownBuckets(FrappeTestCase):
 				"2026-01-04",
 				"2026-01-05",
 				"2026-01-06",
-				"Forecast 1",
-				"Forecast 2",
-				"Forecast 3",
+				"2026-01-07",
+				"2026-01-08",
+				"2026-01-09",
 			],
 		)
 		self.assertEqual(forecast["completion_date"], date(2026, 1, 9))
@@ -594,13 +613,28 @@ class TestBurndownBuckets(FrappeTestCase):
 			buckets,
 			[None, None, 20.0, 20.0, 50.0, 50.0],
 			forecast_start_date=date(2026, 1, 1),
+			group_by="day",
 		)
 
 		self.assertEqual(
 			forecast["series"],
 			[0.0, 5.0, 17.0, 29.0, 41.0, 53.0, 65.0, 77.0, 89.0, 100.0],
 		)
-		self.assertEqual(forecast["categories"][:6], ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06"])
+		self.assertEqual(
+			forecast["categories"],
+			[
+				"2026-01-01",
+				"2026-01-02",
+				"2026-01-03",
+				"2026-01-04",
+				"2026-01-05",
+				"2026-01-06",
+				"2026-01-07",
+				"2026-01-08",
+				"2026-01-09",
+				"2026-01-10",
+			],
+		)
 		self.assertEqual(forecast["completion_date"], date(2026, 1, 10))
 
 	def test_planned_progress_series_interpolates_between_planned_dates(self):
@@ -698,13 +732,13 @@ class TestBurndownBuckets(FrappeTestCase):
 		forecast = _forecast_progress_to_completion(buckets, [20.0, 50.0, 80.0])
 
 		self.assertEqual(forecast["series"], [20.0, 50.0, 80.0, 100.0])
-		self.assertEqual(forecast["categories"], ["2026-W01", "2026-W02", "2026-W03", "Forecast 1"])
+		self.assertEqual(forecast["categories"], ["2026-W01", "2026-W02", "2026-W03", "2026-W04"])
 		self.assertEqual(forecast["completion_date"], date(2026, 1, 25))
 
 	def test_forecast_progress_to_completion_stops_after_reaching_100_percent(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
 
-		forecast = _forecast_progress_to_completion(buckets, [None, 40.0, 70.0, None, None, None])
+		forecast = _forecast_progress_to_completion(buckets, [None, 40.0, 70.0, None, None, None], group_by="day")
 
 		self.assertEqual(forecast["series"], [None, 40.0, 70.0, 100.0])
 		self.assertEqual(
@@ -836,8 +870,10 @@ class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
 		"dinext_project_tasks_gantt.burndown.getdate",
 		side_effect=lambda value=None: date(2026, 1, 15) if value is None else frappe_getdate(value),
 	)
+	@patch("dinext_project_tasks_gantt.burndown._fallback_company_holiday_list", return_value=None)
 	def test_get_task_progress_trend_omits_forecasts_when_progress_complete(
 		self,
+		_mock_fallback_company_hl,
 		_mock_getdate,
 		_mock_trend_fields,
 		mock_get_value,
@@ -869,6 +905,146 @@ class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
 		types = [m["type"] for m in out["date_markers"]]
 		self.assertNotIn("forecast_progress_end", types)
 		self.assertNotIn("forecast_work_hours_end", types)
+
+	@patch("dinext_project_tasks_gantt.burndown._nonworking_holiday_dates_in_range", return_value=["2026-01-20"])
+	@patch("dinext_project_tasks_gantt.burndown._fallback_company_holiday_list", return_value="Co-HL")
+	@patch("dinext_project_tasks_gantt.burndown._load_task_timesheet_role_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._task_trend_fields",
+		return_value=[
+			"name",
+			"subject",
+			"project",
+			"progress",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"actual_start_date",
+			"actual_end_date",
+			"completed_on",
+			"closing_date",
+			"type",
+			"is_group",
+			"is_milestone",
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 1, 15) if value is None else frappe_getdate(value),
+	)
+	def test_get_task_progress_trend_day_uses_company_holiday_list_when_no_project(
+		self,
+		_mock_getdate,
+		_mock_trend_fields,
+		mock_get_value,
+		_mock_perm,
+		_mock_hist,
+		_mock_ts,
+		mock_fallback_hl,
+		mock_nonworking,
+	):
+		mock_get_value.return_value = {
+			"name": "T-NOPROJ",
+			"subject": "No project",
+			"progress": 10,
+			"project": None,
+			"is_group": 0,
+			"is_milestone": 0,
+			"type": "Task",
+			"exp_start_date": None,
+			"exp_end_date": None,
+			"custom_planned_start_date": None,
+			"custom_planned_end_date": None,
+			"actual_start_date": None,
+			"actual_end_date": None,
+			"completed_on": None,
+			"closing_date": None,
+		}
+		out = get_task_progress_trend(task="T-NOPROJ", group_by="day")
+		mock_fallback_hl.assert_called_once_with(None)
+		mock_nonworking.assert_called_once()
+		call_args = mock_nonworking.call_args[0]
+		self.assertEqual(call_args[0], "Co-HL")
+		self.assertEqual(out["holiday_list_name"], "Co-HL")
+		self.assertEqual(out["holiday_dates"], ["2026-01-20"])
+
+	@patch("dinext_project_tasks_gantt.burndown._nonworking_holiday_dates_in_range", return_value=["2026-06-20"])
+	@patch("dinext_project_tasks_gantt.burndown._fallback_company_holiday_list", return_value="Co-HL")
+	@patch("dinext_project_tasks_gantt.burndown._load_task_timesheet_role_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_progress_rows",
+		return_value=[
+			{"changed_on": date(2026, 5, 10), "old_progress": 0, "new_progress": 10},
+			{"changed_on": date(2026, 5, 16), "old_progress": 10, "new_progress": 30},
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._task_trend_fields",
+		return_value=[
+			"name",
+			"subject",
+			"project",
+			"progress",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"actual_start_date",
+			"actual_end_date",
+			"completed_on",
+			"closing_date",
+			"type",
+			"is_group",
+			"is_milestone",
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 5, 16) if value is None else frappe_getdate(value),
+	)
+	def test_get_task_progress_trend_day_extends_holiday_range_to_forecast_categories(
+		self,
+		_mock_getdate,
+		_mock_trend_fields,
+		mock_get_value,
+		_mock_perm,
+		_mock_hist,
+		_mock_ts,
+		mock_fallback_hl,
+		mock_nonworking,
+	):
+		mock_get_value.return_value = {
+			"name": "T-FORECAST",
+			"subject": "Forecast horizon",
+			"progress": 30,
+			"project": None,
+			"is_group": 0,
+			"is_milestone": 0,
+			"type": "Task",
+			"exp_start_date": date(2026, 5, 1),
+			"exp_end_date": date(2026, 6, 17),
+			"custom_planned_start_date": None,
+			"custom_planned_end_date": None,
+			"actual_start_date": None,
+			"actual_end_date": None,
+			"completed_on": None,
+			"closing_date": None,
+		}
+		out = get_task_progress_trend(task="T-FORECAST", group_by="day")
+		mock_fallback_hl.assert_called_once_with(None)
+		mock_nonworking.assert_called_once()
+		call_args = mock_nonworking.call_args[0]
+		self.assertEqual(call_args[0], "Co-HL")
+		self.assertEqual(call_args[1], date(2026, 5, 1))
+		self.assertEqual(call_args[2], date(2026, 7, 17))
+		self.assertEqual(out["progress"]["forecast_categories"][-1], "2026-07-17")
+		self.assertEqual(out["holiday_dates"], ["2026-06-20"])
 
 
 class TestTaskCountVolume(FrappeTestCase):
