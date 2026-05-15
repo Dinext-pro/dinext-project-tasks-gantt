@@ -846,21 +846,37 @@ def _period_progress_series(
 
 
 def _task_actual_progress_series(
-	buckets: list[tuple[str, date, date]], progress_rows: list[dict], task_start: date | None
+	buckets: list[tuple[str, date, date]],
+	progress_rows: list[dict],
+	task_start: date | None,
+	completed_on: date | None = None,
 ) -> list[float | None]:
 	if not task_start:
 		return []
 	rows = sorted(progress_rows, key=lambda row: get_datetime(row.get("changed_on")))
 	last_change_date = getdate(rows[-1].get("changed_on")) if rows else task_start
 	series_end = max(last_change_date, getdate())
+	completion = getdate(completed_on) if completed_on else None
+	if completion and completion < task_start:
+		completion = None
 	last_progress = 0.0
 	row_index = 0
 	series: list[float | None] = []
-	for _label, _bucket_start, bucket_end in buckets:
-		if bucket_end < task_start or bucket_end > series_end:
+	for _label, bucket_start, bucket_end in buckets:
+		if bucket_end < task_start:
 			series.append(None)
 			continue
-		while row_index < len(rows) and getdate(rows[row_index].get("changed_on")) <= bucket_end:
+		if completion is not None:
+			if bucket_start > completion:
+				series.append(None)
+				continue
+			row_cutoff = min(bucket_end, completion)
+		else:
+			if bucket_end > series_end:
+				series.append(None)
+				continue
+			row_cutoff = bucket_end
+		while row_index < len(rows) and getdate(rows[row_index].get("changed_on")) <= row_cutoff:
 			last_progress = min(max(flt(rows[row_index].get("new_progress")), 0.0), 100.0)
 			row_index += 1
 		series.append(last_progress)
@@ -1475,11 +1491,12 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	else:
 		group_by = "week"
 		buckets = iter_week_buckets(fd, td)
-	task_start = getdate(task_row.get("actual_start_date") or task_row.get("exp_start_date")) if (
-		task_row.get("actual_start_date") or task_row.get("exp_start_date")
-	) else None
+	task_start = _task_progress_history_start_date(task_row)
+	actual_progress_completion = getdate(task_row["completed_on"]) if task_row.get("completed_on") else None
 	skip_forecasts = _task_trend_forecasts_suppressed(task_row)
-	factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+	factual = _task_actual_progress_series(
+		buckets, progress_rows, task_start, completed_on=actual_progress_completion
+	)
 	planned = _planned_progress_series(buckets, planned_start, planned_end)
 	if skip_forecasts:
 		forecast = _empty_axis_forecast_for_buckets(buckets)
@@ -1499,7 +1516,9 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 				buckets = iter_month_buckets(fd, td)
 			else:
 				buckets = iter_week_buckets(fd, td)
-			factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+			factual = _task_actual_progress_series(
+				buckets, progress_rows, task_start, completed_on=actual_progress_completion
+			)
 			planned = _planned_progress_series(buckets, planned_start, planned_end)
 			forecast = _forecast_progress_to_completion(
 				buckets,
@@ -1545,7 +1564,9 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 				buckets = iter_month_buckets(fd, td)
 			else:
 				buckets = iter_week_buckets(fd, td)
-			factual = _task_actual_progress_series(buckets, progress_rows, task_start)
+			factual = _task_actual_progress_series(
+				buckets, progress_rows, task_start, completed_on=actual_progress_completion
+			)
 			planned = _planned_progress_series(buckets, planned_start, planned_end)
 			forecast = _forecast_progress_to_completion(
 				buckets,
