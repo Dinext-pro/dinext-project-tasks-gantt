@@ -821,6 +821,20 @@ def _load_progress_rows(task_names: list[str], fd: date, td: date) -> list[dict]
 	)
 
 
+def _task_earliest_progress_change_date(task_name: str | None) -> date | None:
+	if not task_name:
+		return None
+	history = frappe.qb.DocType("Task Progress History")
+	rows = (
+		frappe.qb.from_(history)
+		.select(Min(Date(history.changed_on)).as_("min_changed_on"))
+		.where(history.parent == task_name)
+		.run(as_dict=True)
+	)
+	value = rows[0].get("min_changed_on") if rows else None
+	return getdate(value) if value else None
+
+
 def _progress_history_start_for_tasks(tasks: list[dict], fallback_start: date) -> date:
 	start_candidates = [getdate(created_on) for task in tasks if (created_on := _creation_date(task))]
 	return min(start_candidates) if start_candidates else fallback_start
@@ -1467,9 +1481,21 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 
 	planned_start, planned_end = _task_widget_planned_dates(task_row)
 	history_start = _task_progress_history_start_date(task_row)
-	progress_rows = _load_progress_rows([task], history_start or add_months(getdate(), -6), add_months(getdate(), 6))
+	earliest_progress_change = _task_earliest_progress_change_date(task)
+	group_by = (group_by or "week").lower()
+	daily_zero_progress_baseline = (
+		earliest_progress_change - timedelta(days=1)
+		if group_by == "day" and earliest_progress_change
+		else earliest_progress_change
+	)
+	progress_window_start_candidates = [value for value in (history_start, earliest_progress_change) if value]
+	progress_window_start = (
+		min(progress_window_start_candidates) if progress_window_start_candidates else add_months(getdate(), -6)
+	)
+	progress_rows = _load_progress_rows([task], progress_window_start, add_months(getdate(), 6))
 	all_dates = [getdate(row.get("changed_on")) for row in progress_rows]
 	for candidate in (
+		daily_zero_progress_baseline,
 		planned_start,
 		planned_end,
 		task_row.get("actual_start_date") or task_row.get("exp_start_date"),
@@ -1483,7 +1509,6 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	fd = min(all_dates)
 	td = max(max(all_dates), getdate())
 	max_forecast_date = _task_forecast_max_date(task_row, planned_start, planned_end)
-	group_by = (group_by or "week").lower()
 	if group_by == "day":
 		buckets = iter_day_buckets(fd, td)
 	elif group_by == "month":
@@ -1491,7 +1516,8 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	else:
 		group_by = "week"
 		buckets = iter_week_buckets(fd, td)
-	task_start = _task_progress_history_start_date(task_row)
+	task_start_candidates = [value for value in (history_start, daily_zero_progress_baseline) if value]
+	task_start = min(task_start_candidates) if task_start_candidates else None
 	actual_progress_completion = getdate(task_row["completed_on"]) if task_row.get("completed_on") else None
 	skip_forecasts = _task_trend_forecasts_suppressed(task_row)
 	factual = _task_actual_progress_series(
