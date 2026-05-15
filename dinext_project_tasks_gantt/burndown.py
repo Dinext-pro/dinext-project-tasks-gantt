@@ -70,32 +70,10 @@ _WEEKDAY_NAME_TO_INDEX = {
 }
 
 
-def _weekly_off_dates_in_range(weekly_off: str | None, from_date: date, to_date: date) -> list[str]:
-	"""Dates matching Holiday List weekly off (same weekday each week), inclusive."""
-	if not weekly_off:
-		return []
-	key = str(weekly_off).strip().lower()
-	weekday = _WEEKDAY_NAME_TO_INDEX.get(key)
-	if weekday is None:
-		return []
-	out: list[str] = []
-	cur = from_date
-	while cur <= to_date:
-		if cur.weekday() == weekday:
-			out.append(cur.isoformat())
-		cur += timedelta(days=1)
-	return out
-
-
 def _nonworking_holiday_dates_in_range(holiday_list: str | None, from_date: date, to_date: date) -> list[str]:
 	"""Explicit holidays from child table plus weekly off days from Holiday List header."""
 	explicit = _holiday_dates_in_range(holiday_list, from_date, to_date)
-	weekly_off = (
-		frappe.db.get_value("Holiday List", holiday_list, "weekly_off") if holiday_list else None
-	)
-	weekly = _weekly_off_dates_in_range(weekly_off, from_date, to_date)
-	merged = sorted(set(explicit) | set(weekly))
-	return merged
+	return sorted(set(explicit))
 
 
 def _fact_end_index(buckets: list[tuple[str, date, date]]) -> int:
@@ -967,11 +945,33 @@ def _forecast_target_date(buckets: list[tuple[str, date, date]], target_index: i
 	return buckets[-1][2] + timedelta(days=period_days * (target_index - len(buckets) + 1))
 
 
+def _extended_forecast_bucket_label(
+	group_by: str,
+	buckets: list[tuple[str, date, date]],
+	target_index: int,
+	target_date: date | None,
+) -> str:
+	"""X-axis label for buckets past the original range (replaces generic Forecast N when possible)."""
+	if target_date is None:
+		return _("Forecast {0}").format(target_index - len(buckets) + 1)
+	g = (group_by or "week").strip().lower()
+	if g == "day":
+		return target_date.isoformat()
+	if g == "month":
+		first = date(target_date.year, target_date.month, 1)
+		return first.strftime("%Y-%m")
+	if g == "week":
+		iy, iw, _ = target_date.isocalendar()
+		return f"{iy}-W{iw:02d}"
+	return _("Forecast {0}").format(target_index - len(buckets) + 1)
+
+
 def _forecast_progress_to_completion(
 	buckets: list[tuple[str, date, date]],
 	factual_progress: list[float | None],
 	forecast_start_date: date | None = None,
 	max_forecast_date: date | None = None,
+	group_by: str = "week",
 ) -> dict[str, Any]:
 	points = [
 		(index, flt(value))
@@ -1009,7 +1009,7 @@ def _forecast_progress_to_completion(
 		if max_forecast_date and target_date and target_date > max_forecast_date:
 			break
 		if target_index >= len(categories):
-			categories.append(_("Forecast {0}").format(target_index - len(buckets) + 1))
+			categories.append(_extended_forecast_bucket_label(group_by, buckets, target_index, target_date))
 		current = min(max(intercept + velocity * target_index, 0.0), 100.0)
 		series.append(round(current, 1))
 		if current >= 100.0:
@@ -1046,6 +1046,7 @@ def _forecast_hours_to_plan(
 	hours_by_role: list[dict[str, Any]],
 	planned_hours: float,
 	max_forecast_date: date | None = None,
+	group_by: str = "week",
 ) -> dict[str, Any]:
 	points = _hours_forecast_points(hours_by_role, planned_hours)
 	if len(points) < 2:
@@ -1073,7 +1074,7 @@ def _forecast_hours_to_plan(
 		if max_forecast_date and target_date and target_date > max_forecast_date:
 			break
 		if target_index >= len(categories):
-			categories.append(_("Forecast {0}").format(target_index - len(buckets) + 1))
+			categories.append(_extended_forecast_bucket_label(group_by, buckets, target_index, target_date))
 		current = min(max(intercept + velocity * target_index, 0.0), 100.0)
 		series.append(round(current, 1))
 		if current >= 100.0:
@@ -1416,6 +1417,22 @@ def _empty_axis_forecast_for_buckets(buckets: list[tuple[str, date, date]]) -> d
 	return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
 
 
+def _day_category_date_range(*category_lists: list[str] | None, fallback: tuple[date, date]) -> tuple[date, date]:
+	"""Daily trend can extend past `buckets`; derive the full rendered axis range from category labels."""
+	parsed: list[date] = []
+	for labels in category_lists:
+		for label in labels or []:
+			if not label:
+				continue
+			try:
+				parsed.append(getdate(label))
+			except Exception:
+				continue
+	if not parsed:
+		return fallback
+	return min(parsed), max(parsed)
+
+
 @frappe.whitelist()
 def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> dict[str, Any]:
 	if not task:
@@ -1472,6 +1489,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			factual,
 			task_row.get("exp_start_date"),
 			max_forecast_date=max_forecast_date,
+			group_by=group_by,
 		)
 		if forecast.get("completion_date") and getdate(forecast.get("completion_date")) > td:
 			td = getdate(forecast.get("completion_date"))
@@ -1488,6 +1506,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 				factual,
 				task_row.get("exp_start_date"),
 				max_forecast_date=max_forecast_date,
+				group_by=group_by,
 			)
 	task_names_for_hours = _task_tree_names(task_row.get("project"), task)
 	planned_hours_by_role = _planned_hours_by_role(task_row.get("project"), task)
@@ -1516,6 +1535,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			hours_by_role,
 			flt(timesheet_limits.get("planned_hours")),
 			max_forecast_date=max_forecast_date,
+			group_by=group_by,
 		)
 		if hours_forecast.get("completion_date") and getdate(hours_forecast.get("completion_date")) > td:
 			td = getdate(hours_forecast.get("completion_date"))
@@ -1532,6 +1552,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 				factual,
 				task_row.get("exp_start_date"),
 				max_forecast_date=max_forecast_date,
+				group_by=group_by,
 			)
 			hours_by_role = _timesheet_role_series_from_rows(
 				buckets,
@@ -1548,6 +1569,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 				hours_by_role,
 				flt(timesheet_limits.get("planned_hours")),
 				max_forecast_date=max_forecast_date,
+				group_by=group_by,
 			)
 
 	raw_date_markers = [
@@ -1566,10 +1588,18 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	holiday_list_name: str | None = None
 	holiday_dates: list[str] = []
 	if group_by == "day" and buckets:
+		bs0, be0 = _day_category_date_range(
+			[bucket[0] for bucket in buckets],
+			forecast.get("categories"),
+			hours_forecast.get("categories"),
+			fallback=(buckets[0][1], buckets[-1][2]),
+		)
 		project_name = task_row.get("project")
 		if project_name:
 			holiday_list_name = _resolve_project_holiday_list(project_name)
-			bs0, be0 = buckets[0][1], buckets[-1][2]
+		else:
+			holiday_list_name = _fallback_company_holiday_list(None)
+		if holiday_list_name:
 			holiday_dates = _nonworking_holiday_dates_in_range(holiday_list_name, bs0, be0)
 
 	return {
