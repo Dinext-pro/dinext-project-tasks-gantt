@@ -187,6 +187,8 @@ doctype_js = {"Task": "public/js/task_progress_trend.js"}
 doc_events = {
 	"Task": {
 		"before_save": "dinext_project_tasks_gantt.task_progress_audit.before_save_task",
+		"on_update": "dinext_project_tasks_gantt.task_parent_progress.on_update_task",
+		"after_delete": "dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
 	},
 }
 
