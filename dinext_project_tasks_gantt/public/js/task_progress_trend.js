@@ -364,8 +364,8 @@
 									itemStyle: { color: theme.nonworkingBand },
 									emphasis: { disabled: true },
 									tooltip: { show: false },
-									zlevel: -10,
-									z: -10,
+									zlevel: 0,
+									z: 0,
 									animation: false,
 								},
 							]
@@ -496,8 +496,8 @@
 									lineStyle: { opacity: 0 },
 									tooltip: { show: false },
 									emphasis: { disabled: true },
-									z: 20,
-									zlevel: 20,
+									z: 30,
+									zlevel: 30,
 									markLine: dateMarkerLines,
 								},
 							]
