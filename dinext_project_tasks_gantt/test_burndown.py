@@ -1354,6 +1354,160 @@ class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
 		self.assertEqual(out["progress"]["forecast_categories"][-1], "2026-07-17")
 		self.assertEqual(out["holiday_dates"], ["2026-06-20"])
 
+	@patch("dinext_project_tasks_gantt.burndown._fallback_company_holiday_list", return_value=None)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._forecast_hours_to_plan",
+		return_value={"categories": ["2026-05-01", "2026-05-02", "2026-05-03"], "series": [10.0, 40.0, 70.0], "completion_date": date(2026, 5, 3)},
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._forecast_progress_to_completion",
+		return_value={"categories": ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04"], "series": [10.0, 30.0, 50.0, 70.0], "completion_date": date(2026, 5, 4)},
+	)
+	@patch("dinext_project_tasks_gantt.burndown._load_task_timesheet_role_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_progress_rows",
+		return_value=[
+			{"changed_on": date(2026, 5, 1), "old_progress": 0, "new_progress": 10},
+			{"changed_on": date(2026, 5, 2), "old_progress": 10, "new_progress": 20},
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._task_trend_fields",
+		return_value=[
+			"name",
+			"subject",
+			"project",
+			"progress",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"actual_start_date",
+			"actual_end_date",
+			"completed_on",
+			"closing_date",
+			"type",
+			"is_group",
+			"is_milestone",
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 5, 1) if value is None else frappe_getdate(value),
+	)
+	def test_get_task_progress_trend_uses_max_completion_date_for_axis_end(
+		self,
+		_mock_getdate,
+		_mock_trend_fields,
+		mock_get_value,
+		_mock_perm,
+		_mock_hist,
+		_mock_ts,
+		_mock_forecast_progress,
+		_mock_forecast_hours,
+		_mock_fallback_company_hl,
+	):
+		mock_get_value.return_value = {
+			"name": "T-TD-MAX",
+			"subject": "Max td",
+			"progress": 20,
+			"project": None,
+			"is_group": 0,
+			"is_milestone": 0,
+			"type": "Task",
+			"exp_start_date": date(2026, 5, 1),
+			"exp_end_date": date(2026, 5, 4),
+			"custom_planned_start_date": date(2026, 5, 1),
+			"custom_planned_end_date": date(2026, 5, 4),
+			"actual_start_date": None,
+			"actual_end_date": None,
+			"completed_on": None,
+			"closing_date": None,
+		}
+
+		out = get_task_progress_trend(task="T-TD-MAX", group_by="day")
+
+		self.assertEqual(out["categories"][-1], "2026-05-04")
+
+	@patch("dinext_project_tasks_gantt.burndown._fallback_company_holiday_list", return_value=None)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._forecast_hours_to_plan",
+		return_value={"categories": ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05"], "series": [10.0, 30.0, 50.0, 70.0, 90.0], "completion_date": date(2026, 5, 5)},
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._forecast_progress_to_completion",
+		return_value={"categories": ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05", "2026-05-06"], "series": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0], "completion_date": date(2026, 5, 6)},
+	)
+	@patch("dinext_project_tasks_gantt.burndown._load_task_timesheet_role_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_progress_rows",
+		return_value=[
+			{"changed_on": date(2026, 5, 1), "old_progress": 0, "new_progress": 10},
+			{"changed_on": date(2026, 5, 2), "old_progress": 10, "new_progress": 20},
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._task_trend_fields",
+		return_value=[
+			"name",
+			"subject",
+			"project",
+			"progress",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"actual_start_date",
+			"actual_end_date",
+			"completed_on",
+			"closing_date",
+			"type",
+			"is_group",
+			"is_milestone",
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 5, 1) if value is None else frappe_getdate(value),
+	)
+	def test_get_task_progress_trend_caps_axis_end_by_existing_forecast_horizon(
+		self,
+		_mock_getdate,
+		_mock_trend_fields,
+		mock_get_value,
+		_mock_perm,
+		_mock_hist,
+		_mock_ts,
+		_mock_forecast_progress,
+		_mock_forecast_hours,
+		_mock_fallback_company_hl,
+	):
+		mock_get_value.return_value = {
+			"name": "T-TD-CAP",
+			"subject": "Cap td",
+			"progress": 20,
+			"project": None,
+			"is_group": 0,
+			"is_milestone": 0,
+			"type": "Task",
+			"exp_start_date": date(2026, 5, 1),
+			"exp_end_date": date(2026, 5, 2),
+			"custom_planned_start_date": date(2026, 5, 1),
+			"custom_planned_end_date": date(2026, 5, 2),
+			"actual_start_date": None,
+			"actual_end_date": None,
+			"completed_on": None,
+			"closing_date": None,
+		}
+
+		out = get_task_progress_trend(task="T-TD-CAP", group_by="day")
+
+		self.assertEqual(out["categories"][-1], "2026-05-03")
+
 
 class TestTaskCountVolume(FrappeTestCase):
 	def test_task_volume_task_count_unweighted(self):
