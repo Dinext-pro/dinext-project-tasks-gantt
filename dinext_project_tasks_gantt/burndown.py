@@ -873,6 +873,7 @@ def _task_actual_progress_series(
 	completion = getdate(completed_on) if completed_on else None
 	if completion and completion < task_start:
 		completion = None
+	factual_end = max(completion, last_change_date) if completion is not None else None
 	last_progress = 0.0
 	row_index = 0
 	series: list[float | None] = []
@@ -881,10 +882,10 @@ def _task_actual_progress_series(
 			series.append(None)
 			continue
 		if completion is not None:
-			if bucket_start > completion:
+			if bucket_start > factual_end:
 				series.append(None)
 				continue
-			row_cutoff = min(bucket_end, completion)
+			row_cutoff = min(bucket_end, factual_end)
 		else:
 			if bucket_end > series_end:
 				series.append(None)

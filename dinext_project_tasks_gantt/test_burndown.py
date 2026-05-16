@@ -560,7 +560,24 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		self.assertEqual(series, [None, 0.0, 20.0, 20.0, 50.0, 50.0])
 
-	def test_task_actual_progress_series_truncates_after_completed_on(self):
+	def test_task_actual_progress_series_truncates_after_completed_on_when_no_late_facts(self):
+		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
+		progress_rows = [
+			{"changed_on": date(2026, 1, 3), "old_progress": 0, "new_progress": 20},
+			{"changed_on": date(2026, 1, 4), "old_progress": 20, "new_progress": 50},
+		]
+
+		with patch(
+			"dinext_project_tasks_gantt.burndown.getdate",
+			side_effect=lambda value=None: date(2026, 1, 6) if value is None else frappe_getdate(value),
+		):
+			series = _task_actual_progress_series(
+				buckets, progress_rows, date(2026, 1, 2), completed_on=date(2026, 1, 4)
+			)
+
+		self.assertEqual(series, [None, 0.0, 20.0, 50.0, None, None])
+
+	def test_task_actual_progress_series_extends_to_last_fact_after_completed_on(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
 		progress_rows = [
 			{"changed_on": date(2026, 1, 3), "old_progress": 0, "new_progress": 20},
@@ -575,7 +592,7 @@ class TestBurndownBuckets(FrappeTestCase):
 				buckets, progress_rows, date(2026, 1, 2), completed_on=date(2026, 1, 4)
 			)
 
-		self.assertEqual(series, [None, 0.0, 20.0, 20.0, None, None])
+		self.assertEqual(series, [None, 0.0, 20.0, 20.0, 50.0, None])
 
 	def test_task_actual_progress_series_week_uses_row_cutoff_when_completed_on_mid_week(self):
 		buckets = iter_week_buckets(date(2026, 1, 5), date(2026, 1, 20))
@@ -589,7 +606,7 @@ class TestBurndownBuckets(FrappeTestCase):
 			date(2026, 1, 5),
 			completed_on=date(2026, 1, 8),
 		)
-		self.assertEqual(series, [30.0, None, None])
+		self.assertEqual(series, [90.0, None, None])
 
 	def test_task_actual_progress_series_keeps_start_bucket_when_completed_before_start(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
