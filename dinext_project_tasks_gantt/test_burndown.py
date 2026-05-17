@@ -1853,6 +1853,80 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"]])
 		mock_cumulative_hours.assert_called_once()
 
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		side_effect=[[], ["UTP-LEAF-CC"], [], []],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-GROUP",
+				"parent_task": None,
+				"is_group": 1,
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"progress": 0.0,
+				"volume": 8.0,
+			},
+			{
+				"name": "TASK-LEAF",
+				"parent_task": "TASK-GROUP",
+				"is_group": 0,
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"progress": 0.0,
+				"volume": 5.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-05-01", date(2026, 5, 1), date(2026, 5, 1)),
+			("2026-05-02", date(2026, 5, 2), date(2026, 5, 2)),
+		],
+	)
+	def test_hours_all_segment_drilldown_include_group_ancestors_when_groups_are_allowed(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		mock_utp_parent_names,
+		mock_cumulative_hours,
+		mock_bucket_hours,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_bucket_hours.side_effect = [{"TASK-LEAF": 2.0}, {}]
+		mock_cumulative_hours.side_effect = [{"TASK-LEAF": 2.0}, {"TASK-LEAF": 2.0}]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 1),
+			td=date(2026, 5, 2),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["task_filters"]["created"], [["TASK-GROUP", "TASK-LEAF"], []])
+		self.assertEqual(out["task_filters"]["open"], [[], ["TASK-GROUP", "TASK-LEAF"]])
+		mock_utp_parent_names.assert_any_call(
+			"PROJ-1", date(2026, 5, 1), date(2026, 5, 1), ["TASK-GROUP", "TASK-LEAF"]
+		)
+
 
 class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._task_name_list", return_value=["TASK-LATE"])

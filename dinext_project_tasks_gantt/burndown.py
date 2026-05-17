@@ -4,7 +4,7 @@
 """
 Epic-style burndown data for Task Epic Burndown report.
 
-Hours: plan from Project Work Efforts (pwea_plan), actual from approved User Timesheet Position.
+Hours: plan from Project Work Efforts (pwea_expected), actual from approved User Timesheet Position.
 Story points / task count: Task + Task Progress History.
 """
 
@@ -18,7 +18,7 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.query_builder.functions import Coalesce, Date, IfNull, Min, Sum
-from frappe.utils import add_months, flt, get_datetime, getdate
+from frappe.utils import add_months, cint, flt, get_datetime, getdate
 
 UTP_STATUS_APPROVED = "Согласовано"
 TASK_PERIOD_TYPES = {"phase": "Phase", "stage": "Stage", "sprint": "Sprint"}
@@ -261,7 +261,7 @@ def get_period_buckets(project: str, from_date: date, to_date: date, group_by: s
 
 
 def _cumulative_plan_through(plan_rows: list[dict], last_day: date) -> float:
-	"""Sum pwea_plan for fiscal months whose calendar month ends on or before last_day."""
+	"""Sum pwea_expected for fiscal months whose calendar month ends on or before last_day."""
 	total = 0.0
 	for row in plan_rows:
 		fy = row.get("pwea_year")
@@ -271,7 +271,7 @@ def _cumulative_plan_through(plan_rows: list[dict], last_day: date) -> float:
 		me = fiscal_month_end_date(fy, int(mn))
 		if not me or me > last_day:
 			continue
-		total += flt(row.get("pwea_plan"))
+		total += flt(row.get("pwea_expected"))
 	return total
 
 
@@ -286,7 +286,7 @@ def _load_pwe_plan_rows(project: str, task_names: list[str] | None) -> list[dict
 			pwe.pwe_task.as_("pwe_task"),
 			amount.pwea_year.as_("pwea_year"),
 			amount.pwea_month.as_("pwea_month"),
-			IfNull(amount.pwea_plan, 0).as_("pwea_plan"),
+			IfNull(amount.pwea_expected, 0).as_("pwea_expected"),
 		)
 		.where(pwe.pwe_project == project)
 	)
@@ -410,7 +410,7 @@ def _pwe_plan_by_task(project: str, task_names: list[str] | None = None) -> dict
 		task = row.get("pwe_task")
 		if not task:
 			continue
-		plan_by_task[task] = plan_by_task.get(task, 0.0) + flt(row.get("pwea_plan"))
+		plan_by_task[task] = plan_by_task.get(task, 0.0) + flt(row.get("pwea_expected"))
 	return plan_by_task
 
 
@@ -428,6 +428,8 @@ def _load_task_volume_rows(
 
 	fields = [
 		"name",
+		"parent_task",
+		"is_group",
 		"creation",
 		"progress",
 		"status",
@@ -1164,6 +1166,12 @@ def _task_tree_names(project: str | None, task: str) -> list[str]:
 	return _task_tree_names_from_rows(task, _task_child_names(project, task))
 
 
+def _hours_segment_drilldown_names(
+	tasks: list[dict], task_names: list[str], exclude_group: bool
+) -> list[str]:
+	return sorted(task_names)
+
+
 def _project_limits(project: str | None) -> dict[str, float | None]:
 	if not project:
 		return {"warning": None, "block": None, "message": None}
@@ -1216,7 +1224,7 @@ def _planned_hours_by_role_for_task(
 		.on(amount.parent == pwe.name)
 		.select(
 			pwe.pwe_project_role.as_("role"),
-			Sum(IfNull(amount.pwea_plan, 0)).as_("planned_hours"),
+			Sum(IfNull(amount.pwea_expected, 0)).as_("planned_hours"),
 		)
 		.where(pwe.pwe_project == project)
 		.where(pwe.pwe_task == task)
@@ -2062,19 +2070,29 @@ def _period_volume_burndown(
 			created_completed.append(created_completed_value)
 			completed.append(completed_value)
 			forecast_completed_total.append(completed_total_in_bucket)
-			task_filters["created"].append(created_task_names)
-			task_filters["open"].append(sorted(open_names))
+			created_drilldown_names = _hours_segment_drilldown_names(
+				tasks, created_task_names, exclude_group
+			)
+			open_drilldown_names = _hours_segment_drilldown_names(tasks, open_names, exclude_group)
+			task_filters["created"].append(created_drilldown_names)
+			task_filters["open"].append(open_drilldown_names)
 			completed_task_names = sorted(
 				name
 				for name, hours in bucket_hours_by_task.items()
 				if flt(hours) > 0 and name not in created_completed_names_set
 			)
+			completed_drilldown_names = _hours_segment_drilldown_names(
+				tasks, completed_task_names, exclude_group
+			)
+			created_completed_drilldown_names = _hours_segment_drilldown_names(
+				tasks, created_completed_names, exclude_group
+			)
 			task_filters["completed"].append(
-				_utp_parent_names_in_bucket_for_tasks(project, bs, be, completed_task_names)
+				_utp_parent_names_in_bucket_for_tasks(project, bs, be, completed_drilldown_names)
 			)
 			task_filters["created_completed"].append(
-				_utp_parent_names_in_bucket_for_tasks(project, bs, be, created_completed_names)
-				if created_completed_names
+				_utp_parent_names_in_bucket_for_tasks(project, bs, be, created_completed_drilldown_names)
+				if created_completed_drilldown_names
 				else []
 			)
 			continue
