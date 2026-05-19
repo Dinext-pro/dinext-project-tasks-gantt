@@ -12,6 +12,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_current_date_marker,
 	_creation_date,
 	_derive_start_scope_series,
+	_effective_group_planned_hours_by_role,
 	_extended_forecast_bucket_label,
 	_forecast_progress_to_completion,
 	get_task_progress_trend,
@@ -22,6 +23,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_measure_open_scope_from_rows,
 	_period_volume_burndown,
 	_period_progress_series,
+	_planned_hours_by_role,
 	_planned_progress_series,
 	_task_tree_names_from_rows,
 	_task_actual_progress_series,
@@ -926,6 +928,154 @@ class TestBurndownBuckets(FrappeTestCase):
 				{"name": "Block limit", "color": "red", "from": 120.0, "to": 165.0},
 			],
 		)
+
+
+class TestPlannedHoursByRole(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task", return_value={})
+	def test_planned_hours_by_role_does_not_fallback_to_parent_task(
+		self, mock_planned_for_task, mock_get_value
+	):
+		result = _planned_hours_by_role("PROJ-1", "TASK-CHILD")
+
+		self.assertEqual(result, {})
+		mock_planned_for_task.assert_called_once()
+		mock_get_value.assert_not_called()
+
+	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
+	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
+	def test_effective_group_planned_hours_stops_at_nearest_descendant_role_match(
+		self, mock_planned_for_task, mock_task_child_names
+	):
+		mock_task_child_names.return_value = [
+			{"name": "TASK-1.1", "parent_task": "TASK-1"},
+			{"name": "TASK-1.1.1", "parent_task": "TASK-1.1"},
+		]
+		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+			"TASK-1": {"Developer": 100.0},
+			"TASK-1.1": {"Developer": 10.0},
+			"TASK-1.1.1": {"Developer": 15.0},
+		}.get(task, {})
+
+		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
+
+		self.assertEqual(result, {"Developer": 90.0})
+
+	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
+	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
+	def test_effective_group_planned_hours_stops_per_role_but_descends_for_missing_roles(
+		self, mock_planned_for_task, mock_task_child_names
+	):
+		mock_task_child_names.return_value = [
+			{"name": "TASK-1.1", "parent_task": "TASK-1"},
+			{"name": "TASK-1.1.1", "parent_task": "TASK-1.1"},
+		]
+		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+			"TASK-1": {"Developer": 100.0, "Analyst": 50.0},
+			"TASK-1.1": {"Developer": 10.0},
+			"TASK-1.1.1": {"Developer": 15.0, "Analyst": 20.0},
+		}.get(task, {})
+
+		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
+
+		self.assertEqual(result, {"Developer": 90.0, "Analyst": 30.0})
+
+	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
+	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
+	def test_effective_group_planned_hours_ignores_non_overlapping_child_roles(
+		self, mock_planned_for_task, mock_task_child_names
+	):
+		mock_task_child_names.return_value = [{"name": "TASK-1.1", "parent_task": "TASK-1"}]
+		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+			"TASK-1": {"Developer": 100.0},
+			"TASK-1.1": {"Analyst": 25.0},
+		}.get(task, {})
+
+		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
+
+		self.assertEqual(result, {"Developer": 100.0})
+
+	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
+	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
+	def test_effective_group_planned_hours_clamps_negative_role_balance_to_zero(
+		self, mock_planned_for_task, mock_task_child_names
+	):
+		mock_task_child_names.return_value = [{"name": "TASK-1.1", "parent_task": "TASK-1"}]
+		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+			"TASK-1": {"Developer": 10.0},
+			"TASK-1.1": {"Developer": 25.0},
+		}.get(task, {})
+
+		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
+
+		self.assertEqual(result, {})
+
+
+class TestLoadTaskVolumeRowsHours(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown._task_name_list", return_value=["TASK-GROUP", "TASK-CHILD"])
+	@patch("dinext_project_tasks_gantt.burndown._story_point_map", return_value={})
+	@patch("dinext_project_tasks_gantt.burndown._utp_min_date_by_task", return_value={})
+	@patch(
+		"dinext_project_tasks_gantt.burndown._pwe_plan_by_task",
+		return_value={"TASK-GROUP": 100.0, "TASK-CHILD": 10.0},
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.frappe.get_all",
+		return_value=[
+			{
+				"name": "TASK-GROUP",
+				"parent_task": None,
+				"is_group": 1,
+				"creation": "2026-04-26 09:00:00",
+				"progress": 0.0,
+				"status": "Open",
+				"completed_on": None,
+				"closing_date": None,
+				"story_point": None,
+				"task_weight": 0,
+				"exp_start_date": None,
+				"exp_end_date": None,
+				"custom_planned_start_date": None,
+				"custom_planned_end_date": None,
+			},
+			{
+				"name": "TASK-CHILD",
+				"parent_task": "TASK-GROUP",
+				"is_group": 0,
+				"creation": "2026-04-26 10:00:00",
+				"progress": 0.0,
+				"status": "Open",
+				"completed_on": None,
+				"closing_date": None,
+				"story_point": None,
+				"task_weight": 0,
+				"exp_start_date": None,
+				"exp_end_date": None,
+				"custom_planned_start_date": None,
+				"custom_planned_end_date": None,
+			},
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown._effective_group_planned_hours_by_role", return_value={"Developer": 75.0})
+	def test_load_task_volume_rows_uses_effective_group_hours_for_group_tasks(
+		self,
+		mock_effective,
+		_mock_get_all,
+		_mock_pwe,
+		_mock_utp_min,
+		_mock_story_point_map,
+		_mock_task_name_list,
+	):
+		rows = _load_task_volume_rows(
+			project="PROJ-1",
+			exclude_group=False,
+			measure="hours",
+			use_task_weight=False,
+		)
+		by_name = {row["name"]: row for row in rows}
+		mock_effective.assert_called_once_with("PROJ-1", "TASK-GROUP")
+		self.assertEqual(by_name["TASK-GROUP"]["volume"], 75.0)
+		self.assertEqual(by_name["TASK-CHILD"]["volume"], 10.0)
 
 
 class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
@@ -1895,7 +2045,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 			("2026-05-02", date(2026, 5, 2), date(2026, 5, 2)),
 		],
 	)
-	def test_hours_all_segment_drilldown_include_group_ancestors_when_groups_are_allowed(
+	def test_hours_drilldown_keeps_existing_group_task_filters_when_groups_are_allowed(
 		self,
 		_mock_buckets,
 		_mock_tasks,
@@ -1923,9 +2073,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 
 		self.assertEqual(out["task_filters"]["created"], [["TASK-GROUP", "TASK-LEAF"], []])
 		self.assertEqual(out["task_filters"]["open"], [[], ["TASK-GROUP", "TASK-LEAF"]])
-		mock_utp_parent_names.assert_any_call(
-			"PROJ-1", date(2026, 5, 1), date(2026, 5, 1), ["TASK-GROUP", "TASK-LEAF"]
-		)
+		self.assertEqual(out["task_filters"]["created_completed"], [["UTP-LEAF-CC"], []])
 
 
 class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
