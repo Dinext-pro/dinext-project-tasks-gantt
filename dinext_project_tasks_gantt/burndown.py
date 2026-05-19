@@ -448,7 +448,10 @@ def _load_task_volume_rows(
 	hours_creation_by_task = _utp_min_date_by_task(project, task_names) if measure == "hours" else {}
 
 	for task in tasks:
-		task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task, use_task_weight)
+		if measure == "hours":
+			task["volume"] = _hours_volume_for_task(project, task, pwe_by_task)
+		else:
+			task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task, use_task_weight)
 		if measure == "hours":
 			created_on = getdate(task.get("creation")) if task.get("creation") else None
 			utp_created_on = hours_creation_by_task.get(task.get("name"))
@@ -512,6 +515,17 @@ def get_project_issue_type_options(project: str | None = None) -> list[dict[str,
 		}
 	)
 	return [{"label": _(value), "value": value, "description": ""} for value in values]
+
+
+def _hours_volume_for_task(
+	project: str,
+	task: dict,
+	pwe_by_task: dict[str, float] | None = None,
+) -> float:
+	if cint(task.get("is_group")):
+		effective_by_role = _effective_group_planned_hours_by_role(project, task.get("name"))
+		return sum(flt(value) for value in effective_by_role.values())
+	return flt((pwe_by_task or {}).get(task.get("name"), 0.0))
 
 
 def _task_volume(
@@ -1200,14 +1214,7 @@ def _planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
 		return {}
 	pwe = frappe.qb.DocType("Project Work Efforts")
 	amount = frappe.qb.DocType("Project Work Efforts Amount")
-	out: dict[str, float] = {}
-	current = task
-	while current:
-		out = _planned_hours_by_role_for_task(project, current, pwe, amount)
-		if out:
-			return out
-		current = frappe.db.get_value("Task", current, "parent_task")
-	return {}
+	return _planned_hours_by_role_for_task(project, task, pwe, amount)
 
 
 def _planned_hours_by_role_for_task(
@@ -1258,22 +1265,74 @@ def _child_tree_planned_hours_by_role(project: str | None, task: str) -> dict[st
 
 	pwe = frappe.qb.DocType("Project Work Efforts")
 	amount = frappe.qb.DocType("Project Work Efforts Amount")
-	visited: set[str] = set()
+	plan_cache: dict[str, dict[str, float]] = {}
+	visited_by_role: dict[str, set[str]] = {}
+
+	def child_plan(task_name: str) -> dict[str, float]:
+		if task_name not in plan_cache:
+			plan_cache[task_name] = _planned_hours_by_role_for_task(project, task_name, pwe, amount)
+		return plan_cache[task_name]
+
+	def roles_in_subtree(parent: str, visited: set[str] | None = None) -> set[str]:
+		visited = visited or set()
+		if parent in visited:
+			return set()
+		visited.add(parent)
+		out: set[str] = set()
+		for child in sorted(children_by_parent.get(parent, [])):
+			out.update(child_plan(child).keys())
+			out.update(roles_in_subtree(child, visited))
+		return out
+
+	def nearest_role_hours(parent: str, role: str) -> float:
+		visited = visited_by_role.setdefault(role, set())
+		if parent in visited:
+			return 0.0
+		visited.add(parent)
+		current_plan = flt(child_plan(parent).get(role))
+		if current_plan > 0:
+			return current_plan
+		for child in sorted(children_by_parent.get(parent, [])):
+			planned = flt(child_plan(child).get(role))
+			if planned > 0:
+				return planned
+			descendant_hours = nearest_role_hours(child, role)
+			if descendant_hours > 0:
+				return descendant_hours
+		return 0.0
 
 	def planned_for_descendants(parent: str) -> dict[str, float]:
-		if parent in visited:
+		if parent not in children_by_parent:
 			return {}
-		visited.add(parent)
 		out: dict[str, float] = {}
-		for child in sorted(children_by_parent.get(parent, [])):
-			child_plan = _planned_hours_by_role_for_task(project, child, pwe, amount)
-			if child_plan:
-				_add_hours_by_role(out, child_plan)
-			else:
-				_add_hours_by_role(out, planned_for_descendants(child))
+		roles = roles_in_subtree(parent)
+		for role in sorted(roles):
+			total_for_role = 0.0
+			for child in sorted(children_by_parent.get(parent, [])):
+				visited_by_role[role] = set()
+				total_for_role += nearest_role_hours(child, role)
+			if total_for_role > 0:
+				out[role] = total_for_role
 		return out
 
 	return planned_for_descendants(task)
+
+
+def _effective_group_planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
+	if not project or not task:
+		return {}
+	own_plan = _planned_hours_by_role(project, task)
+	if not own_plan:
+		return {}
+	descendant_plan = _child_tree_planned_hours_by_role(project, task)
+	if not descendant_plan:
+		return own_plan
+	out: dict[str, float] = {}
+	for role, planned in own_plan.items():
+		remaining = flt(planned) - flt(descendant_plan.get(role))
+		if remaining > 0:
+			out[role] = remaining
+	return out
 
 
 def _total_hours(hours_by_role: list[dict[str, Any]]) -> float:
@@ -1546,7 +1605,11 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	actual_progress_completion = getdate(task_row["completed_on"]) if task_row.get("completed_on") else None
 	skip_forecasts = _task_trend_forecasts_suppressed(task_row)
 	task_names_for_hours = _task_tree_names(task_row.get("project"), task)
-	planned_hours_by_role = _planned_hours_by_role(task_row.get("project"), task)
+	planned_hours_by_role = (
+		_effective_group_planned_hours_by_role(task_row.get("project"), task)
+		if cint(task_row.get("is_group"))
+		else _planned_hours_by_role(task_row.get("project"), task)
+	)
 	scale_planned_hours_by_role = (
 		planned_hours_by_role
 		if planned_hours_by_role
