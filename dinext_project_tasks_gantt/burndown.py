@@ -5,6 +5,7 @@
 Epic-style burndown data for Task Epic Burndown report.
 
 Hours: plan from Project Work Efforts (pwea_expected), actual from approved User Timesheet Position.
+For hours burndown, per-task scope at bucket end is max(plan, cumulative actual) so overrun does not shrink chart scope.
 Story points / task count: Task + Task Progress History.
 """
 
@@ -526,6 +527,26 @@ def _hours_volume_for_task(
 		effective_by_role = _effective_group_planned_hours_by_role(project, task.get("name"))
 		return sum(flt(value) for value in effective_by_role.values())
 	return flt((pwe_by_task or {}).get(task.get("name"), 0.0))
+
+
+def _effective_hours_scope_volume(plan_volume: float, cumulative_actual_hours: float) -> float:
+	plan = flt(plan_volume)
+	actual = flt(cumulative_actual_hours)
+	return actual if actual > plan else plan
+
+
+def _effective_hours_scope_by_task(
+	tasks: list[dict],
+	cumulative_by_task: dict[str, float],
+) -> dict[str, float]:
+	return {
+		task["name"]: _effective_hours_scope_volume(
+			task.get("volume"),
+			cumulative_by_task.get(task["name"], 0.0),
+		)
+		for task in tasks
+		if task.get("name")
+	}
 
 
 def _task_volume(
@@ -2092,7 +2113,9 @@ def _period_volume_burndown(
 	created_completed: list[float] = []
 	forecast_completed_total: list[float] = []
 	task_filters = {"created": [], "open": [], "completed": [], "created_completed": []}
-	total_forecast_volume = sum(flt(task.get("volume")) for task in tasks)
+	total_forecast_volume = (
+		0.0 if measure == "hours" else sum(flt(task.get("volume")) for task in tasks)
+	)
 	for _label, bs, be in buckets:
 		created_tasks = _tasks_created_from_rows(tasks, bs, be)
 		created_task_names = [task["name"] for task in created_tasks]
@@ -2100,13 +2123,19 @@ def _period_volume_burndown(
 		if measure == "hours":
 			bucket_hours_by_task = _utp_hours_by_task(project, bs, be, task_names)
 			cumulative_hours_by_task = _utp_cumulative_hours_by_task(project, be, tasks, task_names)
+			effective_scope_by_task = _effective_hours_scope_by_task(tasks, cumulative_hours_by_task)
 			eligible_open_tasks = []
 			for task in tasks:
 				created_on = _creation_date(task)
 				if created_on and created_on > be:
 					continue
 				eligible_open_tasks.append(task)
-			eligible_forecast_volume = sum(flt(task.get("volume")) for task in eligible_open_tasks)
+			eligible_forecast_volume = sum(
+				effective_scope_by_task.get(task["name"], 0.0) for task in eligible_open_tasks
+			)
+			created_raw = sum(
+				effective_scope_by_task.get(name, 0.0) for name in created_task_names
+			)
 			created_completed_names = sorted(
 				name for name in created_task_names if flt(bucket_hours_by_task.get(name)) > 0
 			)
@@ -2123,7 +2152,9 @@ def _period_volume_burndown(
 				name = task["name"]
 				if name in created_task_names:
 					continue
-				remaining_hours = flt(task.get("volume")) - flt(cumulative_hours_by_task.get(name))
+				remaining_hours = effective_scope_by_task.get(name, 0.0) - flt(
+					cumulative_hours_by_task.get(name)
+				)
 				if remaining_hours > 0:
 					open_names.append(name)
 			open_volume.append(
@@ -2215,13 +2246,6 @@ def _period_volume_burndown(
 	}.get(measure, _("Volume"))
 	forecast_summary: dict[str, Any] = {"show": False}
 	completed_total = [flt(completed[i]) + flt(created_completed[i]) for i in range(len(categories))]
-	summary = _task_epic_burndown_chart_summary(
-		tasks,
-		measure,
-		use_task_weight,
-		completed_total,
-		total_forecast_volume,
-	)
 	velocity_completed_total = forecast_completed_total if not use_progress else completed_total
 	fact_end_idx = _fact_end_index(buckets)
 	forecast_completed = [0.0 for _ in categories]
@@ -2230,13 +2254,20 @@ def _period_volume_burndown(
 	if show_completion_forecast and categories and fact_end_idx >= 0 and fact_end_idx < len(categories) - 1:
 		_fact_label, _fact_bs, fact_be = buckets[fact_end_idx]
 		if measure == "hours":
+			fact_cumulative_hours_by_task = _utp_cumulative_hours_by_task(
+				project, fact_be, tasks, task_names
+			)
+			effective_scope_at_fact = sum(
+				_effective_hours_scope_volume(
+					task.get("volume"),
+					fact_cumulative_hours_by_task.get(task.get("name"), 0.0),
+				)
+				for task in tasks
+			)
 			forecast_baseline_open = max(
 				0.0,
-				total_forecast_volume
-				- sum(
-					flt(hours)
-					for hours in _utp_cumulative_hours_by_task(project, fact_be, tasks, task_names).values()
-				),
+				effective_scope_at_fact
+				- sum(flt(hours) for hours in fact_cumulative_hours_by_task.values()),
 			)
 		else:
 			forecast_baseline_open = _measure_forecast_open_baseline_from_rows(
@@ -2309,6 +2340,25 @@ def _period_volume_burndown(
 						for tail_index in range(index + 1, len(categories)):
 							forecast_open[tail_index] = 0.0
 						break
+	if measure == "hours":
+		last_scope_date = buckets[-1][2] if buckets else td
+		last_cumulative_hours_by_task = _utp_cumulative_hours_by_task(
+			project, last_scope_date, tasks, task_names
+		)
+		total_forecast_volume = sum(
+			_effective_hours_scope_volume(
+				task.get("volume"),
+				last_cumulative_hours_by_task.get(task.get("name"), 0.0),
+			)
+			for task in tasks
+		)
+	summary = _task_epic_burndown_chart_summary(
+		tasks,
+		measure,
+		use_task_weight,
+		completed_total,
+		total_forecast_volume,
+	)
 	return {
 		"measure": measure,
 		"categories": categories,
