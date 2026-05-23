@@ -289,7 +289,10 @@ def _pwe_amount_expression(amount: Any, hours_source: str):
 
 
 def _load_pwe_plan_rows(
-	project: str, task_names: list[str] | None, hours_source: str = "pwea_plan"
+	project: str,
+	task_names: list[str] | None,
+	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> list[dict]:
 	pwe = frappe.qb.DocType("Project Work Efforts")
 	amount = frappe.qb.DocType("Project Work Efforts Amount")
@@ -306,6 +309,7 @@ def _load_pwe_plan_rows(
 		)
 		.where(pwe.pwe_project == project)
 	)
+	query = _apply_project_role_filters(query, pwe.pwe_project_role, project_role_filters)
 	if task_names is not None:
 		if not task_names:
 			return []
@@ -331,6 +335,24 @@ def _normalize_text_list(value: Any) -> list[str]:
 	if isinstance(value, (list, tuple, set)):
 		return [str(item).strip() for item in value if str(item).strip()]
 	return [str(value).strip()]
+
+
+def _normalize_project_role_filters(value: Any) -> list[str]:
+	out: list[str] = []
+	seen: set[str] = set()
+	for item in _normalize_text_list(value):
+		if not item or item in seen:
+			continue
+		seen.add(item)
+		out.append(item)
+	return out
+
+
+def _apply_project_role_filters(query: Any, role_field: Any, project_role_filters: Any = None):
+	project_role_filters = _normalize_project_role_filters(project_role_filters)
+	if not project_role_filters:
+		return query
+	return query.where(IfNull(role_field, "") != "").where(role_field.isin(project_role_filters))
 
 
 def _task_issue_name(task: dict[str, Any]) -> str | None:
@@ -421,10 +443,18 @@ def _task_name_list(
 
 
 def _pwe_plan_by_task(
-	project: str, task_names: list[str] | None = None, hours_source: str = "pwea_plan"
+	project: str,
+	task_names: list[str] | None = None,
+	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, float]:
 	plan_by_task: dict[str, float] = {}
-	for row in _load_pwe_plan_rows(project, task_names, hours_source=hours_source):
+	for row in _load_pwe_plan_rows(
+		project,
+		task_names,
+		hours_source=hours_source,
+		project_role_filters=project_role_filters,
+	):
 		task = row.get("pwe_task")
 		if not task:
 			continue
@@ -440,7 +470,9 @@ def _load_task_volume_rows(
 	task_type_filters: list[str] | None = None,
 	issue_type_filters: list[str] | None = None,
 	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> list[dict]:
+	project_role_filters = _normalize_project_role_filters(project_role_filters)
 	task_names = _task_name_list(project, exclude_group, task_type_filters, issue_type_filters)
 	if not task_names:
 		return []
@@ -465,13 +497,40 @@ def _load_task_volume_rows(
 	tasks = frappe.get_all("Task", filters={"name": ["in", task_names]}, fields=fields)
 	sp_map = _story_point_map() if measure == "story_points" else {}
 	pwe_by_task = (
-		_pwe_plan_by_task(project, task_names, hours_source=hours_source) if measure == "hours" else {}
+		(
+			_pwe_plan_by_task(
+				project,
+				task_names,
+				hours_source=hours_source,
+				project_role_filters=project_role_filters,
+			)
+			if project_role_filters
+			else _pwe_plan_by_task(project, task_names, hours_source=hours_source)
+		)
+		if measure == "hours"
+		else {}
 	)
-	hours_creation_by_task = _utp_min_date_by_task(project, task_names) if measure == "hours" else {}
+	hours_creation_by_task = (
+		(
+			_utp_min_date_by_task(
+				project, task_names, project_role_filters=project_role_filters
+			)
+			if project_role_filters
+			else _utp_min_date_by_task(project, task_names)
+		)
+		if measure == "hours"
+		else {}
+	)
 
 	for task in tasks:
 		if measure == "hours":
-			task["volume"] = _hours_volume_for_task(project, task, pwe_by_task, hours_source=hours_source)
+			task["volume"] = _hours_volume_for_task(
+				project,
+				task,
+				pwe_by_task,
+				hours_source=hours_source,
+				project_role_filters=project_role_filters,
+			)
 		else:
 			task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task, use_task_weight)
 		if measure == "hours":
@@ -511,6 +570,22 @@ def get_project_task_type_options(project: str | None = None) -> list[dict[str, 
 
 
 @frappe.whitelist()
+def get_project_role_options(project: str | None = None) -> list[dict[str, str]]:
+	if not project:
+		return []
+	if not frappe.has_permission("Project", "read", project):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	rows = frappe.get_all(
+		"Project Team Details",
+		filters={"parent": project, "parenttype": "Project", "parentfield": "custom_ts_details"},
+		fields=["pt_role"],
+		limit_page_length=0,
+	)
+	values = sorted({(row.get("pt_role") or "").strip() for row in rows if (row.get("pt_role") or "").strip()})
+	return [{"label": value, "value": value, "description": ""} for value in values]
+
+
+@frappe.whitelist()
 def get_project_issue_type_options(project: str | None = None) -> list[dict[str, str]]:
 	if not project:
 		return []
@@ -544,10 +619,21 @@ def _hours_volume_for_task(
 	task: dict,
 	pwe_by_task: dict[str, float] | None = None,
 	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> float:
+	project_role_filters = _normalize_project_role_filters(project_role_filters)
 	if cint(task.get("is_group")):
-		effective_by_role = _effective_group_planned_hours_by_role(
-			project, task.get("name"), hours_source=hours_source
+		effective_by_role = (
+			_effective_group_planned_hours_by_role(
+				project,
+				task.get("name"),
+				hours_source=hours_source,
+				project_role_filters=project_role_filters,
+			)
+			if project_role_filters
+			else _effective_group_planned_hours_by_role(
+				project, task.get("name"), hours_source=hours_source
+			)
 		)
 		return sum(flt(value) for value in effective_by_role.values())
 	return flt((pwe_by_task or {}).get(task.get("name"), 0.0))
@@ -1268,13 +1354,23 @@ def _project_limits(project: str | None) -> dict[str, float | None]:
 
 
 def _planned_hours_by_role(
-	project: str | None, task: str, hours_source: str = "pwea_plan"
+	project: str | None,
+	task: str,
+	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, float]:
 	if not project or not task:
 		return {}
 	pwe = frappe.qb.DocType("Project Work Efforts")
 	amount = frappe.qb.DocType("Project Work Efforts Amount")
-	return _planned_hours_by_role_for_task(project, task, pwe, amount, hours_source=hours_source)
+	return _planned_hours_by_role_for_task(
+		project,
+		task,
+		pwe,
+		amount,
+		hours_source=hours_source,
+		project_role_filters=project_role_filters,
+	)
 
 
 def _planned_hours_by_role_for_task(
@@ -1283,11 +1379,12 @@ def _planned_hours_by_role_for_task(
 	pwe: Any | None = None,
 	amount: Any | None = None,
 	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, float]:
 	pwe = pwe or frappe.qb.DocType("Project Work Efforts")
 	amount = amount or frappe.qb.DocType("Project Work Efforts Amount")
 	amount_expr = _pwe_amount_expression(amount, hours_source)
-	rows = (
+	query = (
 		frappe.qb.from_(pwe)
 		.inner_join(amount)
 		.on(amount.parent == pwe.name)
@@ -1298,13 +1395,14 @@ def _planned_hours_by_role_for_task(
 		.where(pwe.pwe_project == project)
 		.where(pwe.pwe_task == task)
 		.groupby(pwe.pwe_project_role)
-		.run(as_dict=True)
 	)
+	query = _apply_project_role_filters(query, pwe.pwe_project_role, project_role_filters)
+	rows = query.run(as_dict=True)
 	out: dict[str, float] = {}
 	for row in rows:
-		role = row.get("role") or _("No role")
+		role = (row.get("role") or "").strip()
 		planned = flt(row.get("planned_hours"))
-		if planned > 0:
+		if role and planned > 0:
 			out[role] = planned
 	return out
 
@@ -1315,7 +1413,10 @@ def _add_hours_by_role(target: dict[str, float], source: dict[str, float]) -> No
 
 
 def _child_tree_planned_hours_by_role(
-	project: str | None, task: str, hours_source: str = "pwea_plan"
+	project: str | None,
+	task: str,
+	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, float]:
 	if not project or not task:
 		return {}
@@ -1335,7 +1436,12 @@ def _child_tree_planned_hours_by_role(
 	def child_plan(task_name: str) -> dict[str, float]:
 		if task_name not in plan_cache:
 			plan_cache[task_name] = _planned_hours_by_role_for_task(
-				project, task_name, pwe, amount, hours_source=hours_source
+				project,
+				task_name,
+				pwe,
+				amount,
+				hours_source=hours_source,
+				project_role_filters=project_role_filters,
 			)
 		return plan_cache[task_name]
 
@@ -1385,14 +1491,27 @@ def _child_tree_planned_hours_by_role(
 
 
 def _effective_group_planned_hours_by_role(
-	project: str | None, task: str, hours_source: str = "pwea_plan"
+	project: str | None,
+	task: str,
+	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, float]:
 	if not project or not task:
 		return {}
-	own_plan = _planned_hours_by_role(project, task, hours_source=hours_source)
+	own_plan = _planned_hours_by_role(
+		project,
+		task,
+		hours_source=hours_source,
+		project_role_filters=project_role_filters,
+	)
 	if not own_plan:
 		return {}
-	descendant_plan = _child_tree_planned_hours_by_role(project, task, hours_source=hours_source)
+	descendant_plan = _child_tree_planned_hours_by_role(
+		project,
+		task,
+		hours_source=hours_source,
+		project_role_filters=project_role_filters,
+	)
 	if not descendant_plan:
 		return own_plan
 	out: dict[str, float] = {}
@@ -1494,6 +1613,35 @@ def _load_task_timesheet_role_rows(task_names: list[str], date_from: date, date_
 		.orderby(detail.date)
 		.run(as_dict=True)
 	)
+
+
+def _utp_query_with_role_filters(
+	project: str,
+	project_role_filters: list[str] | None = None,
+	date_from: date | None = None,
+	date_to: date | None = None,
+	task_names: list[str] | None = None,
+):
+	if task_names is not None and not task_names:
+		return None, None, None
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	query = (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.where(utp.project == project)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+	)
+	if date_from and date_to:
+		query = query.where(detail.date.between(date_from, date_to))
+	elif date_to:
+		query = query.where(detail.date <= date_to)
+	if task_names is not None:
+		query = query.where(utp.document_name.isin(task_names))
+	query = _apply_project_role_filters(query, utp.project_role, project_role_filters)
+	return query, utp, detail
 
 
 def _date_marker(label: str, value: Any, marker_type: str) -> dict[str, Any] | None:
@@ -1843,81 +1991,80 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 
 
 def _utp_sum_hours(
-	project: str, date_from: date, date_to: date, task_names: list[str] | None
+	project: str,
+	date_from: date,
+	date_to: date,
+	task_names: list[str] | None,
+	project_role_filters: list[str] | None = None,
 ) -> float:
-	if task_names is not None and not task_names:
-		return 0.0
-	utp = frappe.qb.DocType("User Timesheet Position")
-	detail = frappe.qb.DocType("User Timesheet Position Details")
-	query = (
-		frappe.qb.from_(utp)
-		.inner_join(detail)
-		.on(detail.parent == utp.name)
-		.select(Sum(IfNull(detail.hours, 0)).as_("hours"))
-		.where(utp.project == project)
-		.where(utp.status == UTP_STATUS_APPROVED)
-		.where(IfNull(utp.document_type, "") == "Task")
-		.where(detail.date.between(date_from, date_to))
+	query, _utp, detail = _utp_query_with_role_filters(
+		project,
+		project_role_filters=project_role_filters,
+		date_from=date_from,
+		date_to=date_to,
+		task_names=task_names,
 	)
-	if task_names is not None:
-		query = query.where(utp.document_name.isin(task_names))
+	if query is None or detail is None:
+		return 0.0
+	query = query.select(Sum(IfNull(detail.hours, 0)).as_("hours"))
 	row = query.run(as_dict=True)
 	return flt(row[0].hours) if row else 0.0
 
 
 def _utp_hours_by_task(
-	project: str, date_from: date, date_to: date, task_names: list[str] | None
+	project: str,
+	date_from: date,
+	date_to: date,
+	task_names: list[str] | None,
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, float]:
-	if task_names is not None and not task_names:
+	query, utp, detail = _utp_query_with_role_filters(
+		project,
+		project_role_filters=project_role_filters,
+		date_from=date_from,
+		date_to=date_to,
+		task_names=task_names,
+	)
+	if query is None or utp is None or detail is None:
 		return {}
-	utp = frappe.qb.DocType("User Timesheet Position")
-	detail = frappe.qb.DocType("User Timesheet Position Details")
 	query = (
-		frappe.qb.from_(utp)
-		.inner_join(detail)
-		.on(detail.parent == utp.name)
-		.select(
+		query.select(
 			utp.document_name.as_("task_name"),
 			Sum(IfNull(detail.hours, 0)).as_("hours"),
 		)
-		.where(utp.project == project)
-		.where(utp.status == UTP_STATUS_APPROVED)
-		.where(IfNull(utp.document_type, "") == "Task")
-		.where(detail.date.between(date_from, date_to))
 		.groupby(utp.document_name)
 	)
-	if task_names is not None:
-		query = query.where(utp.document_name.isin(task_names))
 	rows = query.run(as_dict=True)
 	return {row.task_name: flt(row.hours) for row in rows if row.get("task_name")}
 
 
 def _utp_parent_names_in_bucket_for_tasks(
-	project: str, date_from: date, date_to: date, task_document_names: list[str]
+	project: str,
+	date_from: date,
+	date_to: date,
+	task_document_names: list[str],
+	project_role_filters: list[str] | None = None,
 ) -> list[str]:
 	"""Distinct User Timesheet Position names with approved detail hours in the bucket for given tasks."""
-	if not task_document_names:
-		return []
-	utp = frappe.qb.DocType("User Timesheet Position")
-	detail = frappe.qb.DocType("User Timesheet Position Details")
-	rows = (
-		frappe.qb.from_(utp)
-		.inner_join(detail)
-		.on(detail.parent == utp.name)
-		.select(utp.name)
-		.where(utp.project == project)
-		.where(utp.status == UTP_STATUS_APPROVED)
-		.where(IfNull(utp.document_type, "") == "Task")
-		.where(utp.document_name.isin(task_document_names))
-		.where(detail.date.between(date_from, date_to))
-		.groupby(utp.name)
-		.run(as_dict=True)
+	query, utp, _detail = _utp_query_with_role_filters(
+		project,
+		project_role_filters=project_role_filters,
+		date_from=date_from,
+		date_to=date_to,
+		task_names=task_document_names,
 	)
+	if query is None or utp is None:
+		return []
+	rows = query.select(utp.name).groupby(utp.name).run(as_dict=True)
 	return sorted({row.get("name") for row in rows if row.get("name")})
 
 
 def _utp_cumulative_hours_by_task(
-	project: str, date_to: date, tasks: list[dict], task_names: list[str] | None = None
+	project: str,
+	date_to: date,
+	tasks: list[dict],
+	task_names: list[str] | None = None,
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, float]:
 	if task_names is not None and not task_names:
 		return {}
@@ -1929,24 +2076,20 @@ def _utp_cumulative_hours_by_task(
 	if not task_start_dates:
 		return {}
 	query_start = min(task_start_dates.values())
-	utp = frappe.qb.DocType("User Timesheet Position")
-	detail = frappe.qb.DocType("User Timesheet Position Details")
-	query = (
-		frappe.qb.from_(utp)
-		.inner_join(detail)
-		.on(detail.parent == utp.name)
-		.select(
-			utp.document_name.as_("task_name"),
-			detail.date.as_("work_date"),
-			IfNull(detail.hours, 0).as_("hours"),
-		)
-		.where(utp.project == project)
-		.where(utp.status == UTP_STATUS_APPROVED)
-		.where(IfNull(utp.document_type, "") == "Task")
-		.where(detail.date.between(query_start, date_to))
+	query, utp, detail = _utp_query_with_role_filters(
+		project,
+		project_role_filters=project_role_filters,
+		date_from=query_start,
+		date_to=date_to,
+		task_names=task_names,
 	)
-	if task_names is not None:
-		query = query.where(utp.document_name.isin(task_names))
+	if query is None or utp is None or detail is None:
+		return {}
+	query = query.select(
+		utp.document_name.as_("task_name"),
+		detail.date.as_("work_date"),
+		IfNull(detail.hours, 0).as_("hours"),
+	)
 	rows = query.run(as_dict=True)
 	hours_by_task: dict[str, float] = {}
 	for row in rows:
@@ -1961,26 +2104,22 @@ def _utp_cumulative_hours_by_task(
 	return hours_by_task
 
 
-def _utp_min_date_by_task(project: str, task_names: list[str] | None = None) -> dict[str, date]:
-	if task_names is not None and not task_names:
-		return {}
-	utp = frappe.qb.DocType("User Timesheet Position")
-	detail = frappe.qb.DocType("User Timesheet Position Details")
-	query = (
-		frappe.qb.from_(utp)
-		.inner_join(detail)
-		.on(detail.parent == utp.name)
-		.select(
-			utp.document_name.as_("task_name"),
-			Min(detail.date).as_("min_date"),
-		)
-		.where(utp.project == project)
-		.where(utp.status == UTP_STATUS_APPROVED)
-		.where(IfNull(utp.document_type, "") == "Task")
-		.groupby(utp.document_name)
+def _utp_min_date_by_task(
+	project: str,
+	task_names: list[str] | None = None,
+	project_role_filters: list[str] | None = None,
+) -> dict[str, date]:
+	query, utp, detail = _utp_query_with_role_filters(
+		project,
+		project_role_filters=project_role_filters,
+		task_names=task_names,
 	)
-	if task_names is not None:
-		query = query.where(utp.document_name.isin(task_names))
+	if query is None or utp is None or detail is None:
+		return {}
+	query = query.select(
+		utp.document_name.as_("task_name"),
+		Min(detail.date).as_("min_date"),
+	).groupby(utp.document_name)
 	rows = query.run(as_dict=True)
 	return {
 		row.task_name: getdate(row.min_date)
@@ -1989,27 +2128,22 @@ def _utp_min_date_by_task(project: str, task_names: list[str] | None = None) -> 
 	}
 
 
-def _utp_max_date_by_task(project: str, task_names: list[str] | None = None) -> dict[str, date]:
-	if task_names is not None and not task_names:
-		return {}
-	utp = frappe.qb.DocType("User Timesheet Position")
-	detail = frappe.qb.DocType("User Timesheet Position Details")
-	query = (
-		frappe.qb.from_(utp)
-		.inner_join(detail)
-		.on(detail.parent == utp.name)
-		.select(
-			utp.document_name.as_("task_name"),
-			Max(detail.date).as_("max_date"),
-		)
-		.where(utp.project == project)
-		.where(utp.status == UTP_STATUS_APPROVED)
-		.where(IfNull(utp.document_type, "") == "Task")
-		.where(IfNull(detail.hours, 0) > 0)
-		.groupby(utp.document_name)
+def _utp_max_date_by_task(
+	project: str,
+	task_names: list[str] | None = None,
+	project_role_filters: list[str] | None = None,
+) -> dict[str, date]:
+	query, utp, detail = _utp_query_with_role_filters(
+		project,
+		project_role_filters=project_role_filters,
+		task_names=task_names,
 	)
-	if task_names is not None:
-		query = query.where(utp.document_name.isin(task_names))
+	if query is None or utp is None or detail is None:
+		return {}
+	query = query.where(IfNull(detail.hours, 0) > 0).select(
+		utp.document_name.as_("task_name"),
+		Max(detail.date).as_("max_date"),
+	).groupby(utp.document_name)
 	rows = query.run(as_dict=True)
 	return {
 		row.task_name: getdate(row.max_date)
@@ -2042,6 +2176,7 @@ def get_burndown_series(
 	use_task_weight: int | str = 0,
 	issue_type_filters: list[str] | str | None = None,
 	hours_source: str | None = None,
+	project_role_filters: list[str] | str | None = None,
 ) -> dict[str, Any]:
 	if not project:
 		frappe.throw(_("Project is required"))
@@ -2061,6 +2196,7 @@ def get_burndown_series(
 	task_type_values = _normalize_text_list(task_type_filters or task_type_filter)
 	issue_type_values = _normalize_text_list(issue_type_filters)
 	hours_source_value = _normalize_hours_source(hours_source)
+	project_role_values = _normalize_project_role_filters(project_role_filters)
 	if measure == "hours":
 		return _period_volume_burndown(
 			project,
@@ -2075,6 +2211,7 @@ def get_burndown_series(
 			task_type_filters=task_type_values,
 			issue_type_filters=issue_type_values,
 			hours_source=hours_source_value,
+			project_role_filters=project_role_values,
 		)
 	progress_enabled = _as_bool(use_progress)
 	if measure in ("story_points", "story_point", "sp"):
@@ -2172,7 +2309,9 @@ def _period_volume_burndown(
 	task_type_filters: list[str] | None = None,
 	issue_type_filters: list[str] | None = None,
 	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, Any]:
+	project_role_filters = _normalize_project_role_filters(project_role_filters)
 	buckets = get_period_buckets(project, fd, td, group_by)
 	tasks = _load_task_volume_rows(
 		project,
@@ -2182,6 +2321,7 @@ def _period_volume_burndown(
 		task_type_filters=task_type_filters,
 		issue_type_filters=issue_type_filters,
 		hours_source=hours_source,
+		project_role_filters=project_role_filters,
 	)
 	task_names = [task["name"] for task in tasks]
 	progress_rows = _load_progress_rows(task_names, _progress_history_start_for_tasks(tasks, fd), td)
@@ -2202,7 +2342,9 @@ def _period_volume_burndown(
 	released_hours_by_task: dict[str, float] = {}
 	if measure == "hours":
 		task_by_name = {task["name"]: task for task in tasks if task.get("name")}
-		last_approved_timesheet_dates = _utp_max_date_by_task(project, task_names)
+		last_approved_timesheet_dates = _utp_max_date_by_task(
+			project, task_names, project_role_filters=project_role_filters
+		)
 		task_names_by_completion_date: dict[date, list[str]] = {}
 		for task in tasks:
 			task_name = task.get("name")
@@ -2215,7 +2357,11 @@ def _period_volume_burndown(
 			task_names_by_completion_date.setdefault(completion_date, []).append(task_name)
 		for completion_date, completed_task_names in task_names_by_completion_date.items():
 			cumulative_hours_at_completion = _utp_cumulative_hours_by_task(
-				project, completion_date, tasks, completed_task_names
+				project,
+				completion_date,
+				tasks,
+				completed_task_names,
+				project_role_filters=project_role_filters,
 			)
 			for task_name in completed_task_names:
 				task = task_by_name.get(task_name) or {}
@@ -2228,8 +2374,12 @@ def _period_volume_burndown(
 		created_task_names = [task["name"] for task in created_tasks]
 		created_raw = sum(flt(task.get("volume")) for task in created_tasks)
 		if measure == "hours":
-			bucket_hours_by_task = _utp_hours_by_task(project, bs, be, task_names)
-			cumulative_hours_by_task = _utp_cumulative_hours_by_task(project, be, tasks, task_names)
+			bucket_hours_by_task = _utp_hours_by_task(
+				project, bs, be, task_names, project_role_filters=project_role_filters
+			)
+			cumulative_hours_by_task = _utp_cumulative_hours_by_task(
+				project, be, tasks, task_names, project_role_filters=project_role_filters
+			)
 			effective_scope_by_task = _effective_hours_scope_by_task(tasks, cumulative_hours_by_task)
 			eligible_open_tasks = []
 			for task in tasks:
@@ -2318,10 +2468,22 @@ def _period_volume_burndown(
 				tasks, created_completed_names, exclude_group
 			)
 			task_filters["completed"].append(
-				_utp_parent_names_in_bucket_for_tasks(project, bs, be, completed_drilldown_names)
+				_utp_parent_names_in_bucket_for_tasks(
+					project,
+					bs,
+					be,
+					completed_drilldown_names,
+					project_role_filters=project_role_filters,
+				)
 			)
 			task_filters["created_completed"].append(
-				_utp_parent_names_in_bucket_for_tasks(project, bs, be, created_completed_drilldown_names)
+				_utp_parent_names_in_bucket_for_tasks(
+					project,
+					bs,
+					be,
+					created_completed_drilldown_names,
+					project_role_filters=project_role_filters,
+				)
 				if created_completed_drilldown_names
 				else []
 			)
@@ -2391,7 +2553,11 @@ def _period_volume_burndown(
 		_fact_label, _fact_bs, fact_be = buckets[fact_end_idx]
 		if measure == "hours":
 			fact_cumulative_hours_by_task = _utp_cumulative_hours_by_task(
-				project, fact_be, tasks, task_names
+				project,
+				fact_be,
+				tasks,
+				task_names,
+				project_role_filters=project_role_filters,
 			)
 			effective_scope_at_fact = sum(
 				_effective_hours_scope_volume(
@@ -2479,7 +2645,11 @@ def _period_volume_burndown(
 	if measure == "hours":
 		last_scope_date = buckets[-1][2] if buckets else td
 		last_cumulative_hours_by_task = _utp_cumulative_hours_by_task(
-			project, last_scope_date, tasks, task_names
+			project,
+			last_scope_date,
+			tasks,
+			task_names,
+			project_role_filters=project_role_filters,
 		)
 		total_forecast_volume = sum(
 			_effective_hours_scope_volume(
@@ -2539,9 +2709,15 @@ def _hours_burndown(
 	exclude_group: bool,
 	forecast_periods: int,
 	hours_source: str = "pwea_plan",
+	project_role_filters: list[str] | None = None,
 ) -> dict[str, Any]:
 	tasks = _task_name_list(project, exclude_group, None)
-	plan_rows = _load_pwe_plan_rows(project, None, hours_source=hours_source)
+	plan_rows = _load_pwe_plan_rows(
+		project,
+		None,
+		hours_source=hours_source,
+		project_role_filters=project_role_filters,
+	)
 	buckets = get_period_buckets(project, fd, td, group_by)
 
 	categories: list[str] = []
@@ -2556,8 +2732,14 @@ def _hours_burndown(
 	for _label, bs, be in buckets:
 		cp_end = _cumulative_plan_through(plan_rows, be)
 		cp_start = _cumulative_plan_through(plan_rows, bs - timedelta(days=1))
-		ca_end = _utp_sum_hours(project, fd, be, tasks)
-		ca_start = _utp_sum_hours(project, fd, bs - timedelta(days=1), tasks)
+		ca_end = _utp_sum_hours(project, fd, be, tasks, project_role_filters=project_role_filters)
+		ca_start = _utp_sum_hours(
+			project,
+			fd,
+			bs - timedelta(days=1),
+			tasks,
+			project_role_filters=project_role_filters,
+		)
 
 		st = max(0.0, cp_start - ca_start)
 		ad = max(0.0, cp_end - cp_start)
