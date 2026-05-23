@@ -2552,24 +2552,8 @@ def _period_volume_burndown(
 	if show_completion_forecast and categories and fact_end_idx >= 0 and fact_end_idx < len(categories) - 1:
 		_fact_label, _fact_bs, fact_be = buckets[fact_end_idx]
 		if measure == "hours":
-			fact_cumulative_hours_by_task = _utp_cumulative_hours_by_task(
-				project,
-				fact_be,
-				tasks,
-				task_names,
-				project_role_filters=project_role_filters,
-			)
-			effective_scope_at_fact = sum(
-				_effective_hours_scope_volume(
-					task.get("volume"),
-					fact_cumulative_hours_by_task.get(task.get("name"), 0.0),
-				)
-				for task in tasks
-			)
-			forecast_baseline_open = max(
-				0.0,
-				effective_scope_at_fact
-				- sum(flt(hours) for hours in fact_cumulative_hours_by_task.values()),
+			forecast_baseline_open = (
+				flt(open_volume[fact_end_idx]) if fact_end_idx >= 0 else 0.0
 			)
 		else:
 			forecast_baseline_open = _measure_forecast_open_baseline_from_rows(
