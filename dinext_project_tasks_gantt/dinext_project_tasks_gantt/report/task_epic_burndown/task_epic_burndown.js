@@ -129,6 +129,7 @@ function task_epic_burndown_segment_legend_label(nameOrKey) {
 	const k = String(nameOrKey || "").trim();
 	const byKey = {
 		completed: __("Completed in period"),
+		unused_hours: __("Released hours"),
 		open: __("Open at period end"),
 		created: __("Created in period"),
 		created_completed: __("Created and completed"),
@@ -719,9 +720,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const created = z(d.created || d.added);
 							const openBase = z(d.open || d.remaining || d.end_scope);
 							const completedBase = z(d.completed);
+							const unusedHoursBase = z(d.unused_hours);
 							const createdCompleted = z(d.created_completed || d.same_period_completed);
 							const forecastCompleted = z(d.forecast_completed);
 							const forecastOpen = z(d.forecast_remaining);
+							const showReleasedHours = measureKey === "hours";
 							const holidayDates = new Set((d.holiday_dates || []).filter(Boolean));
 							const showCompletionForecast = showCompletionForecastFilter;
 							const todayStr = frappe.datetime.get_today();
@@ -805,6 +808,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 								if (segment === "completed") {
 									return `-${text}`;
 								}
+								if (segment === "unused_hours") {
+									return `-${text}`;
+								}
 								return text;
 							};
 							const isDark = getEChartsThemeName() === "dark";
@@ -813,12 +819,14 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#3d6fa8",
 										open: "#5eb0e8",
 										completed: "#4d9e5c",
+										unused_hours: "#9cab32",
 										created_completed: "#3d9090",
 									}
 								: {
 										created: "#0b2f5a",
 										open: "#1f77b4",
 										completed: "#6fdc6f",
+										unused_hours: "#7f9624",
 										created_completed: "#0f5b5b",
 									};
 							const segmentLabelColor = isDark
@@ -826,12 +834,14 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#f8fafc",
 										open: "#f8fafc",
 										completed: "#bbf7d0",
+										unused_hours: "#fff7d6",
 										created_completed: "#ccfbf1",
 									}
 								: {
 										created: "#ffffff",
 										open: "#ffffff",
 										completed: "#0a5c0a",
+										unused_hours: "#fff8e1",
 										created_completed: "#a8ffb0",
 									};
 							const segmentLabelColorForecast = isDark
@@ -839,12 +849,14 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#f8fafc",
 										open: "#f8fafc",
 										completed: "#86efac",
+										unused_hours: "#ffefbf",
 										created_completed: "#ecfdf5",
 									}
 								: {
 										created: "#ffffff",
 										open: "#ffffff",
 										completed: "#02240a",
+										unused_hours: "#fff8e1",
 										created_completed: "#e6ffea",
 									};
 							const forecastFillOpacity = 0.42;
@@ -898,19 +910,27 @@ frappe.query_reports["Task Epic Burndown"] = {
 									showCompletionForecast && isForecast
 										? forecastCompleted[i] || 0
 										: completedBase[i] || 0;
+								const unusedHoursValue = showReleasedHours ? unusedHoursBase[i] || 0 : 0;
 								const openValue =
 									showCompletionForecast && isForecast
 										? forecastOpen[i] || 0
 										: openBase[i] || 0;
 								const createdCompletedValue =
 									showCompletionForecast && isForecast ? 0 : createdCompletedBaseValue;
-								const total = createdValue + openValue + completedValue + createdCompletedValue;
+								const total =
+									createdValue +
+									openValue +
+									completedValue +
+									unusedHoursValue +
+									createdCompletedValue;
 
 								let barTop;
 								let openTop;
 								let openBottom;
 								let completedTop;
 								let completedBottom;
+								let unusedHoursTop;
+								let unusedHoursBottom;
 								let createdTop;
 								let createdBottom;
 								let createdCompletedTop;
@@ -924,7 +944,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 									createdTop = createdBottom + createdValue;
 									openBottom = createdTop;
 									openTop = openBottom + openValue;
-									completedBottom = openTop;
+									unusedHoursBottom = openTop;
+									unusedHoursTop = unusedHoursBottom + unusedHoursValue;
+									completedBottom = unusedHoursTop;
 									completedTop = completedBottom + completedValue;
 									barTop = completedTop;
 									barBottom = 0;
@@ -932,20 +954,28 @@ frappe.query_reports["Task Epic Burndown"] = {
 									barTop = previousOpenTop == null ? 0 : previousOpenTop;
 									completedTop = barTop;
 									completedBottom = completedTop - completedValue;
-									openTop = completedBottom;
+									unusedHoursTop = completedBottom;
+									unusedHoursBottom = unusedHoursTop - unusedHoursValue;
+									openTop = unusedHoursBottom;
 									openBottom = openTop - openValue;
 									createdTop = openBottom;
 									createdBottom = createdTop - createdValue;
 									createdCompletedTop = createdBottom;
 									createdCompletedBottom = createdCompletedTop - createdCompletedValue;
-									barBottom = Math.min(openBottom, createdBottom, createdCompletedBottom);
+									barBottom = Math.min(
+										openBottom,
+										unusedHoursBottom,
+										createdBottom,
+										createdCompletedBottom
+									);
 								}
 
-								previousOpenTop = openValue > 0 ? openTop : barTop;
+								previousOpenTop = showReleasedHours ? openTop : openValue > 0 ? openTop : barTop;
 								yMin = Math.min(
 									yMin,
 									openBottom,
 									completedBottom,
+									unusedHoursBottom,
 									createdBottom,
 									createdCompletedBottom,
 									barBottom
@@ -954,6 +984,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									yMax,
 									openTop,
 									completedTop,
+									unusedHoursTop,
 									createdTop,
 									createdCompletedTop,
 									barTop
@@ -967,6 +998,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									created: createdValue,
 									open: openValue,
 									completed: completedValue,
+									unused_hours: unusedHoursValue,
 									created_completed: createdCompletedValue,
 									total,
 									geometry: {
@@ -976,6 +1008,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 										openBottom,
 										completedTop,
 										completedBottom,
+										unusedHoursTop,
+										unusedHoursBottom,
 										createdTop,
 										createdBottom,
 										createdCompletedTop,
@@ -995,6 +1029,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 										openBottom: g.openBottom + yShift,
 										completedTop: g.completedTop + yShift,
 										completedBottom: g.completedBottom + yShift,
+										unusedHoursTop: g.unusedHoursTop + yShift,
+										unusedHoursBottom: g.unusedHoursBottom + yShift,
 										createdTop: g.createdTop + yShift,
 										createdBottom: g.createdBottom + yShift,
 										createdCompletedTop: g.createdCompletedTop + yShift,
@@ -1033,6 +1069,15 @@ frappe.query_reports["Task Epic Burndown"] = {
 									icon: "roundRect",
 									itemStyle: { color: segmentColors.completed },
 								},
+								...(showReleasedHours
+									? [
+											{
+												name: "unused_hours",
+												icon: "roundRect",
+												itemStyle: { color: segmentColors.unused_hours },
+											},
+										]
+									: []),
 								{
 									name: "open",
 									icon: "roundRect",
@@ -1067,6 +1112,27 @@ frappe.query_reports["Task Epic Burndown"] = {
 										width: 8,
 									},
 								},
+								...(showReleasedHours
+									? [
+											{
+												name: "unused_hours",
+												type: "line",
+												color: segmentColors.unused_hours,
+												data: [],
+												silent: true,
+												showSymbol: false,
+												legendHoverLink: false,
+												tooltip: { show: false },
+												itemStyle: {
+													color: segmentColors.unused_hours,
+												},
+												lineStyle: {
+													color: segmentColors.unused_hours,
+													width: 8,
+												},
+											},
+										]
+									: []),
 								{
 									name: "open",
 									type: "line",
@@ -1166,6 +1232,14 @@ frappe.query_reports["Task Epic Burndown"] = {
 													segmentLabel("completed", rowData.completed || 0)
 												)
 											);
+											if (showReleasedHours) {
+												lines.push(
+													row(
+														task_epic_burndown_segment_legend_label("unused_hours"),
+														segmentLabel("unused_hours", rowData.unused_hours || 0)
+													)
+												);
+											}
 											lines.push(
 												row(
 													task_epic_burndown_segment_legend_label("open"),
@@ -1480,6 +1554,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 												};
 												const children = [
 													segmentRect("completed", geometry.completedTop, geometry.completedBottom),
+													segmentRect(
+														"unused_hours",
+														geometry.unusedHoursTop,
+														geometry.unusedHoursBottom
+													),
 													segmentRect("open", geometry.openTop, geometry.openBottom),
 													segmentRect("created", geometry.createdTop, geometry.createdBottom),
 													segmentRect(
@@ -1492,6 +1571,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 														geometry.completedTop,
 														geometry.completedBottom,
 														rowData.completed
+													),
+													segmentText(
+														"unused_hours",
+														geometry.unusedHoursTop,
+														geometry.unusedHoursBottom,
+														rowData.unused_hours
 													),
 													segmentText("open", geometry.openTop, geometry.openBottom, rowData.open),
 													segmentText(

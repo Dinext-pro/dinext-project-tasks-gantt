@@ -18,7 +18,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import Coalesce, Date, IfNull, Min, Sum
+from frappe.query_builder.functions import Coalesce, Date, IfNull, Max, Min, Sum
 from frappe.utils import add_months, cint, flt, get_datetime, getdate
 
 UTP_STATUS_APPROVED = "Согласовано"
@@ -435,6 +435,7 @@ def _load_task_volume_rows(
 		"progress",
 		"status",
 		"completed_on",
+		"act_end_date",
 		"closing_date",
 		"story_point",
 		"task_weight",
@@ -581,6 +582,19 @@ def _creation_date(task: dict) -> date | None:
 def _scope_end(task: dict) -> date | None:
 	value = task.get("completed_on")
 	return getdate(value) if value else None
+
+
+def _hours_completion_date(task: dict, last_timesheet_date: date | None = None) -> date | None:
+	if task.get("status") != "Completed":
+		return None
+	completion_dates = []
+	for fieldname in ("completed_on", "act_end_date"):
+		value = task.get(fieldname)
+		if value:
+			completion_dates.append(getdate(value))
+	if last_timesheet_date:
+		completion_dates.append(getdate(last_timesheet_date))
+	return max(completion_dates) if completion_dates else None
 
 
 def _is_completed_by(task: dict, bucket_end: date) -> bool:
@@ -1942,6 +1956,35 @@ def _utp_min_date_by_task(project: str, task_names: list[str] | None = None) -> 
 	}
 
 
+def _utp_max_date_by_task(project: str, task_names: list[str] | None = None) -> dict[str, date]:
+	if task_names is not None and not task_names:
+		return {}
+	utp = frappe.qb.DocType("User Timesheet Position")
+	detail = frappe.qb.DocType("User Timesheet Position Details")
+	query = (
+		frappe.qb.from_(utp)
+		.inner_join(detail)
+		.on(detail.parent == utp.name)
+		.select(
+			utp.document_name.as_("task_name"),
+			Max(detail.date).as_("max_date"),
+		)
+		.where(utp.project == project)
+		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(IfNull(utp.document_type, "") == "Task")
+		.where(IfNull(detail.hours, 0) > 0)
+		.groupby(utp.document_name)
+	)
+	if task_names is not None:
+		query = query.where(utp.document_name.isin(task_names))
+	rows = query.run(as_dict=True)
+	return {
+		row.task_name: getdate(row.max_date)
+		for row in rows
+		if row.get("task_name") and row.get("max_date")
+	}
+
+
 def _as_bool(value: Any, default: bool = True) -> bool:
 	if value is None:
 		return default
@@ -2110,12 +2153,38 @@ def _period_volume_burndown(
 	created: list[float] = []
 	open_volume: list[float] = []
 	completed: list[float] = []
+	unused_hours: list[float] = []
 	created_completed: list[float] = []
 	forecast_completed_total: list[float] = []
-	task_filters = {"created": [], "open": [], "completed": [], "created_completed": []}
+	task_filters = {"created": [], "open": [], "completed": [], "unused_hours": [], "created_completed": []}
 	total_forecast_volume = (
 		0.0 if measure == "hours" else sum(flt(task.get("volume")) for task in tasks)
 	)
+	hours_completion_dates: dict[str, date] = {}
+	released_hours_by_task: dict[str, float] = {}
+	if measure == "hours":
+		task_by_name = {task["name"]: task for task in tasks if task.get("name")}
+		last_approved_timesheet_dates = _utp_max_date_by_task(project, task_names)
+		task_names_by_completion_date: dict[date, list[str]] = {}
+		for task in tasks:
+			task_name = task.get("name")
+			completion_date = _hours_completion_date(
+				task, last_approved_timesheet_dates.get(task_name)
+			)
+			if not task_name or not completion_date:
+				continue
+			hours_completion_dates[task_name] = completion_date
+			task_names_by_completion_date.setdefault(completion_date, []).append(task_name)
+		for completion_date, completed_task_names in task_names_by_completion_date.items():
+			cumulative_hours_at_completion = _utp_cumulative_hours_by_task(
+				project, completion_date, tasks, completed_task_names
+			)
+			for task_name in completed_task_names:
+				task = task_by_name.get(task_name) or {}
+				released_hours_by_task[task_name] = max(
+					0.0,
+					flt(task.get("volume")) - flt(cumulative_hours_at_completion.get(task_name)),
+				)
 	for _label, bs, be in buckets:
 		created_tasks = _tasks_created_from_rows(tasks, bs, be)
 		created_task_names = [task["name"] for task in created_tasks]
@@ -2140,6 +2209,17 @@ def _period_volume_burndown(
 				name for name in created_task_names if flt(bucket_hours_by_task.get(name)) > 0
 			)
 			created_completed_names_set = set(created_completed_names)
+			released_names = sorted(
+				name
+				for name, completion_date in hours_completion_dates.items()
+				if bs <= completion_date <= be and flt(released_hours_by_task.get(name)) > 0
+			)
+			released_to_period = sum(
+				flt(released_hours_by_task.get(name))
+				for name, completion_date in hours_completion_dates.items()
+				if completion_date <= be
+			)
+			released_value = sum(flt(released_hours_by_task.get(name)) for name in released_names)
 			created_completed_value = sum(
 				flt(bucket_hours_by_task.get(name)) for name in created_completed_names
 			)
@@ -2152,24 +2232,42 @@ def _period_volume_burndown(
 				name = task["name"]
 				if name in created_task_names:
 					continue
+				completion_date = hours_completion_dates.get(name)
+				released_hours = (
+					flt(released_hours_by_task.get(name))
+					if completion_date and completion_date <= be
+					else 0.0
+				)
 				remaining_hours = effective_scope_by_task.get(name, 0.0) - flt(
 					cumulative_hours_by_task.get(name)
-				)
+				) - released_hours
 				if remaining_hours > 0:
 					open_names.append(name)
 			open_volume.append(
-				max(0.0, eligible_forecast_volume - completed_to_period - created_raw - created_completed_value)
+				max(
+					0.0,
+					eligible_forecast_volume
+					- completed_to_period
+					- released_to_period
+					- created_raw
+					- created_completed_value,
+				)
 			)
 			created.append(created_value)
 			created_completed.append(created_completed_value)
 			completed.append(completed_value)
+			unused_hours.append(released_value)
 			forecast_completed_total.append(completed_total_in_bucket)
 			created_drilldown_names = _hours_segment_drilldown_names(
 				tasks, created_task_names, exclude_group
 			)
 			open_drilldown_names = _hours_segment_drilldown_names(tasks, open_names, exclude_group)
+			released_drilldown_names = _hours_segment_drilldown_names(
+				tasks, released_names, exclude_group
+			)
 			task_filters["created"].append(created_drilldown_names)
 			task_filters["open"].append(open_drilldown_names)
+			task_filters["unused_hours"].append(released_drilldown_names)
 			completed_task_names = sorted(
 				name
 				for name, hours in bucket_hours_by_task.items()
@@ -2367,6 +2465,7 @@ def _period_volume_burndown(
 		"created": created,
 		"open": open_volume,
 		"completed": completed,
+		"unused_hours": unused_hours,
 		"created_completed": created_completed,
 		"same_period_completed": created_completed,
 		"task_filters": task_filters,

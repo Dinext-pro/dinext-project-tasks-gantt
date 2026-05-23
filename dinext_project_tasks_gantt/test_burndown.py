@@ -15,6 +15,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_effective_group_planned_hours_by_role,
 	_extended_forecast_bucket_label,
 	_forecast_progress_to_completion,
+	_hours_completion_date,
 	get_task_progress_trend,
 	_load_task_volume_rows,
 	_mval,
@@ -462,6 +463,15 @@ class TestBurndownBuckets(FrappeTestCase):
 		)
 
 		self.assertEqual(completed, 10)
+
+	def test_hours_completion_date_uses_latest_of_completed_on_act_end_date_and_last_timesheet(self):
+		task = {
+			"status": "Completed",
+			"completed_on": date(2026, 7, 10),
+			"act_end_date": date(2026, 7, 12),
+		}
+
+		self.assertEqual(_hours_completion_date(task, date(2026, 7, 15)), date(2026, 7, 15))
 
 	def test_task_name_helpers_select_drilldown_tasks_by_segment(self):
 		rows = [
@@ -1742,13 +1752,19 @@ class TestForecastWithoutProgress(FrappeTestCase):
 			{"TASK-DONE": 1.5},
 			{"TASK-DONE": 1.5},
 		]
-		mock_utp_cumulative.side_effect = [
-			{"TASK-DONE": 1.5},
-			{"TASK-DONE": 3.0},
-			{"TASK-DONE": 4.5},
-			{"TASK-DONE": 3.0},
-			{"TASK-DONE": 4.5},
-		]
+
+		def cumulative_hours_side_effect(_project, date_to, _tasks, task_names=None):
+			if task_names and sorted(task_names) not in (["TASK-DONE"], ["TASK-DONE", "TASK-OPEN"]):
+				raise AssertionError(f"Unexpected task names: {task_names}")
+			if date_to == date(2026, 5, 3):
+				return {"TASK-DONE": 1.5}
+			if date_to == date(2026, 5, 4):
+				return {"TASK-DONE": 3.0}
+			if date_to == date(2026, 5, 5):
+				return {"TASK-DONE": 4.5}
+			raise AssertionError(f"Unexpected cumulative date: {date_to}")
+
+		mock_utp_cumulative.side_effect = cumulative_hours_side_effect
 		out = _period_volume_burndown(
 			project="PROJ-1",
 			fd=date(2026, 5, 3),
@@ -1761,7 +1777,7 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		)
 
 		self.assertEqual(out["forecast_from_index"], 2)
-		self.assertEqual(out["forecast_remaining"], [13.5, 12.0, 10.5])
+		self.assertEqual(out["forecast_remaining"], [13.5, 10.0, 10.5])
 		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.5])
 		fs = out["forecast_summary"]
 		self.assertTrue(fs["show"])
@@ -2004,6 +2020,93 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["open"], [6.0])
 		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"]])
 		self.assertEqual(mock_cumulative_hours.call_count, 2)
+
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_max_date_by_task",
+		return_value={"TASK-DONE": date(2026, 5, 4)},
+	)
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		side_effect=[["UTP-DONE-1"], ["UTP-DONE-2"], []],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-DONE",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Completed",
+				"completed_on": date(2026, 5, 2),
+				"act_end_date": date(2026, 5, 3),
+				"volume": 10.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-05-02", date(2026, 5, 2), date(2026, 5, 2)),
+			("2026-05-03", date(2026, 5, 3), date(2026, 5, 3)),
+			("2026-05-04", date(2026, 5, 4), date(2026, 5, 4)),
+		],
+	)
+	def test_hours_buckets_add_unused_hours_on_latest_of_completed_on_act_end_date_and_last_timesheet(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_utp_parent_names,
+		mock_cumulative_hours,
+		mock_bucket_hours,
+		_mock_utp_max_date,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_bucket_hours.side_effect = [
+			{"TASK-DONE": 5.0},
+			{"TASK-DONE": 1.0},
+			{},
+		]
+
+		def cumulative_hours_side_effect(_project, date_to, _tasks, task_names=None):
+			names = task_names or ["TASK-DONE"]
+			if names != ["TASK-DONE"]:
+				raise AssertionError(f"Unexpected task names: {names}")
+			if date_to == date(2026, 5, 2):
+				return {"TASK-DONE": 5.0}
+			if date_to == date(2026, 5, 3):
+				return {"TASK-DONE": 6.0}
+			if date_to == date(2026, 5, 4):
+				return {"TASK-DONE": 6.0}
+			raise AssertionError(f"Unexpected cumulative date: {date_to}")
+
+		mock_cumulative_hours.side_effect = cumulative_hours_side_effect
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 2),
+			td=date(2026, 5, 4),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["completed"], [5.0, 1.0, 0.0])
+		self.assertEqual(out["unused_hours"], [0.0, 0.0, 4.0])
+		self.assertEqual(out["open"], [5.0, 4.0, 0.0])
+		self.assertEqual(out["remaining"], [5.0, 4.0, 0.0])
+		self.assertEqual(out["task_filters"]["unused_hours"], [[], [], ["TASK-DONE"]])
+		self.assertEqual(out["task_filters"]["completed"], [["UTP-DONE-1"], ["UTP-DONE-2"], []])
 
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
