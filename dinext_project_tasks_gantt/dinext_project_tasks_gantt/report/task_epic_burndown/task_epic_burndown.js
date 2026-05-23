@@ -274,6 +274,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 			default: "hours",
 		},
 		{
+			fieldname: "hours_source",
+			label: __("Hours source"),
+			fieldtype: "Select",
+			options: [
+				{ value: "pwea_plan", label: __("Planned hours") },
+				{ value: "pwea_expected", label: __("Expected hours") },
+			],
+			default: "pwea_plan",
+			depends_on: "eval: doc.measure == 'hours'",
+		},
+		{
 			fieldname: "task_types",
 			label: __("Task Types"),
 			fieldtype: "MultiSelectList",
@@ -516,6 +527,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				to_date: filters.to_date || null,
 				group_by: filters.group_by || "month",
 				measure: filters.measure || "hours",
+				hours_source: filters.hours_source || "pwea_plan",
 				forecast_periods: filters.forecast_periods || 6,
 				exclude_group_tasks: normalized.excludeGroupTasks ? 1 : 0,
 				use_progress: normalized.useProgress ? 1 : 0,
@@ -683,6 +695,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							to_date: filters.to_date,
 							group_by: filters.group_by || "month",
 							measure: filters.measure || "hours",
+							hours_source: filters.hours_source || "pwea_plan",
 							exclude_group_tasks: excludeGroupTasks ? 1 : 0,
 							use_progress: useProgress ? 1 : 0,
 							forecast_periods: filters.forecast_periods || 6,

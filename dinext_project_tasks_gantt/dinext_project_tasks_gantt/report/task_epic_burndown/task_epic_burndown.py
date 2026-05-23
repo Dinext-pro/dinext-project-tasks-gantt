@@ -20,6 +20,7 @@ def execute(filters=None):
 			to_date=filters.get("to_date"),
 			group_by=filters.get("group_by") or "month",
 			measure=filters.get("measure") or "hours",
+			hours_source=filters.get("hours_source") or "pwea_plan",
 			exclude_group_tasks=0 if filters.get("exclude_group_tasks") in (0, "0", False) else 1,
 			task_type_filters=filters.get("task_types") or filters.get("task_type_filter") or None,
 			issue_type_filters=filters.get("issue_types") or None,
