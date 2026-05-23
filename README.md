@@ -14,7 +14,7 @@
 - **Аудит прогресса** — при сохранении уже существующей задачи, если **`progress`** реально изменился, в **`custom_progress_history`** (таблица **`Task Progress History`**) добавляется строка с `changed_on`, `changed_by`, `old_progress`, `new_progress`. При первой вставке документа строка не создаётся; при неизменном прогрессе дубликаты не пишутся.
 - **Прогресс групповых задач (rollup)** — после сохранения или удаления `Task` пересчитывается **только прямой** родитель-группа: взвешенное среднее по прямым детям с `task_weight > 0`; итог **`max(raw, текущий %)`** и не выше 100%, то есть сохранённый у родителя процент **не понижается** автоматикой; при росте расчётного значения выполняется `save` родителя, что запускает тот же механизм для **его** родителя (цепочка без явного цикла по всем предкам в одном хуке). Отключение: `doc.flags.skip_parent_progress_rollup = True`. Реализация: [`task_parent_progress.py`](dinext_project_tasks_gantt/task_parent_progress.py), события `Task` в [`hooks.py`](dinext_project_tasks_gantt/hooks.py) — `on_update`, `after_delete`.
 - **Progress Trend на форме Task** — виджет в дашборде формы (подключается через `hooks.py`: `doctype_js` / `app_include_css`). Данные: `dinext_project_tasks_gantt.burndown.get_task_progress_trend`; клиент: [`public/js/task_progress_trend.js`](dinext_project_tasks_gantt/public/js/task_progress_trend.js) (ECharts). Вертикальные маркеры дат на оси X по возможности совпадают по цвету с соответствующими линиями рядов: **Today** — фактический прогресс, **Progress forecast end** — прогноз прогресса, **Work hours forecast end** — прогноз трудозатрат; если в одном bucket объединены маркеры разных типов, используется нейтральный цвет темы.
-- **Отчёт Task Epic Burndown** — Script Report в модуле приложения; график строится из `get_burndown_series` (см. `dinext_project_tasks_gantt/report/task_epic_burndown/`).
+- **Отчёт Task Epic Burndown** — Script Report в модуле приложения; график строится из `get_burndown_series` (см. `dinext_project_tasks_gantt/report/task_epic_burndown/`). Поддерживаются показатели **hours**, **story points** и **task count**; для часов — waterfall-сегменты **Completed → Released hours → Open → Created → Created+Completed**. Сегмент **Released hours** («Высвобожденные часы») показывает разницу между плановым объёмом задачи и накопленными согласованными часами на дату завершения; дата завершения — наибольшая из `completed_on`, `act_end_date` и даты последнего согласованного ТШ с ненулевыми часами по задаче.
 - **Инструменты качества** — `pre-commit` с ruff, ESLint, Prettier, pyupgrade (см. `.pre-commit-config.yaml`).
 
 ## 🚀 Установка
@@ -34,7 +34,8 @@ bench build --app dinext_project_tasks_gantt
 ## 🛠️ Использование
 
 - **Desk** — откройте **Task** как обычно; блок **Progress History** отображается после поля **% Progress**, если кастомное поле есть. Строки заполняются автоматически; таблица только для чтения. Секция **Progress Trend** (если задача не новая и не milestone) показывает график по периоду (день / неделя / месяц). У **групповых** задач поле **% Progress** при сохранении или удалении дочерних задач может обновиться автоматически по правилам rollup (см. раздел «Возможности»).
-- **Разработчикам** — аудит прогресса: `dinext_project_tasks_gantt.task_progress_audit.before_save_task` (`doc_events["Task"]["before_save"]`). Rollup родителя: `dinext_project_tasks_gantt.task_parent_progress.on_update_task` и `after_delete_task`. Логика аудита — `task_progress_audit.py`; rollup — [`task_parent_progress.py`](dinext_project_tasks_gantt/task_parent_progress.py). Burndown и тренд — `burndown.py`; тесты — `test_burndown.py`, [`test_task_parent_progress.py`](dinext_project_tasks_gantt/test_task_parent_progress.py).
+- **Task Epic Burndown** — откройте отчёт в Desk, выберите проект, период и показатель. Для **hours** столбец периода складывается из сегментов: завершённые часы (согласованные ТШ в периоде), **высвобождённые часы** (неиспользованный плановый объём на дату завершения задачи), открытый объём на конец периода, созданный объём и созданный+завершённый в том же периоде. Клик по сегменту **Completed** / **Created+Completed** в режиме hours открывает список **User Timesheet Position**; по **Released hours** и остальным сегментам — список **Task**.
+- **Разработчикам** — аудит прогресса: `dinext_project_tasks_gantt.task_progress_audit.before_save_task` (`doc_events["Task"]["before_save"]`). Rollup родителя: `dinext_project_tasks_gantt.task_parent_progress.on_update_task` и `after_delete_task`. Логика аудита — `task_progress_audit.py`; rollup — [`task_parent_progress.py`](dinext_project_tasks_gantt/task_parent_progress.py). Burndown и тренд — `burndown.py` (`get_burndown_series`, `_hours_completion_date`, `_utp_max_date_by_task`); клиент отчёта — [`task_epic_burndown.js`](dinext_project_tasks_gantt/dinext_project_tasks_gantt/report/task_epic_burndown/task_epic_burndown.js); тесты — `test_burndown.py`, [`test_task_parent_progress.py`](dinext_project_tasks_gantt/test_task_parent_progress.py).
 
 Запуск тестов:
 
@@ -88,6 +89,7 @@ pre-commit install
 
 Недавние коммиты (полная история — `git log`):
 
+- Task Epic Burndown (hours): сегмент **Released hours** / «Высвобожденные часы» между Completed и Open; расчёт по дате завершения `max(completed_on, act_end_date, последний согласованный ТШ)`; перевод в `translations/ru.csv`.
 - Каскадный пересчёт `%` у групповых `Task` по весам детей (`task_parent_progress`, хуки `on_update` / `after_delete`, тесты `test_task_parent_progress`).
 - Виджет Progress Trend на Task: API `get_task_progress_trend`, маркеры дат согласованы с цветами рядов (при одном типе маркера в bucket).
 - Документация и навыки Cursor (AGENTS, инструменты для README).
@@ -135,7 +137,8 @@ dinext_project_tasks_gantt/          # Корень репозитория
 - **`doctype/`** — DocType приложения (дочерняя таблица `Task Progress History`, `Task Relation`, `Story Point` и др.).
 - **`task_progress_audit.py`** — серверный аудит при изменении `Task.progress`.
 - **`task_parent_progress.py`** — пересчёт `%` у прямого родителя-группы по весам детей (монотонный пол).
-- **`burndown.py`** — расчёт серий для виджета Progress Trend и отчёта Epic Burndown.
+- **`burndown.py`** — расчёт серий для виджета Progress Trend и отчёта Epic Burndown (в т.ч. `unused_hours` / Released hours для режима hours).
+- **`translations/ru.csv`** — русские переводы подписей отчёта, включая **Released hours** → «Высвобожденные часы».
 
 ## 🔗 Схема потока
 
