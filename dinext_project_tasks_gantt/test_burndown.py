@@ -1826,7 +1826,7 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		)
 
 		self.assertEqual(out["forecast_from_index"], 2)
-		self.assertEqual(out["forecast_remaining"], [13.5, 10.0, 10.5])
+		self.assertEqual(out["forecast_remaining"], [13.5, 10.0, 8.5])
 		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.5])
 		fs = out["forecast_summary"]
 		self.assertTrue(fs["show"])
@@ -2156,6 +2156,109 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["remaining"], [5.0, 4.0, 0.0])
 		self.assertEqual(out["task_filters"]["unused_hours"], [[], [], ["TASK-DONE"]])
 		self.assertEqual(out["task_filters"]["completed"], [["UTP-DONE-1"], ["UTP-DONE-2"], []])
+
+	@patch("dinext_project_tasks_gantt.burndown._fact_end_index", return_value=2)
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		side_effect=[["UTP-DONE-1"], ["UTP-DONE-2"], [], []],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_max_date_by_task",
+		return_value={"TASK-DONE": date(2026, 5, 4)},
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-DONE",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Completed",
+				"completed_on": date(2026, 5, 2),
+				"act_end_date": date(2026, 5, 3),
+				"volume": 10.0,
+			},
+			{
+				"name": "TASK-OPEN",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"volume": 10.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-05-02", date(2026, 5, 2), date(2026, 5, 2)),
+			("2026-05-03", date(2026, 5, 3), date(2026, 5, 3)),
+			("2026-05-04", date(2026, 5, 4), date(2026, 5, 4)),
+			("2026-05-05", date(2026, 5, 5), date(2026, 5, 5)),
+		],
+	)
+	def test_hours_forecast_baseline_matches_factual_open_after_released_hours(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_utp_max_date,
+		_mock_utp_parent_names,
+		mock_cumulative_hours,
+		mock_bucket_hours,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+		_mock_fact_end,
+	):
+		mock_bucket_hours.side_effect = [
+			{"TASK-DONE": 5.0},
+			{"TASK-DONE": 1.0},
+			{},
+			{},
+		]
+
+		def cumulative_hours_side_effect(_project, date_to, _tasks, task_names=None, **_kwargs):
+			if date_to == date(2026, 5, 2):
+				return {"TASK-DONE": 5.0}
+			if date_to == date(2026, 5, 3):
+				return {"TASK-DONE": 6.0}
+			if date_to in (date(2026, 5, 4), date(2026, 5, 5)):
+				return {"TASK-DONE": 6.0}
+			return {}
+
+		mock_cumulative_hours.side_effect = cumulative_hours_side_effect
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 2),
+			td=date(2026, 5, 5),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=True,
+		)
+
+		fact_end_idx = 2
+		forecast_from_index = out["forecast_from_index"]
+		self.assertIsNotNone(forecast_from_index)
+		self.assertEqual(out["open"][fact_end_idx], 10.0)
+		self.assertEqual(out["unused_hours"][fact_end_idx], 4.0)
+		self.assertEqual(out["forecast_summary"]["remaining_volume"], 10.0)
+		self.assertLessEqual(
+			out["forecast_remaining"][forecast_from_index],
+			out["open"][fact_end_idx],
+		)
+		self.assertEqual(
+			out["forecast_remaining"][forecast_from_index],
+			max(0.0, out["open"][fact_end_idx] - out["forecast_summary"]["velocity"]),
+		)
 
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
