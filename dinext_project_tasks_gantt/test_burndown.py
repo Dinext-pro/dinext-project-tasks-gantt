@@ -40,6 +40,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_timesheet_limit_bands,
 	_timesheet_role_series_from_rows,
 	_weighted_velocity,
+	get_project_role_options,
 	get_burndown_series,
 	get_period_buckets,
 	iter_day_buckets,
@@ -1090,6 +1091,51 @@ class TestLoadTaskVolumeRowsHours(FrappeTestCase):
 		self.assertEqual(by_name["TASK-GROUP"]["volume"], 75.0)
 		self.assertEqual(by_name["TASK-CHILD"]["volume"], 10.0)
 
+	@patch("dinext_project_tasks_gantt.burndown._task_name_list", return_value=["TASK-GROUP"])
+	@patch("dinext_project_tasks_gantt.burndown._story_point_map", return_value={})
+	@patch("dinext_project_tasks_gantt.burndown._utp_min_date_by_task", return_value={})
+	@patch("dinext_project_tasks_gantt.burndown._pwe_plan_by_task", return_value={"TASK-GROUP": 100.0})
+	@patch(
+		"dinext_project_tasks_gantt.burndown.frappe.get_all",
+		return_value=[
+			{
+				"name": "TASK-GROUP",
+				"parent_task": None,
+				"is_group": 1,
+				"creation": "2026-04-26 09:00:00",
+				"progress": 0.0,
+				"status": "Open",
+				"completed_on": None,
+				"closing_date": None,
+				"story_point": None,
+				"task_weight": 0,
+				"exp_start_date": None,
+				"exp_end_date": None,
+				"custom_planned_start_date": None,
+				"custom_planned_end_date": None,
+			}
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown._effective_group_planned_hours_by_role", return_value={"Developer": 75.0})
+	def test_load_task_volume_rows_passes_project_role_filters_to_group_hours(
+		self,
+		mock_effective,
+		_mock_get_all,
+		_mock_pwe,
+		_mock_utp_min,
+		_mock_story_point_map,
+		_mock_task_name_list,
+	):
+		_load_task_volume_rows(
+			project="PROJ-1",
+			exclude_group=False,
+			measure="hours",
+			use_task_weight=False,
+			project_role_filters=["Developer"],
+		)
+
+		self.assertEqual(mock_effective.call_args.kwargs["project_role_filters"], ["Developer"])
+
 
 class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
 	def test_task_trend_forecasts_suppressed_at_full_progress(self):
@@ -1756,7 +1802,7 @@ class TestForecastWithoutProgress(FrappeTestCase):
 			{"TASK-DONE": 1.5},
 		]
 
-		def cumulative_hours_side_effect(_project, date_to, _tasks, task_names=None):
+		def cumulative_hours_side_effect(_project, date_to, _tasks, task_names=None, **_kwargs):
 			if task_names and sorted(task_names) not in (["TASK-DONE"], ["TASK-DONE", "TASK-OPEN"]):
 				raise AssertionError(f"Unexpected task names: {task_names}")
 			if date_to == date(2026, 5, 3):
@@ -2079,7 +2125,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 			{},
 		]
 
-		def cumulative_hours_side_effect(_project, date_to, _tasks, task_names=None):
+		def cumulative_hours_side_effect(_project, date_to, _tasks, task_names=None, **_kwargs):
 			names = task_names or ["TASK-DONE"]
 			if names != ["TASK-DONE"]:
 				raise AssertionError(f"Unexpected task names: {names}")
@@ -2516,6 +2562,21 @@ class TestGetBurndownSeriesHoursIgnoresUseProgress(FrappeTestCase):
 
 	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
 	@patch("dinext_project_tasks_gantt.burndown._period_volume_burndown")
+	def test_hours_passes_project_role_filters_to_burndown(self, mock_pvb, _mock_perm):
+		mock_pvb.return_value = {"measure": "hours", "categories": []}
+
+		get_burndown_series(
+			project="PROJ-1",
+			from_date="2026-05-01",
+			to_date="2026-05-31",
+			measure="hours",
+			project_role_filters=["Developer", "Analyst"],
+		)
+
+		self.assertEqual(mock_pvb.call_args.kwargs["project_role_filters"], ["Developer", "Analyst"])
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown._period_volume_burndown")
 	def test_story_points_respects_use_progress_flag(self, mock_pvb, _mock_perm):
 		mock_pvb.return_value = {"measure": "story_points", "categories": []}
 
@@ -2563,3 +2624,53 @@ class TestTaskEpicBurndownReportExecute(FrappeTestCase):
 		)
 
 		self.assertEqual(mock_get_burndown_series.call_args.kwargs["hours_source"], "pwea_expected")
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_project_role_filters_to_backend(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {
+			"categories": [],
+			"remaining": [],
+			"added": [],
+			"completed": [],
+		}
+
+		execute_task_epic_burndown_report(
+			{
+				"project": "PROJ-1",
+				"from_date": "2026-05-01",
+				"to_date": "2026-05-31",
+				"measure": "hours",
+				"project_role_filters": ["Developer"],
+			}
+		)
+
+		self.assertEqual(
+			mock_get_burndown_series.call_args.kwargs["project_role_filters"], ["Developer"]
+		)
+
+
+class TestProjectRoleOptions(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.get_all")
+	def test_get_project_role_options_skips_blank_roles_and_sorts_unique_values(
+		self, mock_get_all, _mock_perm
+	):
+		mock_get_all.return_value = [
+			{"pt_role": "Developer"},
+			{"pt_role": ""},
+			{"pt_role": None},
+			{"pt_role": "Analyst"},
+			{"pt_role": "Developer"},
+		]
+
+		out = get_project_role_options("PROJ-1")
+
+		self.assertEqual(
+			out,
+			[
+				{"label": "Analyst", "value": "Analyst", "description": ""},
+				{"label": "Developer", "value": "Developer", "description": ""},
+			],
+		)

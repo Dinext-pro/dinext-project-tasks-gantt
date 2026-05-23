@@ -285,6 +285,35 @@ frappe.query_reports["Task Epic Burndown"] = {
 			depends_on: "eval: doc.measure == 'hours'",
 		},
 		{
+			fieldname: "project_role_filters",
+			label: __("Project Roles"),
+			fieldtype: "MultiSelectList",
+			placeholder: __("Project Roles"),
+			depends_on: "eval: doc.measure == 'hours'",
+			get_data: function (txt) {
+				const qr = frappe.query_report;
+				const project = qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+				if (!project) {
+					return [];
+				}
+				return frappe
+					.call({
+						method: "dinext_project_tasks_gantt.burndown.get_project_role_options",
+						args: { project },
+					})
+					.then((r) => {
+						const options = r.message || [];
+						if (!txt) {
+							return options;
+						}
+						const q = txt.toLowerCase();
+						return options.filter((option) =>
+							(option.label || option.value || "").toLowerCase().includes(q)
+						);
+					});
+			},
+		},
+		{
 			fieldname: "task_types",
 			label: __("Task Types"),
 			fieldtype: "MultiSelectList",
@@ -535,6 +564,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				use_task_weight: normalized.useTaskWeight ? 1 : 0,
 				task_types: normalized.taskTypes,
 				issue_types: normalized.issueTypes,
+				project_role_filters: normalized.projectRoleFilters,
 			});
 		}
 
@@ -582,6 +612,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 					if (filter.df.fieldname === "task_types") {
 						ensureIssueTypeFilterState();
 					}
+					if (filter.df.fieldname === "measure") {
+						ensureHoursOnlyFilterState();
+					}
 					scheduleRender(120, { reason: "filter-change" });
 				};
 				filter.__task_epic_burndown_bound = true;
@@ -605,6 +638,23 @@ frappe.query_reports["Task Epic Burndown"] = {
 					issueTypesFilter.set_value([]);
 					isNormalizingIssueTypeFilter = false;
 				}
+			}
+			qr.refresh_filters_dependency();
+		}
+
+		function ensureHoursOnlyFilterState() {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function" || typeof qr.get_filter_value !== "function") {
+				return;
+			}
+			const measure = (qr.get_filter_value("measure") || "hours").toLowerCase();
+			if (measure === "hours") {
+				qr.refresh_filters_dependency();
+				return;
+			}
+			const roleFilter = qr.get_filter("project_role_filters");
+			if (roleFilter && task_epic_burndown_normalize_list(roleFilter.get_value()).length) {
+				roleFilter.set_value([]);
 			}
 			qr.refresh_filters_dependency();
 		}
@@ -644,6 +694,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 			const useTaskWeight = getCheckFilterValue("use_task_weight", false);
 			const taskTypes = task_epic_burndown_normalize_list(filters.task_types);
 			const issueTypes = task_epic_burndown_normalize_list(filters.issue_types);
+			const projectRoleFilters =
+				measureKey === "hours"
+					? task_epic_burndown_normalize_list(filters.project_role_filters)
+					: [];
 			const normalized = {
 				useProgress,
 				excludeGroupTasks,
@@ -651,6 +705,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				useTaskWeight,
 				taskTypes,
 				issueTypes: taskTypes.includes("Issue") ? issueTypes : [],
+				projectRoleFilters,
 			};
 			const nextContainerSize = getContainerSize();
 			const nextThemeName = getEChartsThemeName();
@@ -703,6 +758,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							use_task_weight: useTaskWeight ? 1 : 0,
 							task_type_filters: taskTypes,
 							issue_type_filters: taskTypes.includes("Issue") ? issueTypes : [],
+							project_role_filters: projectRoleFilters,
 						},
 						callback: function (r) {
 							if (requestId !== renderRequestId) {
@@ -1690,6 +1746,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 
 		bindFilterAutoRefresh();
 		ensureIssueTypeFilterState();
+		ensureHoursOnlyFilterState();
 		window.__task_epic_burndown_render = renderBurndown;
 		window.__task_epic_burndown_schedule = scheduleRender;
 
