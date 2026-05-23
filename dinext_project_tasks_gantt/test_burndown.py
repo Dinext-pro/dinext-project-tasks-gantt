@@ -47,6 +47,9 @@ from dinext_project_tasks_gantt.burndown import (
 	iter_month_buckets,
 	iter_week_buckets,
 )
+from dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown import (
+	execute as execute_task_epic_burndown_report,
+)
 
 
 class TestWeightedVelocityForForecast(FrappeTestCase):
@@ -961,7 +964,7 @@ class TestPlannedHoursByRole(FrappeTestCase):
 			{"name": "TASK-1.1", "parent_task": "TASK-1"},
 			{"name": "TASK-1.1.1", "parent_task": "TASK-1.1"},
 		]
-		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
 			"TASK-1": {"Developer": 100.0},
 			"TASK-1.1": {"Developer": 10.0},
 			"TASK-1.1.1": {"Developer": 15.0},
@@ -980,7 +983,7 @@ class TestPlannedHoursByRole(FrappeTestCase):
 			{"name": "TASK-1.1", "parent_task": "TASK-1"},
 			{"name": "TASK-1.1.1", "parent_task": "TASK-1.1"},
 		]
-		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
 			"TASK-1": {"Developer": 100.0, "Analyst": 50.0},
 			"TASK-1.1": {"Developer": 10.0},
 			"TASK-1.1.1": {"Developer": 15.0, "Analyst": 20.0},
@@ -996,7 +999,7 @@ class TestPlannedHoursByRole(FrappeTestCase):
 		self, mock_planned_for_task, mock_task_child_names
 	):
 		mock_task_child_names.return_value = [{"name": "TASK-1.1", "parent_task": "TASK-1"}]
-		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
 			"TASK-1": {"Developer": 100.0},
 			"TASK-1.1": {"Analyst": 25.0},
 		}.get(task, {})
@@ -1011,7 +1014,7 @@ class TestPlannedHoursByRole(FrappeTestCase):
 		self, mock_planned_for_task, mock_task_child_names
 	):
 		mock_task_child_names.return_value = [{"name": "TASK-1.1", "parent_task": "TASK-1"}]
-		mock_planned_for_task.side_effect = lambda project, task, *_args: {
+		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
 			"TASK-1": {"Developer": 10.0},
 			"TASK-1.1": {"Developer": 25.0},
 		}.get(task, {})
@@ -1083,7 +1086,7 @@ class TestLoadTaskVolumeRowsHours(FrappeTestCase):
 			use_task_weight=False,
 		)
 		by_name = {row["name"]: row for row in rows}
-		mock_effective.assert_called_once_with("PROJ-1", "TASK-GROUP")
+		mock_effective.assert_called_once_with("PROJ-1", "TASK-GROUP", hours_source="pwea_plan")
 		self.assertEqual(by_name["TASK-GROUP"]["volume"], 75.0)
 		self.assertEqual(by_name["TASK-CHILD"]["volume"], 10.0)
 
@@ -2484,6 +2487,35 @@ class TestGetBurndownSeriesHoursIgnoresUseProgress(FrappeTestCase):
 
 	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
 	@patch("dinext_project_tasks_gantt.burndown._period_volume_burndown")
+	def test_hours_defaults_to_pwea_plan_source(self, mock_pvb, _mock_perm):
+		mock_pvb.return_value = {"measure": "hours", "categories": []}
+
+		get_burndown_series(
+			project="PROJ-1",
+			from_date="2026-05-01",
+			to_date="2026-05-31",
+			measure="hours",
+		)
+
+		self.assertEqual(mock_pvb.call_args.kwargs["hours_source"], "pwea_plan")
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown._period_volume_burndown")
+	def test_hours_accepts_explicit_pwea_expected_source(self, mock_pvb, _mock_perm):
+		mock_pvb.return_value = {"measure": "hours", "categories": []}
+
+		get_burndown_series(
+			project="PROJ-1",
+			from_date="2026-05-01",
+			to_date="2026-05-31",
+			measure="hours",
+			hours_source="pwea_expected",
+		)
+
+		self.assertEqual(mock_pvb.call_args.kwargs["hours_source"], "pwea_expected")
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown._period_volume_burndown")
 	def test_story_points_respects_use_progress_flag(self, mock_pvb, _mock_perm):
 		mock_pvb.return_value = {"measure": "story_points", "categories": []}
 
@@ -2506,3 +2538,28 @@ class TestGetBurndownSeriesHoursIgnoresUseProgress(FrappeTestCase):
 			use_progress=0,
 		)
 		self.assertEqual(mock_pvb.call_args[0][6], False)
+
+
+class TestTaskEpicBurndownReportExecute(FrappeTestCase):
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_hours_source_to_backend(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {
+			"categories": [],
+			"remaining": [],
+			"added": [],
+			"completed": [],
+		}
+
+		execute_task_epic_burndown_report(
+			{
+				"project": "PROJ-1",
+				"from_date": "2026-05-01",
+				"to_date": "2026-05-31",
+				"measure": "hours",
+				"hours_source": "pwea_expected",
+			}
+		)
+
+		self.assertEqual(mock_get_burndown_series.call_args.kwargs["hours_source"], "pwea_expected")

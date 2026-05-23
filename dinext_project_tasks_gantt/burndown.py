@@ -262,7 +262,7 @@ def get_period_buckets(project: str, from_date: date, to_date: date, group_by: s
 
 
 def _cumulative_plan_through(plan_rows: list[dict], last_day: date) -> float:
-	"""Sum pwea_expected for fiscal months whose calendar month ends on or before last_day."""
+	"""Sum selected PWE amount for fiscal months whose calendar month ends on or before last_day."""
 	total = 0.0
 	for row in plan_rows:
 		fy = row.get("pwea_year")
@@ -272,13 +272,28 @@ def _cumulative_plan_through(plan_rows: list[dict], last_day: date) -> float:
 		me = fiscal_month_end_date(fy, int(mn))
 		if not me or me > last_day:
 			continue
-		total += flt(row.get("pwea_expected"))
+		total += flt(row.get("planned_hours"))
 	return total
 
 
-def _load_pwe_plan_rows(project: str, task_names: list[str] | None) -> list[dict]:
+def _normalize_hours_source(hours_source: str | None) -> str:
+	if (hours_source or "").strip().lower() == "pwea_expected":
+		return "pwea_expected"
+	return "pwea_plan"
+
+
+def _pwe_amount_expression(amount: Any, hours_source: str):
+	if _normalize_hours_source(hours_source) == "pwea_expected":
+		return IfNull(amount.pwea_expected, 0)
+	return IfNull(amount.pwea_plan, 0)
+
+
+def _load_pwe_plan_rows(
+	project: str, task_names: list[str] | None, hours_source: str = "pwea_plan"
+) -> list[dict]:
 	pwe = frappe.qb.DocType("Project Work Efforts")
 	amount = frappe.qb.DocType("Project Work Efforts Amount")
+	amount_expr = _pwe_amount_expression(amount, hours_source)
 	query = (
 		frappe.qb.from_(pwe)
 		.inner_join(amount)
@@ -287,7 +302,7 @@ def _load_pwe_plan_rows(project: str, task_names: list[str] | None) -> list[dict
 			pwe.pwe_task.as_("pwe_task"),
 			amount.pwea_year.as_("pwea_year"),
 			amount.pwea_month.as_("pwea_month"),
-			IfNull(amount.pwea_expected, 0).as_("pwea_expected"),
+			amount_expr.as_("planned_hours"),
 		)
 		.where(pwe.pwe_project == project)
 	)
@@ -405,13 +420,15 @@ def _task_name_list(
 	]
 
 
-def _pwe_plan_by_task(project: str, task_names: list[str] | None = None) -> dict[str, float]:
+def _pwe_plan_by_task(
+	project: str, task_names: list[str] | None = None, hours_source: str = "pwea_plan"
+) -> dict[str, float]:
 	plan_by_task: dict[str, float] = {}
-	for row in _load_pwe_plan_rows(project, task_names):
+	for row in _load_pwe_plan_rows(project, task_names, hours_source=hours_source):
 		task = row.get("pwe_task")
 		if not task:
 			continue
-		plan_by_task[task] = plan_by_task.get(task, 0.0) + flt(row.get("pwea_expected"))
+		plan_by_task[task] = plan_by_task.get(task, 0.0) + flt(row.get("planned_hours"))
 	return plan_by_task
 
 
@@ -422,6 +439,7 @@ def _load_task_volume_rows(
 	use_task_weight: bool = False,
 	task_type_filters: list[str] | None = None,
 	issue_type_filters: list[str] | None = None,
+	hours_source: str = "pwea_plan",
 ) -> list[dict]:
 	task_names = _task_name_list(project, exclude_group, task_type_filters, issue_type_filters)
 	if not task_names:
@@ -446,12 +464,14 @@ def _load_task_volume_rows(
 	]
 	tasks = frappe.get_all("Task", filters={"name": ["in", task_names]}, fields=fields)
 	sp_map = _story_point_map() if measure == "story_points" else {}
-	pwe_by_task = _pwe_plan_by_task(project, task_names) if measure == "hours" else {}
+	pwe_by_task = (
+		_pwe_plan_by_task(project, task_names, hours_source=hours_source) if measure == "hours" else {}
+	)
 	hours_creation_by_task = _utp_min_date_by_task(project, task_names) if measure == "hours" else {}
 
 	for task in tasks:
 		if measure == "hours":
-			task["volume"] = _hours_volume_for_task(project, task, pwe_by_task)
+			task["volume"] = _hours_volume_for_task(project, task, pwe_by_task, hours_source=hours_source)
 		else:
 			task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task, use_task_weight)
 		if measure == "hours":
@@ -523,9 +543,12 @@ def _hours_volume_for_task(
 	project: str,
 	task: dict,
 	pwe_by_task: dict[str, float] | None = None,
+	hours_source: str = "pwea_plan",
 ) -> float:
 	if cint(task.get("is_group")):
-		effective_by_role = _effective_group_planned_hours_by_role(project, task.get("name"))
+		effective_by_role = _effective_group_planned_hours_by_role(
+			project, task.get("name"), hours_source=hours_source
+		)
 		return sum(flt(value) for value in effective_by_role.values())
 	return flt((pwe_by_task or {}).get(task.get("name"), 0.0))
 
@@ -1244,12 +1267,14 @@ def _project_limits(project: str | None) -> dict[str, float | None]:
 	}
 
 
-def _planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
+def _planned_hours_by_role(
+	project: str | None, task: str, hours_source: str = "pwea_plan"
+) -> dict[str, float]:
 	if not project or not task:
 		return {}
 	pwe = frappe.qb.DocType("Project Work Efforts")
 	amount = frappe.qb.DocType("Project Work Efforts Amount")
-	return _planned_hours_by_role_for_task(project, task, pwe, amount)
+	return _planned_hours_by_role_for_task(project, task, pwe, amount, hours_source=hours_source)
 
 
 def _planned_hours_by_role_for_task(
@@ -1257,16 +1282,18 @@ def _planned_hours_by_role_for_task(
 	task: str,
 	pwe: Any | None = None,
 	amount: Any | None = None,
+	hours_source: str = "pwea_plan",
 ) -> dict[str, float]:
 	pwe = pwe or frappe.qb.DocType("Project Work Efforts")
 	amount = amount or frappe.qb.DocType("Project Work Efforts Amount")
+	amount_expr = _pwe_amount_expression(amount, hours_source)
 	rows = (
 		frappe.qb.from_(pwe)
 		.inner_join(amount)
 		.on(amount.parent == pwe.name)
 		.select(
 			pwe.pwe_project_role.as_("role"),
-			Sum(IfNull(amount.pwea_expected, 0)).as_("planned_hours"),
+			Sum(amount_expr).as_("planned_hours"),
 		)
 		.where(pwe.pwe_project == project)
 		.where(pwe.pwe_task == task)
@@ -1287,7 +1314,9 @@ def _add_hours_by_role(target: dict[str, float], source: dict[str, float]) -> No
 		target[role] = target.get(role, 0.0) + flt(planned)
 
 
-def _child_tree_planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
+def _child_tree_planned_hours_by_role(
+	project: str | None, task: str, hours_source: str = "pwea_plan"
+) -> dict[str, float]:
 	if not project or not task:
 		return {}
 	rows = _task_child_names(project, task)
@@ -1305,7 +1334,9 @@ def _child_tree_planned_hours_by_role(project: str | None, task: str) -> dict[st
 
 	def child_plan(task_name: str) -> dict[str, float]:
 		if task_name not in plan_cache:
-			plan_cache[task_name] = _planned_hours_by_role_for_task(project, task_name, pwe, amount)
+			plan_cache[task_name] = _planned_hours_by_role_for_task(
+				project, task_name, pwe, amount, hours_source=hours_source
+			)
 		return plan_cache[task_name]
 
 	def roles_in_subtree(parent: str, visited: set[str] | None = None) -> set[str]:
@@ -1353,13 +1384,15 @@ def _child_tree_planned_hours_by_role(project: str | None, task: str) -> dict[st
 	return planned_for_descendants(task)
 
 
-def _effective_group_planned_hours_by_role(project: str | None, task: str) -> dict[str, float]:
+def _effective_group_planned_hours_by_role(
+	project: str | None, task: str, hours_source: str = "pwea_plan"
+) -> dict[str, float]:
 	if not project or not task:
 		return {}
-	own_plan = _planned_hours_by_role(project, task)
+	own_plan = _planned_hours_by_role(project, task, hours_source=hours_source)
 	if not own_plan:
 		return {}
-	descendant_plan = _child_tree_planned_hours_by_role(project, task)
+	descendant_plan = _child_tree_planned_hours_by_role(project, task, hours_source=hours_source)
 	if not descendant_plan:
 		return own_plan
 	out: dict[str, float] = {}
@@ -2008,6 +2041,7 @@ def get_burndown_series(
 	show_completion_forecast: int | str = 0,
 	use_task_weight: int | str = 0,
 	issue_type_filters: list[str] | str | None = None,
+	hours_source: str | None = None,
 ) -> dict[str, Any]:
 	if not project:
 		frappe.throw(_("Project is required"))
@@ -2026,6 +2060,7 @@ def get_burndown_series(
 	group_by = (group_by or "month").lower()
 	task_type_values = _normalize_text_list(task_type_filters or task_type_filter)
 	issue_type_values = _normalize_text_list(issue_type_filters)
+	hours_source_value = _normalize_hours_source(hours_source)
 	if measure == "hours":
 		return _period_volume_burndown(
 			project,
@@ -2039,6 +2074,7 @@ def get_burndown_series(
 			use_task_weight=False,
 			task_type_filters=task_type_values,
 			issue_type_filters=issue_type_values,
+			hours_source=hours_source_value,
 		)
 	progress_enabled = _as_bool(use_progress)
 	if measure in ("story_points", "story_point", "sp"):
@@ -2135,6 +2171,7 @@ def _period_volume_burndown(
 	use_task_weight: bool = False,
 	task_type_filters: list[str] | None = None,
 	issue_type_filters: list[str] | None = None,
+	hours_source: str = "pwea_plan",
 ) -> dict[str, Any]:
 	buckets = get_period_buckets(project, fd, td, group_by)
 	tasks = _load_task_volume_rows(
@@ -2144,6 +2181,7 @@ def _period_volume_burndown(
 		use_task_weight,
 		task_type_filters=task_type_filters,
 		issue_type_filters=issue_type_filters,
+		hours_source=hours_source,
 	)
 	task_names = [task["name"] for task in tasks]
 	progress_rows = _load_progress_rows(task_names, _progress_history_start_for_tasks(tasks, fd), td)
@@ -2500,9 +2538,10 @@ def _hours_burndown(
 	group_by: str,
 	exclude_group: bool,
 	forecast_periods: int,
+	hours_source: str = "pwea_plan",
 ) -> dict[str, Any]:
 	tasks = _task_name_list(project, exclude_group, None)
-	plan_rows = _load_pwe_plan_rows(project, None)
+	plan_rows = _load_pwe_plan_rows(project, None, hours_source=hours_source)
 	buckets = get_period_buckets(project, fd, td, group_by)
 
 	categories: list[str] = []
