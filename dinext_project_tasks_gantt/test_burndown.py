@@ -2003,12 +2003,14 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["created"], [0.0, 5.0])
 		self.assertEqual(out["created_completed"], [0.0, 1.0])
 		self.assertEqual(out["completed"], [3.0, 2.0])
+		self.assertEqual(out["completed_above_expected"], [0.0, 0.0])
 		self.assertEqual(out["open"], [7.0, 3.0])
 		self.assertEqual(out["remaining"], [7.0, 3.0])
 		self.assertFalse(out["forecast_summary"]["show"])
 		self.assertEqual(out["task_filters"]["created"], [[], ["TASK-NEW"]])
 		self.assertEqual(out["task_filters"]["created_completed"], [[], ["UTP-NEW-CC"]])
 		self.assertEqual(out["task_filters"]["completed"], [["UTP-OLD-0"], ["UTP-OLD-1"]])
+		self.assertEqual(out["task_filters"]["completed_above_expected"], [[], []])
 		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"], ["TASK-OLD"]])
 
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
@@ -2066,9 +2068,191 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["created"], [0.0])
 		self.assertEqual(out["created_completed"], [0.0])
 		self.assertEqual(out["completed"], [1.0])
+		self.assertEqual(out["completed_above_expected"], [0.0])
 		self.assertEqual(out["open"], [6.0])
 		self.assertEqual(out["task_filters"]["open"], [["TASK-OLD"]])
 		self.assertEqual(mock_cumulative_hours.call_count, 2)
+
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task", return_value={"TASK-OLD": 2.0})
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		return_value=["UTP-OLD-OVER"],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-OLD",
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"progress": 0.0,
+				"volume": 10.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[("2026-05-10", date(2026, 5, 10), date(2026, 5, 10))],
+	)
+	def test_hours_bucket_moves_existing_task_overrun_to_completed_above_expected(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_utp_parent_names,
+		_mock_bucket_hours,
+		mock_cumulative_hours,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_cumulative_hours.side_effect = [{"TASK-OLD": 12.0}, {"TASK-OLD": 12.0}]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 10),
+			td=date(2026, 5, 10),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["completed"], [0.0])
+		self.assertEqual(out["completed_above_expected"], [2.0])
+		self.assertEqual(out["created_completed"], [0.0])
+		self.assertEqual(out["open"], [0.0])
+		self.assertEqual(out["task_filters"]["completed"], [[]])
+		self.assertEqual(out["task_filters"]["completed_above_expected"], [["UTP-OLD-OVER"]])
+
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task", return_value={"TASK-NEW": 8.0})
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		side_effect=[["UTP-NEW-OVER"], ["UTP-NEW-OVER"]],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-NEW",
+				"creation": date(2026, 5, 10),
+				"exp_start_date": date(2026, 5, 10),
+				"status": "Open",
+				"progress": 0.0,
+				"volume": 6.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[("2026-05-10", date(2026, 5, 10), date(2026, 5, 10))],
+	)
+	def test_hours_bucket_splits_newly_created_task_overrun_between_created_completed_and_above_expected(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		mock_utp_parent_names,
+		_mock_bucket_hours,
+		mock_cumulative_hours,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_cumulative_hours.side_effect = [{"TASK-NEW": 8.0}, {"TASK-NEW": 8.0}]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 10),
+			td=date(2026, 5, 10),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["created"], [0.0])
+		self.assertEqual(out["created_completed"], [6.0])
+		self.assertEqual(out["completed"], [0.0])
+		self.assertEqual(out["completed_above_expected"], [2.0])
+		self.assertEqual(out["open"], [0.0])
+		self.assertEqual(out["task_filters"]["created_completed"], [["UTP-NEW-OVER"]])
+		self.assertEqual(out["task_filters"]["completed_above_expected"], [["UTP-NEW-OVER"]])
+		self.assertEqual(mock_utp_parent_names.call_count, 2)
+
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task", return_value={"TASK-CHILD": 12.0})
+	@patch(
+		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
+		side_effect=[["UTP-CHILD-WITHIN"], ["UTP-CHILD-OVER"]],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-CHILD",
+				"parent_task": "TASK-GROUP",
+				"is_group": 0,
+				"creation": date(2026, 5, 1),
+				"exp_start_date": date(2026, 5, 1),
+				"status": "Working",
+				"progress": 0.0,
+				"volume": 10.0,
+			},
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[("2026-05-10", date(2026, 5, 10), date(2026, 5, 10))],
+	)
+	def test_hours_overrun_split_uses_child_task_loaded_volume_even_with_parent_reference(
+		self,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_utp_parent_names,
+		_mock_bucket_hours,
+		mock_cumulative_hours,
+		_mock_utp_sum,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_cumulative_hours.side_effect = [{"TASK-CHILD": 12.0}, {"TASK-CHILD": 12.0}]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 5, 10),
+			td=date(2026, 5, 10),
+			group_by="day",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=False,
+		)
+
+		self.assertEqual(out["completed"], [10.0])
+		self.assertEqual(out["completed_above_expected"], [2.0])
+		self.assertEqual(out["open"], [0.0])
+		self.assertEqual(out["summary"]["total_volume"], 12.0)
+		self.assertEqual(out["task_filters"]["completed"], [["UTP-CHILD-WITHIN"]])
+		self.assertEqual(out["task_filters"]["completed_above_expected"], [["UTP-CHILD-OVER"]])
 
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
 	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
@@ -2325,7 +2509,7 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
 	@patch(
 		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
-		side_effect=[[], ["UTP-LEAF-CC"], [], []],
+		side_effect=[["UTP-LEAF-CC"], []],
 	)
 	@patch(
 		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
@@ -2467,7 +2651,7 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
 	@patch(
 		"dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks",
-		side_effect=[[], [], ["UTP-LATE-CC"], [], []],
+		side_effect=[["UTP-LATE-CC"], [], []],
 	)
 	@patch(
 		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",

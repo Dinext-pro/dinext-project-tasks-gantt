@@ -129,6 +129,7 @@ function task_epic_burndown_segment_legend_label(nameOrKey) {
 	const k = String(nameOrKey || "").trim();
 	const byKey = {
 		completed: __("Completed in period"),
+		completed_above_expected: __("Completed above expected"),
 		unused_hours: __("Released hours"),
 		open: __("Open at period end"),
 		created: __("Created in period"),
@@ -789,6 +790,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							const created = z(d.created || d.added);
 							const openBase = z(d.open || d.remaining || d.end_scope);
 							const completedBase = z(d.completed);
+							const completedAboveExpectedBase = z(d.completed_above_expected);
 							const unusedHoursBase = z(d.unused_hours);
 							const createdCompleted = z(d.created_completed || d.same_period_completed);
 							const forecastCompleted = z(d.forecast_completed);
@@ -877,6 +879,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 								if (segment === "completed") {
 									return `-${text}`;
 								}
+								if (segment === "completed_above_expected") {
+									return `-${text}`;
+								}
 								if (segment === "unused_hours") {
 									return `-${text}`;
 								}
@@ -888,6 +893,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#3d6fa8",
 										open: "#5eb0e8",
 										completed: "#4d9e5c",
+										completed_above_expected: "#d97706",
 										unused_hours: "#9cab32",
 										created_completed: "#3d9090",
 									}
@@ -895,6 +901,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#0b2f5a",
 										open: "#1f77b4",
 										completed: "#6fdc6f",
+										completed_above_expected: "#f59e0b",
 										unused_hours: "#7f9624",
 										created_completed: "#0f5b5b",
 									};
@@ -903,6 +910,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#f8fafc",
 										open: "#f8fafc",
 										completed: "#bbf7d0",
+										completed_above_expected: "#fff7ed",
 										unused_hours: "#fff7d6",
 										created_completed: "#ccfbf1",
 									}
@@ -910,6 +918,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#ffffff",
 										open: "#ffffff",
 										completed: "#0a5c0a",
+										completed_above_expected: "#4a2d00",
 										unused_hours: "#fff8e1",
 										created_completed: "#a8ffb0",
 									};
@@ -918,6 +927,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#f8fafc",
 										open: "#f8fafc",
 										completed: "#86efac",
+										completed_above_expected: "#ffedd5",
 										unused_hours: "#ffefbf",
 										created_completed: "#ecfdf5",
 									}
@@ -925,6 +935,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 										created: "#ffffff",
 										open: "#ffffff",
 										completed: "#02240a",
+										completed_above_expected: "#5b3300",
 										unused_hours: "#fff8e1",
 										created_completed: "#e6ffea",
 									};
@@ -979,6 +990,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 									showCompletionForecast && isForecast
 										? forecastCompleted[i] || 0
 										: completedBase[i] || 0;
+								const completedAboveExpectedValue =
+									showCompletionForecast && isForecast
+										? 0
+										: completedAboveExpectedBase[i] || 0;
 								const unusedHoursValue = showReleasedHours ? unusedHoursBase[i] || 0 : 0;
 								const openValue =
 									showCompletionForecast && isForecast
@@ -990,6 +1005,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									createdValue +
 									openValue +
 									completedValue +
+									completedAboveExpectedValue +
 									unusedHoursValue +
 									createdCompletedValue;
 
@@ -998,6 +1014,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 								let openBottom;
 								let completedTop;
 								let completedBottom;
+								let completedAboveExpectedTop;
+								let completedAboveExpectedBottom;
 								let unusedHoursTop;
 								let unusedHoursBottom;
 								let createdTop;
@@ -1017,12 +1035,18 @@ frappe.query_reports["Task Epic Burndown"] = {
 									unusedHoursTop = unusedHoursBottom + unusedHoursValue;
 									completedBottom = unusedHoursTop;
 									completedTop = completedBottom + completedValue;
-									barTop = completedTop;
+									completedAboveExpectedBottom = completedTop;
+									completedAboveExpectedTop =
+										completedAboveExpectedBottom + completedAboveExpectedValue;
+									barTop = completedAboveExpectedTop;
 									barBottom = 0;
 								} else {
 									barTop = previousOpenTop == null ? 0 : previousOpenTop;
 									completedTop = barTop;
 									completedBottom = completedTop - completedValue;
+									completedAboveExpectedBottom = completedTop;
+									completedAboveExpectedTop =
+										completedAboveExpectedBottom + completedAboveExpectedValue;
 									unusedHoursTop = completedBottom;
 									unusedHoursBottom = unusedHoursTop - unusedHoursValue;
 									openTop = unusedHoursBottom;
@@ -1044,6 +1068,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									yMin,
 									openBottom,
 									completedBottom,
+									completedAboveExpectedBottom,
 									unusedHoursBottom,
 									createdBottom,
 									createdCompletedBottom,
@@ -1053,6 +1078,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									yMax,
 									openTop,
 									completedTop,
+									completedAboveExpectedTop,
 									unusedHoursTop,
 									createdTop,
 									createdCompletedTop,
@@ -1067,6 +1093,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 									created: createdValue,
 									open: openValue,
 									completed: completedValue,
+									completed_above_expected: completedAboveExpectedValue,
 									unused_hours: unusedHoursValue,
 									created_completed: createdCompletedValue,
 									total,
@@ -1077,6 +1104,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 										openBottom,
 										completedTop,
 										completedBottom,
+										completedAboveExpectedTop,
+										completedAboveExpectedBottom,
 										unusedHoursTop,
 										unusedHoursBottom,
 										createdTop,
@@ -1098,6 +1127,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 										openBottom: g.openBottom + yShift,
 										completedTop: g.completedTop + yShift,
 										completedBottom: g.completedBottom + yShift,
+										completedAboveExpectedTop: g.completedAboveExpectedTop + yShift,
+										completedAboveExpectedBottom: g.completedAboveExpectedBottom + yShift,
 										unusedHoursTop: g.unusedHoursTop + yShift,
 										unusedHoursBottom: g.unusedHoursBottom + yShift,
 										createdTop: g.createdTop + yShift,
@@ -1137,6 +1168,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 									name: "completed",
 									icon: "roundRect",
 									itemStyle: { color: segmentColors.completed },
+								},
+								{
+									name: "completed_above_expected",
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.completed_above_expected },
 								},
 								...(showReleasedHours
 									? [
@@ -1178,6 +1214,23 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 									lineStyle: {
 										color: segmentColors.completed,
+										width: 8,
+									},
+								},
+								{
+									name: "completed_above_expected",
+									type: "line",
+									color: segmentColors.completed_above_expected,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.completed_above_expected,
+									},
+									lineStyle: {
+										color: segmentColors.completed_above_expected,
 										width: 8,
 									},
 								},
@@ -1295,6 +1348,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 												'</td><td class="task-epic-burndown-tooltip__row-value">' +
 												v +
 												"</td></tr>";
+											lines.push(
+												row(
+													task_epic_burndown_segment_legend_label(
+														"completed_above_expected"
+													),
+													segmentLabel(
+														"completed_above_expected",
+														rowData.completed_above_expected || 0
+													)
+												)
+											);
 											lines.push(
 												row(
 													task_epic_burndown_segment_legend_label("completed"),
@@ -1622,6 +1686,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 													};
 												};
 												const children = [
+													segmentRect(
+														"completed_above_expected",
+														geometry.completedAboveExpectedTop,
+														geometry.completedAboveExpectedBottom
+													),
 													segmentRect("completed", geometry.completedTop, geometry.completedBottom),
 													segmentRect(
 														"unused_hours",
@@ -1634,6 +1703,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 														"created_completed",
 														geometry.createdCompletedTop,
 														geometry.createdCompletedBottom
+													),
+													segmentText(
+														"completed_above_expected",
+														geometry.completedAboveExpectedTop,
+														geometry.completedAboveExpectedBottom,
+														rowData.completed_above_expected
 													),
 													segmentText(
 														"completed",
@@ -1731,7 +1806,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 								const measureKey = (filters.measure || "hours").toLowerCase();
 								if (
 									measureKey === "hours" &&
-									(segment === "completed" || segment === "created_completed")
+									(
+										segment === "completed" ||
+										segment === "completed_above_expected" ||
+										segment === "created_completed"
+									)
 								) {
 									frappe.set_route("List", "User Timesheet Position");
 									return;

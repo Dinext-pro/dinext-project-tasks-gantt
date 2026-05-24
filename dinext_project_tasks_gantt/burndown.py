@@ -2331,10 +2331,18 @@ def _period_volume_burndown(
 	created: list[float] = []
 	open_volume: list[float] = []
 	completed: list[float] = []
+	completed_above_expected: list[float] = []
 	unused_hours: list[float] = []
 	created_completed: list[float] = []
 	forecast_completed_total: list[float] = []
-	task_filters = {"created": [], "open": [], "completed": [], "unused_hours": [], "created_completed": []}
+	task_filters = {
+		"created": [],
+		"open": [],
+		"completed": [],
+		"completed_above_expected": [],
+		"unused_hours": [],
+		"created_completed": [],
+	}
 	total_forecast_volume = (
 		0.0 if measure == "hours" else sum(flt(task.get("volume")) for task in tasks)
 	)
@@ -2393,10 +2401,31 @@ def _period_volume_burndown(
 			created_raw = sum(
 				effective_scope_by_task.get(name, 0.0) for name in created_task_names
 			)
+			task_by_name = {task["name"]: task for task in tasks if task.get("name")}
+			created_task_names_set = set(created_task_names)
+			created_completed_by_task: dict[str, float] = {}
+			completed_within_expected_by_task: dict[str, float] = {}
+			completed_above_expected_by_task: dict[str, float] = {}
+			for name, bucket_hours_raw in bucket_hours_by_task.items():
+				bucket_hours = flt(bucket_hours_raw)
+				if bucket_hours <= 0:
+					continue
+				task = task_by_name.get(name) or {}
+				planned = flt(task.get("volume"))
+				cumulative_end = flt(cumulative_hours_by_task.get(name))
+				cumulative_before = max(0.0, cumulative_end - bucket_hours)
+				remaining_within_plan = max(0.0, planned - cumulative_before)
+				within_expected_part = min(bucket_hours, remaining_within_plan)
+				above_expected_part = max(0.0, bucket_hours - within_expected_part)
+				if name in created_task_names_set:
+					created_completed_by_task[name] = within_expected_part
+				else:
+					completed_within_expected_by_task[name] = within_expected_part
+				if above_expected_part > 0:
+					completed_above_expected_by_task[name] = above_expected_part
 			created_completed_names = sorted(
-				name for name in created_task_names if flt(bucket_hours_by_task.get(name)) > 0
+				name for name, value in created_completed_by_task.items() if flt(value) > 0
 			)
-			created_completed_names_set = set(created_completed_names)
 			released_names = sorted(
 				name
 				for name, completion_date in hours_completion_dates.items()
@@ -2409,11 +2438,19 @@ def _period_volume_burndown(
 			)
 			released_value = sum(flt(released_hours_by_task.get(name)) for name in released_names)
 			created_completed_value = sum(
-				flt(bucket_hours_by_task.get(name)) for name in created_completed_names
+				flt(created_completed_by_task.get(name)) for name in created_completed_names
 			)
-			created_value = max(0.0, created_raw - created_completed_value)
+			created_total_in_bucket = sum(
+				flt(bucket_hours_by_task.get(name)) for name in created_task_names
+			)
+			created_value = max(0.0, created_raw - created_total_in_bucket)
 			completed_total_in_bucket = sum(flt(hours) for hours in bucket_hours_by_task.values())
-			completed_value = max(0.0, completed_total_in_bucket - created_completed_value)
+			completed_value = sum(
+				flt(value) for value in completed_within_expected_by_task.values()
+			)
+			completed_above_expected_value = sum(
+				flt(value) for value in completed_above_expected_by_task.values()
+			)
 			completed_to_period = sum(flt(hours) for hours in cumulative_hours_by_task.values())
 			open_names = []
 			for task in eligible_open_tasks:
@@ -2438,12 +2475,13 @@ def _period_volume_burndown(
 					- completed_to_period
 					- released_to_period
 					- created_raw
-					- created_completed_value,
+					- created_total_in_bucket,
 				)
 			)
 			created.append(created_value)
 			created_completed.append(created_completed_value)
 			completed.append(completed_value)
+			completed_above_expected.append(completed_above_expected_value)
 			unused_hours.append(released_value)
 			forecast_completed_total.append(completed_total_in_bucket)
 			created_drilldown_names = _hours_segment_drilldown_names(
@@ -2457,12 +2495,18 @@ def _period_volume_burndown(
 			task_filters["open"].append(open_drilldown_names)
 			task_filters["unused_hours"].append(released_drilldown_names)
 			completed_task_names = sorted(
+				name for name, value in completed_within_expected_by_task.items() if flt(value) > 0
+			)
+			completed_above_expected_task_names = sorted(
 				name
-				for name, hours in bucket_hours_by_task.items()
-				if flt(hours) > 0 and name not in created_completed_names_set
+				for name, value in completed_above_expected_by_task.items()
+				if flt(value) > 0
 			)
 			completed_drilldown_names = _hours_segment_drilldown_names(
 				tasks, completed_task_names, exclude_group
+			)
+			completed_above_expected_drilldown_names = _hours_segment_drilldown_names(
+				tasks, completed_above_expected_task_names, exclude_group
 			)
 			created_completed_drilldown_names = _hours_segment_drilldown_names(
 				tasks, created_completed_names, exclude_group
@@ -2475,6 +2519,19 @@ def _period_volume_burndown(
 					completed_drilldown_names,
 					project_role_filters=project_role_filters,
 				)
+				if completed_drilldown_names
+				else []
+			)
+			task_filters["completed_above_expected"].append(
+				_utp_parent_names_in_bucket_for_tasks(
+					project,
+					bs,
+					be,
+					completed_above_expected_drilldown_names,
+					project_role_filters=project_role_filters,
+				)
+				if completed_above_expected_drilldown_names
+				else []
 			)
 			task_filters["created_completed"].append(
 				_utp_parent_names_in_bucket_for_tasks(
@@ -2505,6 +2562,7 @@ def _period_volume_burndown(
 		created.append(max(0.0, created_raw - created_completed_value))
 		created_completed.append(created_completed_value)
 		completed.append(max(0.0, completed_raw - created_completed_value))
+		completed_above_expected.append(0.0)
 		forecast_completed_total.append(progress_completed)
 		task_filters["created"].append(created_task_names)
 		task_filters["open"].append(
@@ -2530,6 +2588,7 @@ def _period_volume_burndown(
 				)
 			]
 		)
+		task_filters["completed_above_expected"].append([])
 		task_filters["created_completed"].append(
 			_task_names_created_and_completed_from_rows(
 				tasks, progress_rows, bs, be, use_progress=use_progress
@@ -2543,7 +2602,10 @@ def _period_volume_burndown(
 		"task_count": _("Tasks"),
 	}.get(measure, _("Volume"))
 	forecast_summary: dict[str, Any] = {"show": False}
-	completed_total = [flt(completed[i]) + flt(created_completed[i]) for i in range(len(categories))]
+	completed_total = [
+		flt(completed[i]) + flt(created_completed[i]) + flt(completed_above_expected[i])
+		for i in range(len(categories))
+	]
 	velocity_completed_total = forecast_completed_total if not use_progress else completed_total
 	fact_end_idx = _fact_end_index(buckets)
 	forecast_completed = [0.0 for _ in categories]
@@ -2657,6 +2719,7 @@ def _period_volume_burndown(
 		"created": created,
 		"open": open_volume,
 		"completed": completed,
+		"completed_above_expected": completed_above_expected,
 		"unused_hours": unused_hours,
 		"created_completed": created_completed,
 		"same_period_completed": created_completed,
