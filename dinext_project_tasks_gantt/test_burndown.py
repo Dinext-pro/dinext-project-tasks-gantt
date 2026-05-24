@@ -167,6 +167,7 @@ class TestBurndownBuckets(FrappeTestCase):
 		self.assertEqual(
 			buckets,
 			[
+				("Before Волна 1. Базовые процессы согласования", date(2026, 7, 1), date(2026, 7, 10)),
 				("Волна 1. Базовые процессы согласования", date(2026, 7, 11), date(2026, 8, 25)),
 				("Волна 2. Интеграции и регистрация документов", date(2026, 8, 26), date(2026, 9, 15)),
 			],
@@ -188,7 +189,143 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		self.assertEqual(
 			buckets,
-			[("Подготовка маршрутов согласования документов", date(2026, 6, 10), date(2026, 6, 15))],
+			[
+				("Подготовка маршрутов согласования документов", date(2026, 6, 10), date(2026, 6, 15)),
+				("After Подготовка маршрутов согласования документов", date(2026, 6, 16), date(2026, 6, 30)),
+			],
+		)
+
+	def test_iter_task_type_period_buckets_from_rows_adds_gaps_before_between_and_after(self):
+		rows = [
+			{
+				"name": "SPR-1",
+				"subject": "Sprint 1",
+				"exp_start_date": date(2026, 4, 3),
+				"exp_end_date": date(2026, 4, 8),
+			},
+			{
+				"name": "SPR-2",
+				"subject": "Sprint 2",
+				"exp_start_date": date(2026, 4, 12),
+				"exp_end_date": date(2026, 4, 18),
+			},
+		]
+
+		buckets = iter_task_type_period_buckets_from_rows(
+			rows, date(2026, 4, 1), date(2026, 4, 20)
+		)
+
+		self.assertEqual(
+			buckets,
+			[
+				("Before Sprint 1", date(2026, 4, 1), date(2026, 4, 2)),
+				("Sprint 1", date(2026, 4, 3), date(2026, 4, 8)),
+				("Between Sprint 1 and Sprint 2", date(2026, 4, 9), date(2026, 4, 11)),
+				("Sprint 2", date(2026, 4, 12), date(2026, 4, 18)),
+				("After Sprint 2", date(2026, 4, 19), date(2026, 4, 20)),
+			],
+		)
+
+	def test_iter_task_type_period_buckets_from_rows_splits_overlaps_into_atomic_segments(self):
+		rows = [
+			{
+				"name": "SPR-1",
+				"subject": "Sprint 1",
+				"exp_start_date": date(2026, 4, 1),
+				"exp_end_date": date(2026, 4, 15),
+			},
+			{
+				"name": "SPR-2",
+				"subject": "Sprint 2",
+				"exp_start_date": date(2026, 4, 10),
+				"exp_end_date": date(2026, 4, 25),
+			},
+		]
+
+		buckets = iter_task_type_period_buckets_from_rows(
+			rows, date(2026, 4, 1), date(2026, 4, 25)
+		)
+
+		self.assertEqual(
+			buckets,
+			[
+				("Sprint 1", date(2026, 4, 1), date(2026, 4, 9)),
+				("Sprint 1 + Sprint 2", date(2026, 4, 10), date(2026, 4, 15)),
+				("Sprint 2", date(2026, 4, 16), date(2026, 4, 25)),
+			],
+		)
+
+	def test_iter_task_type_period_buckets_from_rows_clips_mixed_gap_and_overlap_segments(self):
+		rows = [
+			{
+				"name": "SPR-1",
+				"subject": "Sprint 1",
+				"exp_start_date": date(2026, 4, 1),
+				"exp_end_date": date(2026, 4, 15),
+			},
+			{
+				"name": "SPR-2",
+				"subject": "Sprint 2",
+				"exp_start_date": date(2026, 4, 10),
+				"exp_end_date": date(2026, 4, 25),
+			},
+			{
+				"name": "SPR-3",
+				"subject": "Sprint 3",
+				"exp_start_date": date(2026, 4, 28),
+				"exp_end_date": date(2026, 5, 5),
+			},
+		]
+
+		buckets = iter_task_type_period_buckets_from_rows(
+			rows, date(2026, 4, 8), date(2026, 4, 30)
+		)
+
+		self.assertEqual(
+			buckets,
+			[
+				("Sprint 1", date(2026, 4, 8), date(2026, 4, 9)),
+				("Sprint 1 + Sprint 2", date(2026, 4, 10), date(2026, 4, 15)),
+				("Sprint 2", date(2026, 4, 16), date(2026, 4, 25)),
+				("Between Sprint 2 and Sprint 3", date(2026, 4, 26), date(2026, 4, 27)),
+				("Sprint 3", date(2026, 4, 28), date(2026, 4, 30)),
+			],
+		)
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.get_all")
+	def test_get_period_buckets_dispatches_sprint_group_to_segment_builder(self, mock_get_all):
+		mock_get_all.return_value = [
+			{
+				"name": "SPR-1",
+				"subject": "Sprint 1",
+				"exp_start_date": date(2026, 4, 3),
+				"exp_end_date": date(2026, 4, 8),
+				"custom_planned_start_date": None,
+				"custom_planned_end_date": None,
+			}
+		]
+
+		buckets = get_period_buckets("PROJECT-1", date(2026, 4, 1), date(2026, 4, 10), "sprint")
+
+		mock_get_all.assert_called_once_with(
+			"Task",
+			filters={"project": "PROJECT-1", "type": "Sprint"},
+			fields=[
+				"name",
+				"subject",
+				"exp_start_date",
+				"exp_end_date",
+				"custom_planned_start_date",
+				"custom_planned_end_date",
+			],
+		)
+		self.assertEqual(
+			buckets,
+			[
+				("Before Sprint 1", date(2026, 4, 1), date(2026, 4, 2)),
+				("Sprint 1", date(2026, 4, 3), date(2026, 4, 8)),
+				("After Sprint 1", date(2026, 4, 9), date(2026, 4, 10)),
+			],
 		)
 
 	def test_measure_created_scope_uses_creation_date_and_full_volume(self):

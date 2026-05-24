@@ -217,11 +217,10 @@ def _planned_start_end(row: dict) -> tuple[date | None, date | None]:
 	return (getdate(start) if start else None, getdate(end) if end else None)
 
 
-def iter_task_type_period_buckets_from_rows(
+def _task_type_period_rows_in_range(
 	rows: list[dict], from_date: date, to_date: date
-) -> list[tuple[str, date, date]]:
-	"""Build time buckets from task rows whose forecast dates overlap the report range."""
-	out: list[tuple[str, date, date]] = []
+) -> list[dict[str, Any]]:
+	out: list[dict[str, Any]] = []
 	for row in rows:
 		start, end = _planned_start_end(row)
 		if not start or not end:
@@ -229,8 +228,101 @@ def iter_task_type_period_buckets_from_rows(
 		if end < from_date or start > to_date:
 			continue
 		label = row.get("subject") or row.get("name")
-		out.append((label, max(start, from_date), min(end, to_date)))
-	return sorted(out, key=lambda x: (x[1], x[2], x[0]))
+		if not label:
+			continue
+		out.append(
+			{
+				"name": row.get("name") or label,
+				"label": label,
+				"start": max(start, from_date),
+				"end": min(end, to_date),
+			}
+		)
+	return sorted(out, key=lambda x: (x["start"], x["end"], x["label"], x["name"]))
+
+
+def _task_type_period_group_label(periods: list[dict[str, Any]]) -> str:
+	labels: list[str] = []
+	for period in periods:
+		label = period.get("label")
+		if label and label not in labels:
+			labels.append(label)
+	return " + ".join(labels)
+
+
+def _task_type_period_gap_label(
+	previous_label: str | None, next_label: str | None
+) -> str:
+	if previous_label and next_label:
+		return _("Between {0} and {1}").format(previous_label, next_label)
+	if next_label:
+		return _("Before {0}").format(next_label)
+	if previous_label:
+		return _("After {0}").format(previous_label)
+	return _("Outside periods")
+
+
+def iter_task_type_period_buckets_from_rows(
+	rows: list[dict], from_date: date, to_date: date
+) -> list[tuple[str, date, date]]:
+	"""Build non-overlapping period buckets, including gaps, for task-type ranges."""
+	periods = _task_type_period_rows_in_range(rows, from_date, to_date)
+	if not periods:
+		return [(_("Outside periods"), from_date, to_date)] if from_date <= to_date else []
+
+	boundaries = {from_date, to_date + timedelta(days=1)}
+	for period in periods:
+		boundaries.add(period["start"])
+		if period["end"] < to_date:
+			boundaries.add(period["end"] + timedelta(days=1))
+	boundary_points = sorted(boundaries)
+
+	segments: list[dict[str, Any]] = []
+	for start, next_start in zip(boundary_points, boundary_points[1:], strict=False):
+		end = next_start - timedelta(days=1)
+		if start > end:
+			continue
+		active = [
+			period
+			for period in periods
+			if period["start"] <= start <= period["end"]
+		]
+		label = _task_type_period_group_label(active) if active else None
+		segments.append(
+			{
+				"label": label,
+				"start": start,
+				"end": end,
+				"is_gap": not active,
+			}
+		)
+
+	for index, segment in enumerate(segments):
+		if not segment["is_gap"]:
+			continue
+		previous_label = next(
+			(
+				candidate["label"]
+				for candidate in reversed(segments[:index])
+				if not candidate["is_gap"] and candidate.get("label")
+			),
+			None,
+		)
+		next_label = next(
+			(
+				candidate["label"]
+				for candidate in segments[index + 1 :]
+				if not candidate["is_gap"] and candidate.get("label")
+			),
+			None,
+		)
+		segment["label"] = _task_type_period_gap_label(previous_label, next_label)
+
+	return [
+		(segment["label"], segment["start"], segment["end"])
+		for segment in segments
+		if segment.get("label")
+	]
 
 
 def iter_task_type_period_buckets(
