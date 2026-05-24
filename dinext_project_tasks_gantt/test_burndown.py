@@ -17,6 +17,7 @@ from dinext_project_tasks_gantt.burndown import (
 	_forecast_progress_to_completion,
 	_hours_completion_date,
 	get_task_progress_trend,
+	get_project_x_axis_period_options,
 	_load_task_volume_rows,
 	_mval,
 	_measure_completed_scope_from_rows,
@@ -305,7 +306,7 @@ class TestBurndownBuckets(FrappeTestCase):
 			}
 		]
 
-		buckets = get_period_buckets("PROJECT-1", date(2026, 4, 1), date(2026, 4, 10), "sprint")
+		buckets = get_period_buckets("PROJECT-1", date(2026, 4, 1), date(2026, 4, 10), "Sprint")
 
 		mock_get_all.assert_called_once_with(
 			"Task",
@@ -325,6 +326,99 @@ class TestBurndownBuckets(FrappeTestCase):
 				("Before Sprint 1", date(2026, 4, 1), date(2026, 4, 2)),
 				("Sprint 1", date(2026, 4, 3), date(2026, 4, 8)),
 				("After Sprint 1", date(2026, 4, 9), date(2026, 4, 10)),
+			],
+		)
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.get_all")
+	def test_get_period_buckets_dispatches_custom_task_type_to_segment_builder(self, mock_get_all):
+		mock_get_all.return_value = [
+			{
+				"name": "REL-1",
+				"subject": "Release 1",
+				"exp_start_date": date(2026, 5, 3),
+				"exp_end_date": date(2026, 5, 6),
+				"custom_planned_start_date": None,
+				"custom_planned_end_date": None,
+			}
+		]
+
+		buckets = get_period_buckets("PROJECT-1", date(2026, 5, 1), date(2026, 5, 10), "Release")
+
+		mock_get_all.assert_called_once_with(
+			"Task",
+			filters={"project": "PROJECT-1", "type": "Release"},
+			fields=[
+				"name",
+				"subject",
+				"exp_start_date",
+				"exp_end_date",
+				"custom_planned_start_date",
+				"custom_planned_end_date",
+			],
+		)
+		self.assertEqual(
+			buckets,
+			[
+				("Before Release 1", date(2026, 5, 1), date(2026, 5, 2)),
+				("Release 1", date(2026, 5, 3), date(2026, 5, 6)),
+				("After Release 1", date(2026, 5, 7), date(2026, 5, 10)),
+			],
+		)
+
+
+class TestProjectXAxisPeriodOptions(FrappeTestCase):
+	def test_get_project_x_axis_period_options_without_project_returns_calendar_only(self):
+		self.assertEqual(
+			get_project_x_axis_period_options(),
+			[
+				{"label": "Month", "value": "month", "description": ""},
+				{"label": "Week", "value": "week", "description": ""},
+				{"label": "Day", "value": "day", "description": ""},
+			],
+		)
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.get_all")
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	def test_get_project_x_axis_period_options_includes_group_types_and_skips_issue(
+		self, _mock_has_permission, mock_get_all
+	):
+		mock_get_all.return_value = [
+			{"type": "Issue"},
+			{"type": "Sprint"},
+			{"type": "Release"},
+			{"type": "Release"},
+			{"type": ""},
+			{"type": None},
+		]
+
+		self.assertEqual(
+			get_project_x_axis_period_options("PROJECT-1"),
+			[
+				{"label": "Month", "value": "month", "description": ""},
+				{"label": "Week", "value": "week", "description": ""},
+				{"label": "Day", "value": "day", "description": ""},
+				{"label": "Release", "value": "Release", "description": ""},
+				{"label": "Sprint", "value": "Sprint", "description": ""},
+			],
+		)
+		mock_get_all.assert_called_once_with(
+			"Task",
+			filters={"project": "PROJECT-1", "is_group": 1},
+			fields=["type"],
+			limit_page_length=0,
+		)
+
+	@patch("dinext_project_tasks_gantt.burndown.frappe.get_all", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	def test_get_project_x_axis_period_options_project_without_group_types_returns_calendar_only(
+		self, _mock_has_permission, _mock_get_all
+	):
+		self.assertEqual(
+			get_project_x_axis_period_options("PROJECT-1"),
+			[
+				{"label": "Month", "value": "month", "description": ""},
+				{"label": "Week", "value": "week", "description": ""},
+				{"label": "Day", "value": "day", "description": ""},
 			],
 		)
 

@@ -2,6 +2,11 @@
 // For license information, please see license.txt
 
 const TASK_EPIC_BURNDOWN_REPORT_CSS = "/assets/dinext_project_tasks_gantt/css/task_epic_burndown_report.css";
+const TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS = [
+	{ value: "month", label: __("Month") },
+	{ value: "week", label: __("Week") },
+	{ value: "day", label: __("Day") },
+];
 
 function task_epic_burndown_ensure_report_styles() {
 	if (window.__task_epic_burndown_report_css_promise) {
@@ -67,37 +72,61 @@ function task_epic_burndown_measure_label_for_summary(d) {
 	return __("Hours");
 }
 
-function task_epic_burndown_forecast_group_by_key() {
+function task_epic_burndown_forecast_group_by_value() {
 	const qr = frappe.query_report;
 	const raw =
 		(qr && typeof qr.get_filter_value === "function" && qr.get_filter_value("group_by")) || "month";
-	return String(raw || "month").toLowerCase();
+	return String(raw || "month").trim() || "month";
+}
+
+function task_epic_burndown_forecast_group_by_key() {
+	return task_epic_burndown_forecast_group_by_value().toLowerCase();
+}
+
+function task_epic_burndown_group_by_option_label(value) {
+	const qr = frappe.query_report;
+	if (!qr || typeof qr.get_filter !== "function") {
+		return String(value || "").trim();
+	}
+	const groupByFilter = qr.get_filter("group_by", false);
+	const options = (groupByFilter && groupByFilter.df && groupByFilter.df.options) || [];
+	const target = String(value || "").trim();
+	const match = options.find((option) => {
+		if (!option) {
+			return false;
+		}
+		if (typeof option === "string") {
+			return option === target;
+		}
+		return String(option.value || "").trim() === target;
+	});
+	if (!match) {
+		return target;
+	}
+	return typeof match === "string" ? match : String(match.label || match.value || target);
 }
 
 function task_epic_burndown_forecast_period_unit_singular() {
+	const value = task_epic_burndown_forecast_group_by_value();
 	const key = task_epic_burndown_forecast_group_by_key();
 	const m = {
 		day: __("day"),
 		week: __("week"),
 		month: __("month"),
-		sprint: __("sprint"),
-		stage: __("stage"),
-		phase: __("phase"),
 	};
-	return m[key] || __("period");
+	return m[key] || task_epic_burndown_group_by_option_label(value) || __("period");
 }
 
 function task_epic_burndown_forecast_period_unit_plural() {
+	const value = task_epic_burndown_forecast_group_by_value();
 	const key = task_epic_burndown_forecast_group_by_key();
 	const m = {
 		day: __("days"),
 		week: __("weeks"),
 		month: __("months"),
-		sprint: __("sprints"),
-		stage: __("stages"),
-		phase: __("phases"),
 	};
-	return m[key] || __("periods");
+	const label = task_epic_burndown_group_by_option_label(value);
+	return m[key] || (label ? `${label} ${__("periods")}` : __("periods"));
 }
 
 function task_epic_burndown_forecast_remaining_title(fs) {
@@ -362,14 +391,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldname: "group_by",
 			label: __("X Axis Period"),
 			fieldtype: "Select",
-			options: [
-				{ value: "month", label: __("Month") },
-				{ value: "week", label: __("Week") },
-				{ value: "day", label: __("Day") },
-				{ value: "sprint", label: __("Sprint") },
-				{ value: "stage", label: __("Stage") },
-				{ value: "phase", label: __("Phase") },
-			],
+			options: TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS,
 			default: "month",
 		},
 		{
@@ -590,6 +612,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 		let renderRequestId = 0;
 		let pendingRenderOptions = {};
 		let isNormalizingIssueTypeFilter = false;
+		let isNormalizingGroupByFilter = false;
 		const renderState = {
 			lastCompletedKey: null,
 			lastRequestedKey: null,
@@ -746,8 +769,26 @@ frappe.query_reports["Task Epic Burndown"] = {
 				}
 				const originalOnChange = filter.df.onchange;
 				filter.df.onchange = function () {
+					if (filter.df.fieldname === "project") {
+						const args = arguments;
+						const qr = frappe.query_report;
+						const project =
+							qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+						refreshGroupByOptions(project).then((didNormalizeGroupBy) => {
+							if (!didNormalizeGroupBy && typeof originalOnChange === "function") {
+								originalOnChange.apply(this, args);
+							}
+							ensureIssueTypeFilterState();
+							ensureHoursOnlyFilterState();
+							scheduleRender(120, { reason: "filter-change" });
+						});
+						return;
+					}
 					if (typeof originalOnChange === "function") {
 						originalOnChange.apply(this, arguments);
+					}
+					if (isNormalizingGroupByFilter && filter.df.fieldname === "group_by") {
+						return;
 					}
 					if (isNormalizingIssueTypeFilter && filter.df.fieldname === "issue_types") {
 						return;
@@ -762,6 +803,58 @@ frappe.query_reports["Task Epic Burndown"] = {
 				};
 				filter.__task_epic_burndown_bound = true;
 			});
+		}
+
+		function refreshGroupByOptions(project) {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function") {
+				return Promise.resolve(false);
+			}
+			const groupByFilter = qr.get_filter("group_by", false);
+			if (!groupByFilter || !groupByFilter.df) {
+				return Promise.resolve(false);
+			}
+			const applyOptions = (options) => {
+				const nextOptions =
+					Array.isArray(options) && options.length
+						? options
+						: TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS;
+				groupByFilter.df.options = nextOptions;
+				if (typeof groupByFilter.set_options === "function") {
+					groupByFilter.set_options();
+				}
+				const currentValue =
+					typeof groupByFilter.get_value === "function"
+						? String(groupByFilter.get_value() || "").trim()
+						: "";
+				const hasCurrentValue = nextOptions.some((option) => {
+					if (!option) {
+						return false;
+					}
+					if (typeof option === "string") {
+						return option === currentValue;
+					}
+					return String(option.value || "").trim() === currentValue;
+				});
+				if (currentValue && hasCurrentValue) {
+					return Promise.resolve(false);
+				}
+				isNormalizingGroupByFilter = true;
+				const result = groupByFilter.set_value("month");
+				return Promise.resolve(result).finally(() => {
+					isNormalizingGroupByFilter = false;
+				}).then(() => true);
+			};
+			if (!project) {
+				return applyOptions(TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS);
+			}
+			return frappe
+				.call({
+					method: "dinext_project_tasks_gantt.burndown.get_project_x_axis_period_options",
+					args: { project },
+				})
+				.then((r) => applyOptions(r.message || []))
+				.catch(() => applyOptions(TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS));
 		}
 
 		function ensureIssueTypeFilterState() {
@@ -1983,6 +2076,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}
 
 		bindFilterAutoRefresh();
+		refreshGroupByOptions(
+			report && typeof report.get_filter_value === "function" ? report.get_filter_value("project") : null
+		);
 		ensureIssueTypeFilterState();
 		ensureHoursOnlyFilterState();
 		window.__task_epic_burndown_render = renderBurndown;
