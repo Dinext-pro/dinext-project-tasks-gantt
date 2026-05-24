@@ -141,6 +141,115 @@ function task_epic_burndown_segment_legend_label(nameOrKey) {
 	return __(k);
 }
 
+let _taskEpicBurndownLegendMeasureCtx = null;
+
+const TASK_EPIC_BURNDOWN_LEGEND_METRICS = {
+	widthRatio: 0.92,
+	itemWidth: 18,
+	itemHeight: 10,
+	itemGap: 28,
+	iconTextGap: 5,
+	fontSize: 11,
+	singleRowPadding: [8, 8, 2, 8],
+	multiRowPadding: [10, 8, 10, 8],
+};
+
+function task_epic_burndown_legend_entry_width(label, metrics) {
+	const m = metrics || TASK_EPIC_BURNDOWN_LEGEND_METRICS;
+	const textWidth = task_epic_burndown_legend_measure_text_width(label, m.fontSize);
+	return m.itemWidth + m.iconTextGap + textWidth;
+}
+
+function task_epic_burndown_legend_content_width(containerWidth, metrics) {
+	const m = metrics || TASK_EPIC_BURNDOWN_LEGEND_METRICS;
+	const padding = m.singleRowPadding;
+	return Math.max(0, containerWidth * m.widthRatio - padding[3] - padding[1]);
+}
+
+function task_epic_burndown_legend_measure_text_width(text, fontSize) {
+	const label = String(text || "");
+	if (!label) {
+		return 0;
+	}
+	try {
+		if (typeof document !== "undefined") {
+			if (!_taskEpicBurndownLegendMeasureCtx) {
+				const canvas = document.createElement("canvas");
+				_taskEpicBurndownLegendMeasureCtx = canvas.getContext("2d");
+			}
+			if (_taskEpicBurndownLegendMeasureCtx) {
+				_taskEpicBurndownLegendMeasureCtx.font = `${fontSize}px sans-serif`;
+				return Math.ceil(_taskEpicBurndownLegendMeasureCtx.measureText(label).width);
+			}
+		}
+	} catch (e) {
+		// Fall through to character-width estimate.
+	}
+	return Math.ceil(label.length * 6.5);
+}
+
+function task_epic_burndown_legend_layout(options) {
+	const containerWidth = Math.max(0, Number(options && options.containerWidth) || 0);
+	const legendKeys = Array.isArray(options && options.legendKeys) ? options.legendKeys : [];
+	const axisLabelRotated = !!(options && options.axisLabelRotated);
+	const metrics = TASK_EPIC_BURNDOWN_LEGEND_METRICS;
+
+	const LEGEND_BOTTOM = 10;
+	const ROW_HEIGHT = metrics.itemHeight + metrics.fontSize + 2;
+	const SAFETY = 8;
+
+	const legendAreaWidth = task_epic_burndown_legend_content_width(containerWidth, metrics);
+	let legendRows = legendKeys.length ? 1 : 0;
+	if (legendKeys.length && legendAreaWidth > 0) {
+		let currentRowWidth = 0;
+		legendRows = 1;
+		legendKeys.forEach(function (key) {
+			const label = task_epic_burndown_segment_legend_label(key);
+			const entryWidth = task_epic_burndown_legend_entry_width(label, metrics);
+			const gapBefore = currentRowWidth > 0 ? metrics.itemGap : 0;
+			if (currentRowWidth > 0 && currentRowWidth + gapBefore + entryWidth > legendAreaWidth) {
+				legendRows += 1;
+				currentRowWidth = entryWidth;
+			} else {
+				currentRowWidth += gapBefore + entryWidth;
+			}
+		});
+	} else if (legendKeys.length) {
+		legendRows = legendKeys.length;
+	}
+
+	const multiRow = legendRows > 1;
+	const widthBucket = containerWidth > 0 ? Math.floor(containerWidth / 40) * 40 : 0;
+	const signature = `rows:${legendRows}|rot:${axisLabelRotated ? 1 : 0}|w:${widthBucket}`;
+
+	if (!multiRow) {
+		return {
+			legendRows,
+			gridBottom: 56,
+			legendBottom: 24,
+			legendPadding: metrics.singleRowPadding.slice(),
+			legendLineHeight: 14,
+			signature,
+		};
+	}
+
+	const lineHeight = 16;
+	const padding = metrics.multiRowPadding.slice();
+	const axisLabelExtra = axisLabelRotated ? 32 : 14;
+	const legendPaddingV = padding[0] + padding[2];
+	const gridBottom =
+		axisLabelExtra + legendRows * ROW_HEIGHT + legendPaddingV + LEGEND_BOTTOM + SAFETY;
+
+	return {
+		legendRows,
+		gridBottom: Math.round(gridBottom),
+		legendBottom: LEGEND_BOTTOM,
+		legendPadding: padding,
+		legendLineHeight: lineHeight,
+		signature,
+	};
+}
+
 function task_epic_burndown_render_forecast_legend($wrap, d) {
 	if (!$wrap || !$wrap.length) {
 		return;
@@ -488,6 +597,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 			lastContainerSize: null,
 			lastThemeName: null,
 			isInitialRenderDone: false,
+			lastLegendLayoutSignature: null,
+			lastLegendKeys: [],
+			lastAxisLabelRotated: false,
 		};
 
 		function destroyChart() {
@@ -499,6 +611,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 			renderState.lastContainerSize = null;
 			renderState.lastThemeName = null;
 			renderState.isInitialRenderDone = false;
+			renderState.lastLegendLayoutSignature = null;
+			renderState.lastLegendKeys = [];
+			renderState.lastAxisLabelRotated = false;
 			if (chart) {
 				chart.dispose();
 				chart = null;
@@ -569,6 +684,32 @@ frappe.query_reports["Task Epic Burndown"] = {
 			});
 		}
 
+		function applyLegendLayoutIfNeeded(nextSize) {
+			if (!chart || chart.isDisposed() || !nextSize || nextSize.width <= 0) {
+				return false;
+			}
+			const layout = task_epic_burndown_legend_layout({
+				containerWidth: nextSize.width,
+				legendKeys: renderState.lastLegendKeys,
+				axisLabelRotated: renderState.lastAxisLabelRotated,
+			});
+			if (layout.signature === renderState.lastLegendLayoutSignature) {
+				return false;
+			}
+			chart.setOption({
+				grid: { bottom: layout.gridBottom },
+				legend: {
+					bottom: layout.legendBottom,
+					padding: layout.legendPadding,
+					textStyle: {
+						lineHeight: layout.legendLineHeight,
+					},
+				},
+			});
+			renderState.lastLegendLayoutSignature = layout.signature;
+			return true;
+		}
+
 		function resizeChartIfNeeded(nextSize) {
 			if (!chart || chart.isDisposed()) {
 				return false;
@@ -579,6 +720,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			if (isSameContainerSize(renderState.lastContainerSize, nextSize)) {
 				return false;
 			}
+			applyLegendLayoutIfNeeded(nextSize);
 			chart.resize();
 			renderState.lastContainerSize = nextSize;
 			return true;
@@ -1308,6 +1450,22 @@ frappe.query_reports["Task Epic Burndown"] = {
 								},
 							];
 
+							const axisLabelRotated = cats.length > 8;
+							const legendLayout = task_epic_burndown_legend_layout({
+								containerWidth:
+									(nextContainerSize && nextContainerSize.width) ||
+									dom.clientWidth ||
+									800,
+								legendKeys: legendData.map(function (item) {
+									return item.name;
+								}),
+								axisLabelRotated,
+							});
+							renderState.lastLegendKeys = legendData.map(function (item) {
+								return item.name;
+							});
+							renderState.lastAxisLabelRotated = axisLabelRotated;
+
 							chart.setOption(
 								{
 									backgroundColor: "transparent",
@@ -1415,30 +1573,30 @@ frappe.query_reports["Task Epic Burndown"] = {
 									legend: {
 										show: true,
 										orient: "horizontal",
-										bottom: 24,
+										bottom: legendLayout.legendBottom,
 										left: "center",
-										width: "92%",
+										width: `${TASK_EPIC_BURNDOWN_LEGEND_METRICS.widthRatio * 100}%`,
 										z: 20,
 										selectedMode: false,
-										itemWidth: 18,
-										itemHeight: 10,
-										itemGap: 28,
-										padding: [8, 8, 2, 8],
+										itemWidth: TASK_EPIC_BURNDOWN_LEGEND_METRICS.itemWidth,
+										itemHeight: TASK_EPIC_BURNDOWN_LEGEND_METRICS.itemHeight,
+										itemGap: TASK_EPIC_BURNDOWN_LEGEND_METRICS.itemGap,
+										padding: legendLayout.legendPadding,
 										data: legendData,
 										formatter: function (name) {
 											return task_epic_burndown_segment_legend_label(name);
 										},
 										textStyle: {
 											color: axisTextColor,
-											fontSize: 11,
-											lineHeight: 14,
+											fontSize: TASK_EPIC_BURNDOWN_LEGEND_METRICS.fontSize,
+											lineHeight: legendLayout.legendLineHeight,
 										},
 									},
 									grid: {
 										left: 48,
 										right: 24,
 										top: 52,
-										bottom: 56,
+										bottom: legendLayout.gridBottom,
 										containLabel: true,
 									},
 									xAxis: {
@@ -1761,6 +1919,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 							renderState.lastCompletedKey = nextRenderKey;
 							renderState.lastThemeName = nextThemeName;
 							renderState.lastContainerSize = getContainerSize() || nextContainerSize;
+							renderState.lastLegendLayoutSignature = legendLayout.signature;
 							renderState.isInitialRenderDone = true;
 							chart.off("mousemove");
 							chart.on("mousemove", function (params) {
@@ -1878,8 +2037,13 @@ frappe.query_reports["Task Epic Burndown"] = {
 
 		$(window).on("resize.task_epic_burndown", function () {
 			const nextSize = getContainerSize();
-			if (!resizeChartIfNeeded(nextSize) && chart) {
-				chart.resize();
+			if (resizeChartIfNeeded(nextSize)) {
+				return;
+			}
+			if (chart && !chart.isDisposed() && nextSize) {
+				if (applyLegendLayoutIfNeeded(nextSize)) {
+					chart.resize();
+				}
 				renderState.lastContainerSize = nextSize || renderState.lastContainerSize;
 			}
 		});
