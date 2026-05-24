@@ -22,8 +22,23 @@ from frappe.query_builder.functions import Coalesce, Date, IfNull, Max, Min, Sum
 from frappe.utils import add_months, cint, flt, get_datetime, getdate
 
 UTP_STATUS_APPROVED = "Согласовано"
-TASK_PERIOD_TYPES = {"phase": "Phase", "stage": "Stage", "sprint": "Sprint"}
+CALENDAR_GROUP_BYS = {"day", "week", "month"}
 TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET = "__not_set__"
+
+
+def _calendar_group_by_options() -> list[dict[str, str]]:
+	return [
+		{"label": _("Month"), "value": "month", "description": ""},
+		{"label": _("Week"), "value": "week", "description": ""},
+		{"label": _("Day"), "value": "day", "description": ""},
+	]
+
+
+def _task_type_for_group_by(group_by: str | None) -> str | None:
+	raw = (group_by or "").strip()
+	if not raw:
+		return None
+	return None if raw.lower() in CALENDAR_GROUP_BYS else raw
 
 
 def _fallback_company_holiday_list(company: str | None = None) -> str | None:
@@ -132,16 +147,19 @@ def _velocity_window_values(
 
 def _forecast_period_unit_labels(group_by: str | None) -> tuple[str, str]:
 	"""Singular and plural period unit labels for completion forecast summary."""
-	key = (group_by or "").strip().lower()
+	raw = (group_by or "").strip()
+	key = raw.lower()
 	mapping: dict[str, tuple[str, str]] = {
 		"day": (_("day"), _("days")),
 		"week": (_("week"), _("weeks")),
 		"month": (_("month"), _("months")),
-		"sprint": (_("sprint"), _("sprints")),
-		"stage": (_("stage"), _("stages")),
-		"phase": (_("phase"), _("phases")),
 	}
-	return mapping.get(key, (_("period"), _("periods")))
+	if key in mapping:
+		return mapping[key]
+	if raw:
+		label = _(raw)
+		return label, _("{0} periods").format(label)
+	return _("period"), _("periods")
 
 
 def fiscal_month_end_date(fiscal_year: str, month_number: int) -> date | None:
@@ -344,11 +362,12 @@ def iter_task_type_period_buckets(
 
 
 def get_period_buckets(project: str, from_date: date, to_date: date, group_by: str):
-	if group_by == "day":
+	key = (group_by or "").strip().lower()
+	if key == "day":
 		return iter_day_buckets(from_date, to_date)
-	if group_by == "week":
+	if key == "week":
 		return iter_week_buckets(from_date, to_date)
-	if task_type := TASK_PERIOD_TYPES.get(group_by):
+	if task_type := _task_type_for_group_by(group_by):
 		return iter_task_type_period_buckets(project, from_date, to_date, task_type)
 	return iter_month_buckets(from_date, to_date)
 
@@ -658,6 +677,30 @@ def get_project_task_type_options(project: str | None = None) -> list[dict[str, 
 				"description": "",
 			},
 		)
+	return out
+
+
+@frappe.whitelist()
+def get_project_x_axis_period_options(project: str | None = None) -> list[dict[str, str]]:
+	out = _calendar_group_by_options()
+	if not project:
+		return out
+	if not frappe.has_permission("Project", "read", project):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	rows = frappe.get_all(
+		"Task",
+		filters={"project": project, "is_group": 1},
+		fields=["type"],
+		limit_page_length=0,
+	)
+	values = sorted(
+		{
+			(row.get("type") or "").strip()
+			for row in rows
+			if (row.get("type") or "").strip() and (row.get("type") or "").strip() != "Issue"
+		}
+	)
+	out.extend({"label": _(value), "value": value, "description": ""} for value in values)
 	return out
 
 
