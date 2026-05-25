@@ -623,6 +623,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			lastLegendLayoutSignature: null,
 			lastLegendKeys: [],
 			lastAxisLabelRotated: false,
+			lastGroupByOptionsProject: null,
 		};
 
 		function destroyChart() {
@@ -637,6 +638,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			renderState.lastLegendLayoutSignature = null;
 			renderState.lastLegendKeys = [];
 			renderState.lastAxisLabelRotated = false;
+			renderState.lastGroupByOptionsProject = null;
 			if (chart) {
 				chart.dispose();
 				chart = null;
@@ -805,11 +807,24 @@ frappe.query_reports["Task Epic Burndown"] = {
 			});
 		}
 
+		function currentProjectFilterValue() {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function") {
+				return null;
+			}
+			const projectFilter = qr.get_filter("project", false);
+			if (!projectFilter || typeof projectFilter.get_value !== "function") {
+				return null;
+			}
+			return projectFilter.get_value();
+		}
+
 		function refreshGroupByOptions(project) {
 			const qr = frappe.query_report;
 			if (!qr || typeof qr.get_filter !== "function") {
 				return Promise.resolve(false);
 			}
+			project = project || currentProjectFilterValue();
 			const groupByFilter = qr.get_filter("group_by", false);
 			if (!groupByFilter || !groupByFilter.df) {
 				return Promise.resolve(false);
@@ -919,6 +934,18 @@ frappe.query_reports["Task Epic Burndown"] = {
 			const filters = frappe.query_report.get_filter_values();
 			if (!filters.project) {
 				destroyChart();
+				return;
+			}
+			if (renderState.lastGroupByOptionsProject !== filters.project) {
+				renderState.lastGroupByOptionsProject = filters.project;
+				refreshGroupByOptions(filters.project).then((didNormalizeGroupBy) => {
+					if (!didNormalizeGroupBy) {
+						scheduleRender(0, {
+							...options,
+							reason: "group-by-options-ready",
+						});
+					}
+				});
 				return;
 			}
 			ensureContainers();
@@ -2076,9 +2103,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}
 
 		bindFilterAutoRefresh();
-		refreshGroupByOptions(
-			report && typeof report.get_filter_value === "function" ? report.get_filter_value("project") : null
-		);
+		refreshGroupByOptions();
 		ensureIssueTypeFilterState();
 		ensureHoursOnlyFilterState();
 		window.__task_epic_burndown_render = renderBurndown;
