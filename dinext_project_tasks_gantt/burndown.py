@@ -107,6 +107,118 @@ _WEIGHTED_VELOCITY_WEIGHTS_DEFAULT = [1, 2, 3, 3, 3]
 _WEIGHTED_VELOCITY_WEIGHTS_DAY = [1, 1, 1, 2, 2, 2, 2, 3, 3, 3]
 
 
+def _bucket_duration_days(bucket_start: date, bucket_end: date) -> int:
+	return max((bucket_end - bucket_start).days + 1, 1)
+
+
+def _bucket_elapsed_days(bucket_start: date, bucket_end: date, today: date | None = None) -> int:
+	current_day = getdate(today) if today else getdate()
+	if current_day < bucket_start:
+		return 0
+	if current_day >= bucket_end:
+		return _bucket_duration_days(bucket_start, bucket_end)
+	return max((current_day - bucket_start).days + 1, 1)
+
+
+def _bucket_remaining_days(bucket_start: date, bucket_end: date, today: date | None = None) -> int:
+	current_day = getdate(today) if today else getdate()
+	if current_day < bucket_start:
+		return _bucket_duration_days(bucket_start, bucket_end)
+	if current_day >= bucket_end:
+		return 0
+	return max((bucket_end - current_day).days, 0)
+
+
+def _build_display_buckets(
+	buckets: list[tuple[str, date, date]],
+	fact_end_idx: int,
+	split_current_bucket: bool = False,
+	today: date | None = None,
+) -> list[dict[str, Any]]:
+	current_day = getdate(today) if today else getdate()
+	display_buckets: list[dict[str, Any]] = []
+	for index, (label, bucket_start, bucket_end) in enumerate(buckets):
+		should_split = (
+			split_current_bucket
+			and index == fact_end_idx
+			and bucket_start <= current_day < bucket_end
+			and _bucket_remaining_days(bucket_start, bucket_end, current_day) > 0
+		)
+		if should_split:
+			display_buckets.append(
+				{
+					"source_index": index,
+					"label": label,
+					"bucket_start": bucket_start,
+					"bucket_end": current_day,
+					"kind": "factual_current",
+				}
+			)
+			display_buckets.append(
+				{
+					"source_index": index,
+					"label": label,
+					"bucket_start": current_day + timedelta(days=1),
+					"bucket_end": bucket_end,
+					"kind": "forecast_current",
+				}
+			)
+			continue
+		display_buckets.append(
+			{
+				"source_index": index,
+				"label": label,
+				"bucket_start": bucket_start,
+				"bucket_end": bucket_end,
+				"kind": "normal",
+			}
+		)
+	return display_buckets
+
+
+def _bucket_axis_day(
+	buckets: list[tuple[str, date, date]], target_index: int, group_by: str | None = None
+) -> int | None:
+	if not buckets:
+		return None
+	target_date = _forecast_target_date(buckets, target_index, group_by=group_by)
+	if target_date is None:
+		return None
+	return (target_date - buckets[0][1]).days
+
+
+def _forecast_bucket_range(
+	buckets: list[tuple[str, date, date]], target_index: int, group_by: str | None = None
+) -> tuple[date, date] | None:
+	if target_index < 0 or not buckets:
+		return None
+	if target_index < len(buckets):
+		_label, bucket_start, bucket_end = buckets[target_index]
+		return bucket_start, bucket_end
+
+	previous_range = _forecast_bucket_range(buckets, target_index - 1, group_by=group_by)
+	if previous_range is None:
+		return None
+	_previous_start, previous_end = previous_range
+	next_start = previous_end + timedelta(days=1)
+	key = (group_by or "").strip().lower()
+	if key == "day":
+		return next_start, next_start
+	if key == "week":
+		week_end = next_start + timedelta(days=max(6 - next_start.weekday(), 0))
+		return next_start, week_end
+	if key == "month":
+		_month_start, month_end = month_start_end(next_start)
+		return next_start, month_end
+
+	last_range = _forecast_bucket_range(buckets, target_index - 1, group_by=None)
+	if last_range is None:
+		return None
+	last_start, last_end = last_range
+	duration_days = _bucket_duration_days(last_start, last_end)
+	return next_start, next_start + timedelta(days=duration_days - 1)
+
+
 def _weighted_velocity(values: list[float], group_by: str | None = None) -> float:
 	if not values:
 		return 0.0
@@ -143,6 +255,37 @@ def _velocity_window_values(
 				continue
 		values.append(value)
 	return values
+
+
+def _velocity_window_daily_rates(
+	buckets: list[tuple[str, date, date]],
+	completed_total: list[float],
+	fact_end_idx: int,
+	group_by: str,
+	holiday_dates: list[str],
+	today: date | None = None,
+) -> list[float]:
+	if fact_end_idx < 0:
+		return []
+	holiday_set = set(holiday_dates)
+	current_day = getdate(today) if today else getdate()
+	rates: list[float] = []
+	for index in range(fact_end_idx + 1):
+		label, bucket_start, bucket_end = buckets[index]
+		value = flt(completed_total[index])
+		if group_by == "day":
+			is_nonworking_day = label in holiday_set or bucket_start.isoformat() in holiday_set
+			if is_nonworking_day and value <= 0:
+				continue
+		span_days = (
+			_bucket_elapsed_days(bucket_start, bucket_end, current_day)
+			if bucket_start <= current_day <= bucket_end
+			else _bucket_duration_days(bucket_start, bucket_end)
+		)
+		if span_days <= 0:
+			continue
+		rates.append(value / span_days)
+	return rates
 
 
 def _forecast_period_unit_labels(group_by: str | None) -> tuple[str, str]:
@@ -1259,16 +1402,13 @@ def _task_forecast_max_date(row: dict, planned_start: date | None, planned_end: 
 	return base_end + timedelta(days=max((base_end - base_start).days, 0))
 
 
-def _forecast_target_date(buckets: list[tuple[str, date, date]], target_index: int) -> date | None:
-	if target_index < len(buckets):
-		return buckets[target_index][2]
-	if not buckets:
+def _forecast_target_date(
+	buckets: list[tuple[str, date, date]], target_index: int, group_by: str | None = None
+) -> date | None:
+	range_value = _forecast_bucket_range(buckets, target_index, group_by=group_by)
+	if range_value is None:
 		return None
-	if len(buckets) >= 2:
-		period_days = max((buckets[-1][2] - buckets[-2][2]).days, 1)
-	else:
-		period_days = 7
-	return buckets[-1][2] + timedelta(days=period_days * (target_index - len(buckets) + 1))
+	return range_value[1]
 
 
 def _extended_forecast_bucket_label(
@@ -1287,7 +1427,7 @@ def _extended_forecast_bucket_label(
 		first = date(target_date.year, target_date.month, 1)
 		return first.strftime("%Y-%m")
 	if g == "week":
-		iy, iw, _ = target_date.isocalendar()
+		iy, iw, _weekday = target_date.isocalendar()
 		return f"{iy}-W{iw:02d}"
 	return _("Forecast {0}").format(target_index - len(buckets) + 1)
 
@@ -1300,20 +1440,25 @@ def _forecast_progress_to_completion(
 	group_by: str = "week",
 ) -> dict[str, Any]:
 	points = [
-		(index, flt(value))
+		(index, _bucket_axis_day(buckets, index, group_by=group_by), flt(value))
 		for index, value in enumerate(factual_progress)
-		if value is not None and 0.0 <= flt(value) < 100.0
+		if value is not None
+		and 0.0 <= flt(value) < 100.0
+		and _bucket_axis_day(buckets, index, group_by=group_by) is not None
 	]
 	if len(points) < 2:
 		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
 
-	x_mean = sum(index for index, _value in points) / len(points)
-	y_mean = sum(value for _index, value in points) / len(points)
-	denominator = sum((index - x_mean) ** 2 for index, _value in points)
+	x_mean = sum(target_x for _bucket_index, target_x, _value in points) / len(points)
+	y_mean = sum(value for _bucket_index, _target_x, value in points) / len(points)
+	denominator = sum((target_x - x_mean) ** 2 for _bucket_index, target_x, _value in points)
 	if denominator <= 0:
 		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
 
-	velocity = sum((index - x_mean) * (value - y_mean) for index, value in points) / denominator
+	velocity = (
+		sum((target_x - x_mean) * (value - y_mean) for _bucket_index, target_x, value in points)
+		/ denominator
+	)
 	if velocity <= 0:
 		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
 	intercept = y_mean - velocity * x_mean
@@ -1331,12 +1476,15 @@ def _forecast_progress_to_completion(
 	offset = 0
 	while True:
 		target_index = baseline_index + offset
-		target_date = _forecast_target_date(buckets, target_index)
+		target_date = _forecast_target_date(buckets, target_index, group_by=group_by)
+		target_x = _bucket_axis_day(buckets, target_index, group_by=group_by)
 		if max_forecast_date and target_date and target_date > max_forecast_date:
 			break
 		if target_index >= len(categories):
 			categories.append(_extended_forecast_bucket_label(group_by, buckets, target_index, target_date))
-		current = min(max(intercept + velocity * target_index, 0.0), 100.0)
+		if target_x is None:
+			break
+		current = min(max(intercept + velocity * target_x, 0.0), 100.0)
 		series.append(round(current, 1))
 		if current >= 100.0:
 			completion_date = target_date
@@ -1348,7 +1496,9 @@ def _forecast_progress_to_completion(
 	return {"categories": categories[: len(series)], "series": series, "completion_date": completion_date}
 
 
-def _hours_forecast_points(hours_by_role: list[dict[str, Any]], planned_hours: float) -> list[tuple[int, float]]:
+def _hours_forecast_points(
+	buckets: list[tuple[str, date, date]], hours_by_role: list[dict[str, Any]], planned_hours: float, group_by: str
+) -> list[tuple[int, int, float]]:
 	if planned_hours <= 0:
 		return []
 	length = max((len(row.get("values", [])) for row in hours_by_role), default=0)
@@ -1362,8 +1512,9 @@ def _hours_forecast_points(hours_by_role: list[dict[str, Any]], planned_hours: f
 		cumulative += bucket_hours
 		if bucket_hours > 0:
 			value = min(cumulative / planned_hours * 100.0, 100.0)
-			if value < 100.0:
-				points.append((index, value))
+			target_x = _bucket_axis_day(buckets, index, group_by=group_by)
+			if value < 100.0 and target_x is not None:
+				points.append((index, target_x, value))
 	return points
 
 
@@ -1374,17 +1525,20 @@ def _forecast_hours_to_plan(
 	max_forecast_date: date | None = None,
 	group_by: str = "week",
 ) -> dict[str, Any]:
-	points = _hours_forecast_points(hours_by_role, planned_hours)
+	points = _hours_forecast_points(buckets, hours_by_role, planned_hours, group_by)
 	if len(points) < 2:
 		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
 
-	x_mean = sum(index for index, _value in points) / len(points)
-	y_mean = sum(value for _index, value in points) / len(points)
-	denominator = sum((index - x_mean) ** 2 for index, _value in points)
+	x_mean = sum(target_x for _bucket_index, target_x, _value in points) / len(points)
+	y_mean = sum(value for _bucket_index, _target_x, value in points) / len(points)
+	denominator = sum((target_x - x_mean) ** 2 for _bucket_index, target_x, _value in points)
 	if denominator <= 0:
 		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
 
-	velocity = sum((index - x_mean) * (value - y_mean) for index, value in points) / denominator
+	velocity = (
+		sum((target_x - x_mean) * (value - y_mean) for _bucket_index, target_x, value in points)
+		/ denominator
+	)
 	if velocity <= 0:
 		return {"categories": [bucket[0] for bucket in buckets], "series": [], "completion_date": None}
 	intercept = y_mean - velocity * x_mean
@@ -1396,12 +1550,15 @@ def _forecast_hours_to_plan(
 	offset = 0
 	while True:
 		target_index = baseline_index + offset
-		target_date = _forecast_target_date(buckets, target_index)
+		target_date = _forecast_target_date(buckets, target_index, group_by=group_by)
+		target_x = _bucket_axis_day(buckets, target_index, group_by=group_by)
 		if max_forecast_date and target_date and target_date > max_forecast_date:
 			break
 		if target_index >= len(categories):
 			categories.append(_extended_forecast_bucket_label(group_by, buckets, target_index, target_date))
-		current = min(max(intercept + velocity * target_index, 0.0), 100.0)
+		if target_x is None:
+			break
+		current = min(max(intercept + velocity * target_x, 0.0), 100.0)
 		series.append(round(current, 1))
 		if current >= 100.0:
 			completion_date = target_date
@@ -2730,27 +2887,78 @@ def _period_volume_burndown(
 			)
 		)
 
-	categories = [bucket[0] for bucket in buckets]
+	current_day = getdate()
+	fact_end_idx = _fact_end_index(buckets)
+	display_buckets = _build_display_buckets(
+		buckets,
+		fact_end_idx=fact_end_idx,
+		split_current_bucket=show_completion_forecast,
+		today=current_day,
+	)
+	categories = [bucket["label"] for bucket in display_buckets]
+	source_display_index: dict[int, int] = {}
+	source_forecast_display_index: dict[int, int] = {}
+	for display_index, bucket in enumerate(display_buckets):
+		source_index = cint(bucket.get("source_index"))
+		if bucket.get("kind") == "forecast_current":
+			source_forecast_display_index[source_index] = display_index
+			continue
+		source_display_index[source_index] = display_index
+
+	def _align_display_values(values: list[float]) -> list[float]:
+		aligned = [0.0 for _ in display_buckets]
+		for source_index, value in enumerate(values):
+			display_index = source_display_index.get(source_index)
+			if display_index is None:
+				continue
+			aligned[display_index] = flt(value)
+		return aligned
+
+	def _align_display_filters(filters: list[list[str]]) -> list[list[str]]:
+		aligned = [[] for _ in display_buckets]
+		for source_index, names in enumerate(filters):
+			display_index = source_display_index.get(source_index)
+			if display_index is None:
+				continue
+			aligned[display_index] = list(names or [])
+		return aligned
+
+	created = _align_display_values(created)
+	open_volume = _align_display_values(open_volume)
+	completed = _align_display_values(completed)
+	completed_above_expected = _align_display_values(completed_above_expected)
+	unused_hours = _align_display_values(unused_hours)
+	created_completed = _align_display_values(created_completed)
+	task_filters = {
+		key: _align_display_filters(value)
+		for key, value in task_filters.items()
+	}
+	display_completed_total = [
+		flt(completed[i]) + flt(created_completed[i]) + flt(completed_above_expected[i])
+		for i in range(len(categories))
+	]
 	y_label = {
 		"hours": _("Hours"),
 		"story_points": _("Story Points"),
 		"task_count": _("Tasks"),
 	}.get(measure, _("Volume"))
 	forecast_summary: dict[str, Any] = {"show": False}
-	completed_total = [
-		flt(completed[i]) + flt(created_completed[i]) + flt(completed_above_expected[i])
-		for i in range(len(categories))
-	]
-	velocity_completed_total = forecast_completed_total if not use_progress else completed_total
-	fact_end_idx = _fact_end_index(buckets)
+	velocity_completed_total = forecast_completed_total if not use_progress else forecast_completed_total
 	forecast_completed = [0.0 for _ in categories]
 	forecast_open = list(open_volume)
 	forecast_from_index: int | None = None
-	if show_completion_forecast and categories and fact_end_idx >= 0 and fact_end_idx < len(categories) - 1:
+	if show_completion_forecast and categories and fact_end_idx >= 0:
 		_fact_label, _fact_bs, fact_be = buckets[fact_end_idx]
+		fact_label, fact_bs, fact_be = buckets[fact_end_idx]
+		current_forecast_display_index = source_forecast_display_index.get(fact_end_idx)
+		forecast_start_source_index: int | None = None
+
+		def _display_forecast_index(source_index: int) -> int | None:
+			return source_forecast_display_index.get(source_index, source_display_index.get(source_index))
+
 		if measure == "hours":
 			forecast_baseline_open = (
-				flt(open_volume[fact_end_idx]) if fact_end_idx >= 0 else 0.0
+				flt(forecast_open[source_display_index.get(fact_end_idx, -1)]) if fact_end_idx >= 0 else 0.0
 			)
 		else:
 			forecast_baseline_open = _measure_forecast_open_baseline_from_rows(
@@ -2759,38 +2967,33 @@ def _period_volume_burndown(
 				use_progress=use_progress,
 				progress_rows=progress_rows,
 			)
-		velocity_window = _velocity_window_values(
-			buckets, velocity_completed_total, fact_end_idx, group_by, holiday_dates
+		velocity_window = _velocity_window_daily_rates(
+			buckets, velocity_completed_total, fact_end_idx, group_by, holiday_dates, today=current_day
 		)
-		velocity = _weighted_velocity(velocity_window, group_by)
+		daily_rate = _weighted_velocity(velocity_window, group_by)
 		remaining_open = flt(forecast_baseline_open)
-		if velocity > 0 and remaining_open > 0:
-			forecast_from_index = fact_end_idx + 1
+		if daily_rate > 0 and remaining_open > 0:
 			_initial_remaining = remaining_open
-			_velocity_flt = flt(velocity)
-			remaining_periods = (
-				int(math.ceil(_initial_remaining / _velocity_flt)) if _velocity_flt > 0 else 0
+			current_bucket_remaining_days = (
+				_bucket_remaining_days(fact_bs, fact_be, current_day)
+				if fact_bs <= current_day <= fact_be
+				else 0
 			)
+			reference_period_days = _bucket_duration_days(fact_bs, fact_be)
+			velocity_display = flt(daily_rate * reference_period_days)
+			remaining_periods = 0
 			_period_singular, _period_plural = _forecast_period_unit_labels(group_by)
-			remaining_periods_label = (
-				_("1 {0} remaining").format(_period_singular)
-				if remaining_periods == 1
-				else _("{0} {1} remaining").format(remaining_periods, _period_plural)
-			)
 			_volume_tail = {
 				"hours": _("remaining hours"),
 				"story_points": _("remaining story points"),
 				"task_count": _("remaining tasks"),
 			}.get(measure, _("remaining volume"))
-			forecast_summary = {
-				"show": True,
-				"remaining_periods": remaining_periods,
-				"remaining_periods_label": remaining_periods_label,
-				"velocity": _velocity_flt,
-				"remaining_volume": _initial_remaining,
-				"period_label": _period_singular,
-				"volume_label": _volume_tail,
-			}
+			if current_forecast_display_index is not None:
+				forecast_from_index = current_forecast_display_index
+				forecast_start_source_index = fact_end_idx
+			elif fact_end_idx < len(buckets) - 1:
+				forecast_from_index = _display_forecast_index(fact_end_idx + 1)
+				forecast_start_source_index = fact_end_idx + 1
 			if measure != "hours" and not use_progress:
 				open_tasks_for_forecast = _tasks_open_from_rows(
 					tasks,
@@ -2800,29 +3003,105 @@ def _period_volume_burndown(
 					progress_rows=progress_rows,
 				)
 				accumulated_capacity = 0.0
-				for index in range(forecast_from_index, len(categories)):
-					accumulated_capacity += velocity
+				sim_index = fact_end_idx if current_bucket_remaining_days > 0 else fact_end_idx + 1
+				while remaining_open > 0:
+					if sim_index == fact_end_idx and current_bucket_remaining_days > 0:
+						period_days = current_bucket_remaining_days
+						record_index = current_forecast_display_index
+						should_record = (
+							record_index is not None
+							and forecast_from_index is not None
+							and record_index >= forecast_from_index
+						)
+					else:
+						range_value = _forecast_bucket_range(buckets, sim_index, group_by=group_by)
+						if range_value is None:
+							break
+						period_days = _bucket_duration_days(*range_value)
+						record_index = _display_forecast_index(sim_index)
+						should_record = (
+							record_index is not None
+							and forecast_from_index is not None
+							and record_index >= forecast_from_index
+							and record_index < len(categories)
+						)
+					remaining_periods += 1
+					accumulated_capacity += daily_rate * period_days
 					open_tasks_for_forecast, bucket_forecast = _discrete_forecast_bucket_completion(
 						open_tasks_for_forecast, accumulated_capacity
 					)
 					accumulated_capacity = max(0.0, accumulated_capacity - bucket_forecast)
-					forecast_completed[index] = bucket_forecast
 					remaining_open = sum(flt(task.get("volume")) for task in open_tasks_for_forecast)
-					forecast_open[index] = remaining_open
-					if remaining_open <= 0:
-						for tail_index in range(index + 1, len(categories)):
+					if should_record:
+						forecast_completed[record_index] = bucket_forecast
+						forecast_open[record_index] = remaining_open
+						if remaining_open <= 0:
+							for tail_index in range(record_index + 1, len(categories)):
+								forecast_open[tail_index] = 0.0
+					elif (
+						remaining_open <= 0
+						and forecast_from_index is not None
+						and forecast_start_source_index is not None
+						and sim_index < forecast_start_source_index
+					):
+						for tail_index in range(forecast_from_index, len(categories)):
 							forecast_open[tail_index] = 0.0
-						break
+					sim_index += 1
 			else:
-				for index in range(forecast_from_index, len(categories)):
-					bucket_forecast = min(velocity, remaining_open)
-					forecast_completed[index] = bucket_forecast
+				sim_index = fact_end_idx if current_bucket_remaining_days > 0 else fact_end_idx + 1
+				while remaining_open > 0:
+					if sim_index == fact_end_idx and current_bucket_remaining_days > 0:
+						period_days = current_bucket_remaining_days
+						record_index = current_forecast_display_index
+						should_record = (
+							record_index is not None
+							and forecast_from_index is not None
+							and record_index >= forecast_from_index
+						)
+					else:
+						range_value = _forecast_bucket_range(buckets, sim_index, group_by=group_by)
+						if range_value is None:
+							break
+						period_days = _bucket_duration_days(*range_value)
+						record_index = _display_forecast_index(sim_index)
+						should_record = (
+							record_index is not None
+							and forecast_from_index is not None
+							and record_index >= forecast_from_index
+							and record_index < len(categories)
+						)
+					remaining_periods += 1
+					bucket_forecast = min(daily_rate * period_days, remaining_open)
 					remaining_open = max(0.0, remaining_open - bucket_forecast)
-					forecast_open[index] = remaining_open
-					if remaining_open <= 0:
-						for tail_index in range(index + 1, len(categories)):
+					if should_record:
+						forecast_completed[record_index] = bucket_forecast
+						forecast_open[record_index] = remaining_open
+						if remaining_open <= 0:
+							for tail_index in range(record_index + 1, len(categories)):
+								forecast_open[tail_index] = 0.0
+					elif (
+						remaining_open <= 0
+						and forecast_from_index is not None
+						and forecast_start_source_index is not None
+						and sim_index < forecast_start_source_index
+					):
+						for tail_index in range(forecast_from_index, len(categories)):
 							forecast_open[tail_index] = 0.0
-						break
+					sim_index += 1
+			remaining_periods_label = (
+				_("1 {0} remaining").format(_period_singular)
+				if remaining_periods == 1
+				else _("{0} {1} remaining").format(remaining_periods, _period_plural)
+			)
+			forecast_summary = {
+				"show": True,
+				"remaining_periods": remaining_periods,
+				"remaining_periods_label": remaining_periods_label,
+				"velocity": velocity_display,
+				"remaining_volume": _initial_remaining,
+				"period_label": _period_singular,
+				"volume_label": _volume_tail,
+			}
 	if measure == "hours":
 		last_scope_date = buckets[-1][2] if buckets else td
 		last_cumulative_hours_by_task = _utp_cumulative_hours_by_task(
@@ -2843,7 +3122,7 @@ def _period_volume_burndown(
 		tasks,
 		measure,
 		use_task_weight,
-		completed_total,
+		display_completed_total,
 		total_forecast_volume,
 	)
 	return {
