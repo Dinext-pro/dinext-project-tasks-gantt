@@ -22,7 +22,9 @@ def execute(filters=None):
 			measure=filters.get("measure") or "hours",
 			hours_source=filters.get("hours_source") or "pwea_plan",
 			project_role_filters=filters.get("project_role_filters") or None,
-			exclude_group_tasks=0 if filters.get("exclude_group_tasks") in (0, "0", False) else 1,
+			exclude_group_tasks=_checked_filter_value(filters, "exclude_group_tasks"),
+			use_task_weight=_checked_filter_value(filters, "use_task_weight"),
+			use_progress=_checked_filter_value(filters, "use_progress"),
 			task_type_filters=filters.get("task_types") or filters.get("task_type_filter") or None,
 			issue_type_filters=filters.get("issue_types") or None,
 			forecast_periods=int(filters.get("forecast_periods") or 6),
@@ -52,3 +54,7 @@ def _columns():
 		{"fieldname": "volume", "label": _("Volume"), "fieldtype": "Float", "width": 120},
 		{"fieldname": "task", "label": _("Task"), "fieldtype": "Data", "width": 260},
 	]
+
+
+def _checked_filter_value(filters, key):
+	return 1 if filters.get(key) in (1, "1", True, "true") else 0
