@@ -2,6 +2,13 @@
 // For license information, please see license.txt
 
 const TASK_EPIC_BURNDOWN_REPORT_CSS = "/assets/dinext_project_tasks_gantt/css/task_epic_burndown_report.css";
+const DINEXT_TASK_TYPE_TRANSLATION_CONTEXT = "Dinext.TaskType";
+const TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_KEYS = new Set(["day", "week", "month"]);
+const TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS = {
+	stage: { singular: "stage", plural: "stages" },
+	phase: { singular: "phase", plural: "phases" },
+	sprint: { singular: "sprint", plural: "sprints" },
+};
 const TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS = [
 	{ value: "month", label: __("Month") },
 	{ value: "week", label: __("Week") },
@@ -83,14 +90,28 @@ function task_epic_burndown_forecast_group_by_key() {
 	return task_epic_burndown_forecast_group_by_value().toLowerCase();
 }
 
+function task_epic_burndown_translate_task_type_label(value) {
+	const text = String(value || "").trim();
+	if (!text) {
+		return text;
+	}
+	return __(text, null, DINEXT_TASK_TYPE_TRANSLATION_CONTEXT);
+}
+
 function task_epic_burndown_group_by_option_label(value) {
 	const qr = frappe.query_report;
+	const target = String(value || "").trim();
+	if (!target) {
+		return target;
+	}
+	if (!TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_KEYS.has(target.toLowerCase())) {
+		return task_epic_burndown_translate_task_type_label(target);
+	}
 	if (!qr || typeof qr.get_filter !== "function") {
-		return String(value || "").trim();
+		return target;
 	}
 	const groupByFilter = qr.get_filter("group_by", false);
 	const options = (groupByFilter && groupByFilter.df && groupByFilter.df.options) || [];
-	const target = String(value || "").trim();
 	const match = options.find((option) => {
 		if (!option) {
 			return false;
@@ -114,7 +135,14 @@ function task_epic_burndown_forecast_period_unit_singular() {
 		week: __("week"),
 		month: __("month"),
 	};
-	return m[key] || task_epic_burndown_group_by_option_label(value) || __("period");
+	if (m[key]) {
+		return m[key];
+	}
+	const periodUnits = TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS[key];
+	if (periodUnits) {
+		return __(periodUnits.singular, null, DINEXT_TASK_TYPE_TRANSLATION_CONTEXT);
+	}
+	return task_epic_burndown_group_by_option_label(value) || __("period");
 }
 
 function task_epic_burndown_forecast_period_unit_plural() {
@@ -125,8 +153,15 @@ function task_epic_burndown_forecast_period_unit_plural() {
 		week: __("weeks"),
 		month: __("months"),
 	};
+	if (m[key]) {
+		return m[key];
+	}
+	const periodUnits = TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS[key];
+	if (periodUnits) {
+		return __(periodUnits.plural, null, DINEXT_TASK_TYPE_TRANSLATION_CONTEXT);
+	}
 	const label = task_epic_burndown_group_by_option_label(value);
-	return m[key] || (label ? `${label} ${__("periods")}` : __("periods"));
+	return label ? `${label} ${__("periods")}` : __("periods");
 }
 
 function task_epic_burndown_forecast_remaining_title(fs) {

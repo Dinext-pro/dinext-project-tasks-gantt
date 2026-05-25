@@ -24,6 +24,16 @@ from frappe.utils import add_months, cint, cstr, flt, get_datetime, getdate
 UTP_STATUS_APPROVED = "Согласовано"
 CALENDAR_GROUP_BYS = {"day", "week", "month"}
 TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET = "__not_set__"
+DINEXT_TASK_TYPE_TRANSLATION_CONTEXT = "Dinext.TaskType"
+TASK_TYPE_PERIOD_UNIT_SOURCES = {
+	"stage": ("stage", "stages"),
+	"phase": ("phase", "phases"),
+	"sprint": ("sprint", "sprints"),
+}
+
+
+def _translate_task_type_label(value: str) -> str:
+	return _(value, context=DINEXT_TASK_TYPE_TRANSLATION_CONTEXT)
 
 
 def _calendar_group_by_options() -> list[dict[str, str]]:
@@ -351,8 +361,14 @@ def _forecast_period_unit_labels(group_by: str | None) -> tuple[str, str]:
 	}
 	if key in mapping:
 		return mapping[key]
+	if key in TASK_TYPE_PERIOD_UNIT_SOURCES:
+		singular_src, plural_src = TASK_TYPE_PERIOD_UNIT_SOURCES[key]
+		return (
+			_(singular_src, context=DINEXT_TASK_TYPE_TRANSLATION_CONTEXT),
+			_(plural_src, context=DINEXT_TASK_TYPE_TRANSLATION_CONTEXT),
+		)
 	if raw:
-		label = _(raw)
+		label = _translate_task_type_label(raw)
 		return label, _("{0} periods").format(label)
 	return _("period"), _("periods")
 
@@ -863,7 +879,10 @@ def get_project_task_type_options(project: str | None = None) -> list[dict[str, 
 	)
 	has_blank_type = any(not (row.get("type") or "").strip() for row in rows)
 	values = sorted({row.get("type") for row in rows if row.get("type") and row.get("type") != "Sprint"})
-	out = [{"label": _(value), "value": value, "description": ""} for value in values]
+	out = [
+		{"label": _translate_task_type_label(value), "value": value, "description": ""}
+		for value in values
+	]
 	if has_blank_type:
 		out.insert(
 			0,
@@ -896,7 +915,10 @@ def get_project_x_axis_period_options(project: str | None = None) -> list[dict[s
 			if (row.get("type") or "").strip() and (row.get("type") or "").strip() != "Issue"
 		}
 	)
-	out.extend({"label": _(value), "value": value, "description": ""} for value in values)
+	out.extend(
+		{"label": _translate_task_type_label(value), "value": value, "description": ""}
+		for value in values
+	)
 	return out
 
 
