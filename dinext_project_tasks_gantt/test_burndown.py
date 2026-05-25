@@ -3437,6 +3437,142 @@ class TestTaskEpicBurndownReportExecute(FrappeTestCase):
 	@patch(
 		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
 	)
+	def test_execute_passes_exclude_group_tasks_1_when_checked(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {"detail_rows": []}
+
+		execute_task_epic_burndown_report(
+			{
+				"project": "PROJ-1",
+				"from_date": "2026-05-01",
+				"to_date": "2026-05-31",
+				"measure": "hours",
+				"exclude_group_tasks": 1,
+			}
+		)
+
+		self.assertEqual(mock_get_burndown_series.call_args.kwargs["exclude_group_tasks"], 1)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_exclude_group_tasks_0_when_unchecked(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {"detail_rows": []}
+
+		for value in (0, "0", False):
+			with self.subTest(value=value):
+				execute_task_epic_burndown_report(
+					{
+						"project": "PROJ-1",
+						"from_date": "2026-05-01",
+						"to_date": "2026-05-31",
+						"measure": "hours",
+						"exclude_group_tasks": value,
+					}
+				)
+				self.assertEqual(mock_get_burndown_series.call_args.kwargs["exclude_group_tasks"], 0)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_exclude_group_tasks_0_when_key_omitted(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {"detail_rows": []}
+
+		execute_task_epic_burndown_report(
+			{
+				"project": "PROJ-1",
+				"from_date": "2026-05-01",
+				"to_date": "2026-05-31",
+				"measure": "hours",
+			}
+		)
+
+		self.assertEqual(mock_get_burndown_series.call_args.kwargs["exclude_group_tasks"], 0)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_use_task_weight_1_when_checked(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {"detail_rows": []}
+
+		execute_task_epic_burndown_report(
+			{
+				"project": "PROJ-1",
+				"from_date": "2026-05-01",
+				"to_date": "2026-05-31",
+				"measure": "task_count",
+				"use_task_weight": 1,
+			}
+		)
+
+		self.assertEqual(mock_get_burndown_series.call_args.kwargs["use_task_weight"], 1)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_use_task_weight_0_when_unchecked_or_omitted(
+		self, mock_get_burndown_series
+	):
+		mock_get_burndown_series.return_value = {"detail_rows": []}
+
+		for value in (0, "0", False, None):
+			with self.subTest(value=value):
+				filters = {
+					"project": "PROJ-1",
+					"from_date": "2026-05-01",
+					"to_date": "2026-05-31",
+					"measure": "task_count",
+				}
+				if value is not None:
+					filters["use_task_weight"] = value
+
+				execute_task_epic_burndown_report(filters)
+
+				self.assertEqual(mock_get_burndown_series.call_args.kwargs["use_task_weight"], 0)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_use_progress_1_when_checked(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {"detail_rows": []}
+
+		execute_task_epic_burndown_report(
+			{
+				"project": "PROJ-1",
+				"from_date": "2026-05-01",
+				"to_date": "2026-05-31",
+				"measure": "story_points",
+				"use_progress": 1,
+			}
+		)
+
+		self.assertEqual(mock_get_burndown_series.call_args.kwargs["use_progress"], 1)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_passes_use_progress_0_when_unchecked_or_omitted(
+		self, mock_get_burndown_series
+	):
+		mock_get_burndown_series.return_value = {"detail_rows": []}
+
+		for value in (0, "0", False, None):
+			with self.subTest(value=value):
+				filters = {
+					"project": "PROJ-1",
+					"from_date": "2026-05-01",
+					"to_date": "2026-05-31",
+					"measure": "story_points",
+				}
+				if value is not None:
+					filters["use_progress"] = value
+
+				execute_task_epic_burndown_report(filters)
+
+				self.assertEqual(mock_get_burndown_series.call_args.kwargs["use_progress"], 0)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
 	def test_execute_returns_detail_rows_and_replaces_summary_columns(self, mock_get_burndown_series):
 		mock_get_burndown_series.return_value = {
 			"detail_rows": [
