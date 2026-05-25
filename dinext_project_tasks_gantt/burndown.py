@@ -19,7 +19,7 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.query_builder.functions import Coalesce, Date, IfNull, Max, Min, Sum
-from frappe.utils import add_months, cint, flt, get_datetime, getdate
+from frappe.utils import add_months, cint, cstr, flt, get_datetime, getdate
 
 UTP_STATUS_APPROVED = "Согласовано"
 CALENDAR_GROUP_BYS = {"day", "week", "month"}
@@ -39,6 +39,58 @@ def _task_type_for_group_by(group_by: str | None) -> str | None:
 	if not raw:
 		return None
 	return None if raw.lower() in CALENDAR_GROUP_BYS else raw
+
+
+def _task_epic_burndown_segment_label(segment_key: str) -> str:
+	labels = {
+		"created": _("Created"),
+		"open": _("Open"),
+		"completed": _("Completed"),
+		"completed_above_expected": _("Completed above expected"),
+		"unused_hours": _("Released hours"),
+		"created_completed": _("Created and completed"),
+	}
+	return labels.get(segment_key, _(segment_key))
+
+
+def _task_epic_burndown_detail_row(
+	period_label: str,
+	segment_key: str,
+	volume: float,
+	task: dict[str, Any] | None,
+) -> dict[str, Any]:
+	task = task or {}
+	task_name = cstr(task.get("name") or "").strip()
+	task_subject = cstr(task.get("subject") or task_name).strip() or task_name
+	return {
+		"period_label": period_label,
+		"segment_key": segment_key,
+		"segment_label": _task_epic_burndown_segment_label(segment_key),
+		"volume": round(flt(volume), 6),
+		"task": task_name,
+		"task_subject": task_subject,
+	}
+
+
+def _append_task_epic_burndown_detail_rows(
+	rows: list[dict[str, Any]],
+	period_label: str,
+	segment_key: str,
+	volume_by_task: dict[str, float],
+	task_by_name: dict[str, dict[str, Any]],
+) -> None:
+	for task_name in sorted(volume_by_task):
+		volume = flt(volume_by_task.get(task_name))
+		if volume <= 1e-9:
+			continue
+		rows.append(
+			_task_epic_burndown_detail_row(
+				period_label,
+				segment_key,
+				volume,
+				task_by_name.get(task_name) or {"name": task_name},
+			)
+		)
 
 
 def _fallback_company_holiday_list(company: str | None = None) -> str | None:
@@ -733,6 +785,7 @@ def _load_task_volume_rows(
 
 	fields = [
 		"name",
+		"subject",
 		"parent_task",
 		"is_group",
 		"creation",
@@ -1093,6 +1146,69 @@ def _measure_created_and_completed_scope_from_rows(
 	if not created_tasks:
 		return 0.0
 	return _measure_completed_scope_from_rows(created_tasks, progress_rows, bs, be, use_progress=use_progress)
+
+
+def _completed_volume_by_task_from_rows(
+	tasks: list[dict],
+	progress_rows: list[dict],
+	bs: date,
+	be: date,
+	use_progress: bool = True,
+) -> dict[str, float]:
+	if not use_progress:
+		return {
+			task["name"]: flt(task.get("volume"))
+			for task in _tasks_completed_by_status_from_rows(tasks, bs, be)
+			if task.get("name") and flt(task.get("volume")) > 0
+		}
+
+	volume_by_task = {task.get("name"): flt(task.get("volume")) for task in tasks if task.get("name")}
+	out: dict[str, float] = {}
+	for row in progress_rows:
+		changed_on = getdate(row.get("changed_on"))
+		if changed_on < bs or changed_on > be:
+			continue
+		delta = flt(row.get("new_progress")) - flt(row.get("old_progress"))
+		if delta <= 0:
+			continue
+		task_name = row.get("parent")
+		volume = volume_by_task.get(task_name, 0.0) * delta / 100.0
+		if volume <= 0:
+			continue
+		out[task_name] = flt(out.get(task_name)) + volume
+	return out
+
+
+def _open_volume_by_task_from_rows(
+	tasks: list[dict],
+	bucket_end: date,
+	use_progress: bool = True,
+	bucket_start: date | None = None,
+	progress_rows: list[dict] | None = None,
+) -> dict[str, float]:
+	out: dict[str, float] = {}
+	for task in _tasks_open_from_rows(
+		tasks,
+		bucket_end,
+		use_progress=use_progress,
+		bucket_start=bucket_start,
+		progress_rows=progress_rows,
+	):
+		task_name = task.get("name")
+		if not task_name:
+			continue
+		if use_progress:
+			progress = (
+				_task_progress_as_of(task, progress_rows, bucket_end)
+				if progress_rows is not None
+				else min(max(flt(task.get("progress")), 0.0), 100.0)
+			)
+			remaining = flt(task.get("volume")) * (1.0 - progress / 100.0)
+		else:
+			remaining = flt(task.get("volume"))
+		if remaining > 1e-9:
+			out[task_name] = remaining
+	return out
 
 
 def _tasks_created_from_rows(tasks: list[dict], bs: date, be: date) -> list[dict]:
@@ -2627,6 +2743,7 @@ def _period_volume_burndown(
 	unused_hours: list[float] = []
 	created_completed: list[float] = []
 	forecast_completed_total: list[float] = []
+	detail_rows_by_source: list[list[dict[str, Any]]] = []
 	task_filters = {
 		"created": [],
 		"open": [],
@@ -2638,10 +2755,10 @@ def _period_volume_burndown(
 	total_forecast_volume = (
 		0.0 if measure == "hours" else sum(flt(task.get("volume")) for task in tasks)
 	)
+	task_by_name = {task["name"]: task for task in tasks if task.get("name")}
 	hours_completion_dates: dict[str, date] = {}
 	released_hours_by_task: dict[str, float] = {}
 	if measure == "hours":
-		task_by_name = {task["name"]: task for task in tasks if task.get("name")}
 		last_approved_timesheet_dates = _utp_max_date_by_task(
 			project, task_names, project_role_filters=project_role_filters
 		)
@@ -2670,6 +2787,7 @@ def _period_volume_burndown(
 					flt(task.get("volume")) - flt(cumulative_hours_at_completion.get(task_name)),
 				)
 	for _label, bs, be in buckets:
+		bucket_detail_rows: list[dict[str, Any]] = []
 		created_tasks = _tasks_created_from_rows(tasks, bs, be)
 		created_task_names = [task["name"] for task in created_tasks]
 		created_raw = sum(flt(task.get("volume")) for task in created_tasks)
@@ -2729,6 +2847,11 @@ def _period_volume_burndown(
 				if completion_date <= be
 			)
 			released_value = sum(flt(released_hours_by_task.get(name)) for name in released_names)
+			released_value_by_task = {
+				name: flt(released_hours_by_task.get(name))
+				for name in released_names
+				if flt(released_hours_by_task.get(name)) > 1e-9
+			}
 			created_completed_value = sum(
 				flt(created_completed_by_task.get(name)) for name in created_completed_names
 			)
@@ -2745,6 +2868,7 @@ def _period_volume_burndown(
 			)
 			completed_to_period = sum(flt(hours) for hours in cumulative_hours_by_task.values())
 			open_names = []
+			open_value_by_task: dict[str, float] = {}
 			for task in eligible_open_tasks:
 				name = task["name"]
 				if name in created_task_names:
@@ -2760,6 +2884,7 @@ def _period_volume_burndown(
 				) - released_hours
 				if remaining_hours > 0:
 					open_names.append(name)
+					open_value_by_task[name] = remaining_hours
 			open_volume.append(
 				max(
 					0.0,
@@ -2776,6 +2901,11 @@ def _period_volume_burndown(
 			completed_above_expected.append(completed_above_expected_value)
 			unused_hours.append(released_value)
 			forecast_completed_total.append(completed_total_in_bucket)
+			created_value_by_task = {
+				name: max(0.0, flt(effective_scope_by_task.get(name)) - flt(bucket_hours_by_task.get(name)))
+				for name in created_task_names
+				if max(0.0, flt(effective_scope_by_task.get(name)) - flt(bucket_hours_by_task.get(name))) > 1e-9
+			}
 			created_drilldown_names = _hours_segment_drilldown_names(
 				tasks, created_task_names, exclude_group
 			)
@@ -2836,7 +2966,64 @@ def _period_volume_burndown(
 				if created_completed_drilldown_names
 				else []
 			)
+			_append_task_epic_burndown_detail_rows(
+				bucket_detail_rows,
+				_label,
+				"completed_above_expected",
+				completed_above_expected_by_task,
+				task_by_name,
+			)
+			_append_task_epic_burndown_detail_rows(
+				bucket_detail_rows,
+				_label,
+				"completed",
+				completed_within_expected_by_task,
+				task_by_name,
+			)
+			_append_task_epic_burndown_detail_rows(
+				bucket_detail_rows,
+				_label,
+				"unused_hours",
+				released_value_by_task,
+				task_by_name,
+			)
+			_append_task_epic_burndown_detail_rows(
+				bucket_detail_rows,
+				_label,
+				"open",
+				open_value_by_task,
+				task_by_name,
+			)
+			_append_task_epic_burndown_detail_rows(
+				bucket_detail_rows,
+				_label,
+				"created",
+				created_value_by_task,
+				task_by_name,
+			)
+			_append_task_epic_burndown_detail_rows(
+				bucket_detail_rows,
+				_label,
+				"created_completed",
+				created_completed_by_task,
+				task_by_name,
+			)
+			detail_rows_by_source.append(bucket_detail_rows)
 			continue
+		completed_value_by_task = _completed_volume_by_task_from_rows(
+			tasks, progress_rows, bs, be, use_progress=use_progress
+		)
+		created_task_names_set = set(created_task_names)
+		created_completed_value_by_task = {
+			name: flt(value)
+			for name, value in completed_value_by_task.items()
+			if name in created_task_names_set and flt(value) > 1e-9
+		}
+		completed_only_value_by_task = {
+			name: flt(value)
+			for name, value in completed_value_by_task.items()
+			if name not in created_task_names_set and flt(value) > 1e-9
+		}
 		open_volume.append(
 			_measure_open_scope_from_rows(
 				tasks, be, use_progress=use_progress, bucket_start=bs, progress_rows=progress_rows
@@ -2856,6 +3043,26 @@ def _period_volume_burndown(
 		completed.append(max(0.0, completed_raw - created_completed_value))
 		completed_above_expected.append(0.0)
 		forecast_completed_total.append(progress_completed)
+		created_value_by_task = {
+			task["name"]: max(
+				0.0,
+				flt(task.get("volume")) - flt(created_completed_value_by_task.get(task["name"])),
+			)
+			for task in created_tasks
+			if task.get("name")
+			and max(
+				0.0,
+				flt(task.get("volume")) - flt(created_completed_value_by_task.get(task["name"])),
+			)
+			> 1e-9
+		}
+		open_value_by_task = _open_volume_by_task_from_rows(
+			tasks,
+			be,
+			use_progress=use_progress,
+			bucket_start=bs,
+			progress_rows=progress_rows,
+		)
 		task_filters["created"].append(created_task_names)
 		task_filters["open"].append(
 			_task_names_open_from_rows(
@@ -2886,9 +3093,44 @@ def _period_volume_burndown(
 				tasks, progress_rows, bs, be, use_progress=use_progress
 			)
 		)
+		_append_task_epic_burndown_detail_rows(
+			bucket_detail_rows,
+			_label,
+			"open",
+			open_value_by_task,
+			task_by_name,
+		)
+		_append_task_epic_burndown_detail_rows(
+			bucket_detail_rows,
+			_label,
+			"created",
+			created_value_by_task,
+			task_by_name,
+		)
+		_append_task_epic_burndown_detail_rows(
+			bucket_detail_rows,
+			_label,
+			"completed",
+			completed_only_value_by_task,
+			task_by_name,
+		)
+		_append_task_epic_burndown_detail_rows(
+			bucket_detail_rows,
+			_label,
+			"created_completed",
+			created_completed_value_by_task,
+			task_by_name,
+		)
+		detail_rows_by_source.append(bucket_detail_rows)
 
 	current_day = getdate()
 	fact_end_idx = _fact_end_index(buckets)
+	detail_rows = [
+		row
+		for source_index, bucket_rows in enumerate(detail_rows_by_source)
+		if source_index <= fact_end_idx
+		for row in bucket_rows
+	]
 	display_buckets = _build_display_buckets(
 		buckets,
 		fact_end_idx=fact_end_idx,
@@ -3138,6 +3380,7 @@ def _period_volume_burndown(
 		"created_completed": created_completed,
 		"same_period_completed": created_completed,
 		"task_filters": task_filters,
+		"detail_rows": detail_rows,
 		"use_progress": use_progress,
 		"use_task_weight": use_task_weight,
 		"y_axis_label": y_label,

@@ -8,7 +8,7 @@ from dinext_project_tasks_gantt.burndown import get_burndown_series
 
 
 def execute(filters=None):
-	"""Script Report: summary table; chart loads from get_burndown_series via JS."""
+	"""Script Report: detail table; chart loads from get_burndown_series via JS."""
 	filters = filters or {}
 	if not filters.get("project"):
 		return [], [], None, None
@@ -31,34 +31,24 @@ def execute(filters=None):
 		frappe.log_error(frappe.get_traceback(), "Task Epic Burndown execute")
 		return _columns(), [], None, None
 
-	rows = []
-	cat = payload.get("categories") or []
-	for i, name in enumerate(cat):
-		rows.append(
-			{
-				"category": name,
-				"remaining": payload.get("remaining", [None] * len(cat))[i],
-				"added": payload.get("added", [None] * len(cat))[i],
-				"completed": payload.get("completed", [None] * len(cat))[i],
-			}
-		)
-	for j, name in enumerate(payload.get("forecast_categories") or []):
-		rows.append(
-			{
-				"category": name,
-				"remaining": payload.get("forecast_remaining", [])[j],
-				"added": payload.get("forecast_added", [])[j],
-				"completed": payload.get("forecast_completed", [])[j],
-			}
-		)
+	rows = [
+		{
+			"period": row.get("period_label"),
+			"segment": row.get("segment_label"),
+			"volume": row.get("volume"),
+			"task": row.get("task_subject") or row.get("task"),
+			"task_name": row.get("task"),
+		}
+		for row in (payload.get("detail_rows") or [])
+	]
 
 	return _columns(), rows, None, None
 
 
 def _columns():
 	return [
-		{"fieldname": "category", "label": _("Bucket"), "fieldtype": "Data", "width": 200},
-		{"fieldname": "remaining", "label": _("Remaining"), "fieldtype": "Float", "width": 120},
-		{"fieldname": "added", "label": _("Added / Plan delta"), "fieldtype": "Float", "width": 120},
-		{"fieldname": "completed", "label": _("Completed / Actual"), "fieldtype": "Float", "width": 120},
+		{"fieldname": "period", "label": _("Period"), "fieldtype": "Data", "width": 180},
+		{"fieldname": "segment", "label": _("Segment"), "fieldtype": "Data", "width": 180},
+		{"fieldname": "volume", "label": _("Volume"), "fieldtype": "Float", "width": 120},
+		{"fieldname": "task", "label": _("Task"), "fieldtype": "Data", "width": 260},
 	]
