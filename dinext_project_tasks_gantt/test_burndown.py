@@ -3,18 +3,21 @@
 
 import math
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import getdate as frappe_getdate
 
 from dinext_project_tasks_gantt.burndown import (
+	_build_display_buckets,
 	_current_date_marker,
 	_creation_date,
 	_derive_start_scope_series,
 	_effective_group_planned_hours_by_role,
 	_extended_forecast_bucket_label,
+	_forecast_hours_to_plan,
 	_forecast_progress_to_completion,
+	_forecast_target_date,
 	_hours_completion_date,
 	get_task_progress_trend,
 	get_project_x_axis_period_options,
@@ -75,6 +78,46 @@ class TestWeightedVelocityForForecast(FrappeTestCase):
 
 
 class TestBurndownBuckets(FrappeTestCase):
+	def test_build_display_buckets_duplicates_partial_current_bucket(self):
+		buckets = [
+			("2026-01-01..10", date(2026, 1, 1), date(2026, 1, 10)),
+			("2026-01-11..20", date(2026, 1, 11), date(2026, 1, 20)),
+		]
+
+		display_buckets = _build_display_buckets(
+			buckets,
+			fact_end_idx=0,
+			split_current_bucket=True,
+			today=date(2026, 1, 4),
+		)
+
+		self.assertEqual(
+			display_buckets,
+			[
+				{
+					"source_index": 0,
+					"label": "2026-01-01..10",
+					"bucket_start": date(2026, 1, 1),
+					"bucket_end": date(2026, 1, 4),
+					"kind": "factual_current",
+				},
+				{
+					"source_index": 0,
+					"label": "2026-01-01..10",
+					"bucket_start": date(2026, 1, 5),
+					"bucket_end": date(2026, 1, 10),
+					"kind": "forecast_current",
+				},
+				{
+					"source_index": 1,
+					"label": "2026-01-11..20",
+					"bucket_start": date(2026, 1, 11),
+					"bucket_end": date(2026, 1, 20),
+					"kind": "normal",
+				},
+			],
+		)
+
 	def test_iter_month_buckets(self):
 		buckets = iter_month_buckets(date(2025, 1, 10), date(2025, 3, 5))
 		self.assertGreaterEqual(len(buckets), 2)
@@ -344,17 +387,20 @@ class TestBurndownBuckets(FrappeTestCase):
 
 		buckets = get_period_buckets("PROJECT-1", date(2026, 5, 1), date(2026, 5, 10), "Release")
 
-		mock_get_all.assert_called_once_with(
-			"Task",
-			filters={"project": "PROJECT-1", "type": "Release"},
-			fields=[
-				"name",
-				"subject",
-				"exp_start_date",
-				"exp_end_date",
-				"custom_planned_start_date",
-				"custom_planned_end_date",
-			],
+		self.assertIn(
+			call(
+				"Task",
+				filters={"project": "PROJECT-1", "type": "Release"},
+				fields=[
+					"name",
+					"subject",
+					"exp_start_date",
+					"exp_end_date",
+					"custom_planned_start_date",
+					"custom_planned_end_date",
+				],
+			),
+			mock_get_all.mock_calls,
 		)
 		self.assertEqual(
 			buckets,
@@ -1086,6 +1132,47 @@ class TestProjectXAxisPeriodOptions(FrappeTestCase):
 			["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"],
 		)
 		self.assertEqual(forecast["completion_date"], date(2026, 1, 4))
+
+	def test_forecast_target_date_uses_last_bucket_duration_for_custom_buckets(self):
+		buckets = [
+			("Stage 1", date(2026, 1, 1), date(2026, 1, 31)),
+			("Gap", date(2026, 2, 10), date(2026, 2, 20)),
+		]
+
+		self.assertEqual(_forecast_target_date(buckets, 2), date(2026, 3, 3))
+
+	def test_forecast_progress_to_completion_uses_elapsed_days_for_uneven_buckets(self):
+		buckets = [
+			("Stage 1", date(2026, 1, 1), date(2026, 1, 31)),
+			("Stage 2", date(2026, 2, 1), date(2026, 2, 5)),
+			("Stage 3", date(2026, 2, 6), date(2026, 3, 10)),
+		]
+
+		forecast = _forecast_progress_to_completion(
+			buckets, [20.0, 50.0, 80.0], group_by="custom_stage"
+		)
+
+		self.assertEqual(forecast["completion_date"], date(2026, 4, 12))
+		self.assertEqual(forecast["categories"][-1], "Forecast 1")
+		self.assertEqual(forecast["series"][:3], [30.8, 37.5, 81.6])
+		self.assertEqual(forecast["series"][-1], 100.0)
+
+	def test_forecast_hours_to_plan_uses_elapsed_days_for_uneven_buckets(self):
+		buckets = [
+			("Stage 1", date(2026, 1, 1), date(2026, 1, 31)),
+			("Stage 2", date(2026, 2, 1), date(2026, 2, 5)),
+			("Stage 3", date(2026, 2, 6), date(2026, 3, 10)),
+		]
+		hours_by_role = [{"role": "Developer", "values": [2.0, 3.0, 3.0]}]
+
+		forecast = _forecast_hours_to_plan(
+			buckets, hours_by_role, planned_hours=10.0, group_by="custom_stage"
+		)
+
+		self.assertEqual(forecast["completion_date"], date(2026, 4, 12))
+		self.assertEqual(forecast["categories"][-1], "Forecast 1")
+		self.assertEqual(forecast["series"][:3], [30.8, 37.5, 81.6])
+		self.assertEqual(forecast["series"][-1], 100.0)
 
 	def test_current_date_marker_is_added_only_inside_bucket_range(self):
 		buckets = iter_day_buckets(date(2026, 1, 1), date(2026, 1, 6))
@@ -2157,6 +2244,143 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		self.assertEqual(out["forecast_from_index"], 2)
 		self.assertEqual(out["forecast_completed"], [0.0, 0.0, 1.0, 2.0])
 		self.assertEqual(out["forecast_remaining"], [0.0, 3.0, 2.0, 0.0])
+
+	@patch("dinext_project_tasks_gantt.burndown._fact_end_index", return_value=0)
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-OPEN",
+				"creation": date(2025, 12, 31),
+				"exp_start_date": date(2025, 12, 31),
+				"status": "Working",
+				"volume": 20.0,
+			}
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-01-01", date(2026, 1, 1), date(2026, 1, 1)),
+			("2026-01-02..06", date(2026, 1, 2), date(2026, 1, 6)),
+			("2026-01-07..16", date(2026, 1, 7), date(2026, 1, 16)),
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	def test_hours_forecast_scales_future_buckets_by_actual_duration(
+		self,
+		_mock_utp_sum,
+		_mock_utp_parent_names,
+		mock_cumulative_hours,
+		mock_bucket_hours,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+		_mock_fact_end,
+	):
+		mock_bucket_hours.side_effect = [
+			{"TASK-OPEN": 2.0},
+			{},
+			{},
+		]
+		mock_cumulative_hours.side_effect = [
+			{"TASK-OPEN": 2.0},
+			{"TASK-OPEN": 2.0},
+			{"TASK-OPEN": 2.0},
+			{"TASK-OPEN": 2.0},
+		]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 1, 1),
+			td=date(2026, 1, 16),
+			group_by="custom_stage",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=True,
+		)
+
+		self.assertEqual(out["forecast_from_index"], 1)
+		self.assertEqual(out["forecast_completed"], [0.0, 10.0, 8.0])
+		self.assertEqual(out["forecast_remaining"], [18.0, 8.0, 0.0])
+
+	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._resolve_project_holiday_list", return_value=None)
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch(
+		"dinext_project_tasks_gantt.burndown._load_task_volume_rows",
+		return_value=[
+			{
+				"name": "TASK-OPEN",
+				"creation": date(2025, 12, 31),
+				"exp_start_date": date(2025, 12, 31),
+				"status": "Working",
+				"volume": 10.0,
+			}
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.get_period_buckets",
+		return_value=[
+			("2026-01-01..10", date(2026, 1, 1), date(2026, 1, 10)),
+			("2026-01-11..20", date(2026, 1, 11), date(2026, 1, 20)),
+		],
+	)
+	@patch("dinext_project_tasks_gantt.burndown._utp_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_cumulative_hours_by_task")
+	@patch("dinext_project_tasks_gantt.burndown._utp_parent_names_in_bucket_for_tasks", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._utp_sum_hours", return_value=0.0)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 1, 4) if value is None else frappe_getdate(value),
+	)
+	def test_hours_forecast_consumes_remaining_days_of_current_bucket_before_next_bucket(
+		self,
+		_mock_getdate,
+		_mock_utp_sum,
+		_mock_utp_parent_names,
+		mock_cumulative_hours,
+		mock_bucket_hours,
+		_mock_buckets,
+		_mock_tasks,
+		_mock_progress,
+		_mock_holiday_list,
+		_mock_holidays,
+	):
+		mock_bucket_hours.side_effect = [
+			{"TASK-OPEN": 4.0},
+			{},
+		]
+		mock_cumulative_hours.side_effect = [
+			{"TASK-OPEN": 4.0},
+			{"TASK-OPEN": 4.0},
+			{"TASK-OPEN": 4.0},
+		]
+
+		out = _period_volume_burndown(
+			project="PROJ-1",
+			fd=date(2026, 1, 1),
+			td=date(2026, 1, 20),
+			group_by="custom_stage",
+			measure="hours",
+			exclude_group=False,
+			use_progress=False,
+			show_completion_forecast=True,
+		)
+
+		self.assertEqual(out["categories"], ["2026-01-01..10", "2026-01-01..10", "2026-01-11..20"])
+		self.assertEqual(out["forecast_from_index"], 1)
+		self.assertEqual(out["forecast_remaining"], [6.0, 0.0, 0.0])
+		self.assertEqual(out["forecast_completed"], [0.0, 6.0, 0.0])
 
 
 class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
