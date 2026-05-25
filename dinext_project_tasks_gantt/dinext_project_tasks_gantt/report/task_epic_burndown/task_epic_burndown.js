@@ -377,14 +377,14 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldname: "from_date",
 			label: __("From Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.add_months(frappe.datetime.get_today(), -6),
+			default: frappe.datetime.add_months(frappe.datetime.get_today(), -2),
 			reqd: 1,
 		},
 		{
 			fieldname: "to_date",
 			label: __("To Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.get_today(),
+			default: frappe.datetime.add_months(frappe.datetime.get_today(), 2),
 			reqd: 1,
 		},
 		{
@@ -392,7 +392,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			label: __("X Axis Period"),
 			fieldtype: "Select",
 			options: TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS,
-			default: "month",
+			default: "day",
 		},
 		{
 			fieldname: "measure",
@@ -403,7 +403,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				{ value: "story_points", label: __("Story Points") },
 				{ value: "task_count", label: __("Tasks") },
 			],
-			default: "hours",
+			default: "task_count",
 		},
 		{
 			fieldname: "hours_source",
@@ -511,7 +511,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldname: "use_task_weight",
 			label: __("Use task weight in count"),
 			fieldtype: "Check",
-			default: 0,
+			default: 1,
 			depends_on: "eval: doc.measure == 'task_count'",
 		},
 		{
@@ -531,7 +531,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldname: "show_completion_forecast",
 			label: __("Completion forecast"),
 			fieldtype: "Check",
-			default: 0,
+			default: 1,
 		},
 	],
 
