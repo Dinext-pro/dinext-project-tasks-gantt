@@ -90,9 +90,20 @@ app_include_css = "/assets/dinext_project_tasks_gantt/css/task_progress_trend.cs
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Task": "public/js/task_progress_trend.js"}
+doctype_js = {
+	"Task": "public/js/task_progress_trend.js",
+	"Project": [
+		"public/js/burndown_navigation.js",
+		"public/js/project_burndown_button.js",
+	],
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
-# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
+doctype_tree_js = {
+	"Task": [
+		"public/js/burndown_navigation.js",
+		"public/js/task_tree_burndown_button.js",
+	],
+}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
 # Svg Icons
