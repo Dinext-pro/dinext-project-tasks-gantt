@@ -535,6 +535,20 @@ frappe.query_reports["Task Epic Burndown"] = {
 		},
 	],
 
+	formatter: function (value, row, column, data, default_formatter) {
+		value = default_formatter(value, row, column, data);
+		if (!data || column.fieldname !== "task" || !data.task_name) {
+			return value;
+		}
+		const taskName = String(data.task_name || "").trim();
+		if (!taskName) {
+			return value;
+		}
+		const taskLabel = frappe.utils.escape_html(String(data.task || taskName));
+		const href = `/app/task/${encodeURIComponent(taskName)}`;
+		return `<a href="${href}" title="${frappe.utils.escape_html(taskName)}">${taskLabel}</a>`;
+	},
+
 	onload: function (report) {
 		// Query Report's run_serially does not await onload's inner promise; install
 		// before any async so the first refresh() is wrapped (see frappe.run_serially).

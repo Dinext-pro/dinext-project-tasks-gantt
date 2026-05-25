@@ -2381,6 +2381,27 @@ class TestForecastWithoutProgress(FrappeTestCase):
 		self.assertEqual(out["forecast_from_index"], 1)
 		self.assertEqual(out["forecast_remaining"], [6.0, 0.0, 0.0])
 		self.assertEqual(out["forecast_completed"], [0.0, 6.0, 0.0])
+		self.assertEqual(
+			out["detail_rows"],
+			[
+				{
+					"period_label": "2026-01-01..10",
+					"segment_key": "completed",
+					"segment_label": "Completed",
+					"volume": 4.0,
+					"task": "TASK-OPEN",
+					"task_subject": "TASK-OPEN",
+				},
+				{
+					"period_label": "2026-01-01..10",
+					"segment_key": "open",
+					"segment_label": "Open",
+					"volume": 6.0,
+					"task": "TASK-OPEN",
+					"task_subject": "TASK-OPEN",
+				},
+			],
+		)
 
 
 class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
@@ -2646,6 +2667,27 @@ class TestHoursBurndownByApprovedTimesheets(FrappeTestCase):
 		self.assertEqual(out["open"], [0.0])
 		self.assertEqual(out["task_filters"]["created_completed"], [["UTP-NEW-OVER"]])
 		self.assertEqual(out["task_filters"]["completed_above_expected"], [["UTP-NEW-OVER"]])
+		self.assertEqual(
+			out["detail_rows"],
+			[
+				{
+					"period_label": "2026-05-10",
+					"segment_key": "completed_above_expected",
+					"segment_label": "Completed above expected",
+					"volume": 2.0,
+					"task": "TASK-NEW",
+					"task_subject": "TASK-NEW",
+				},
+				{
+					"period_label": "2026-05-10",
+					"segment_key": "created_completed",
+					"segment_label": "Created and completed",
+					"volume": 6.0,
+					"task": "TASK-NEW",
+					"task_subject": "TASK-NEW",
+				},
+			],
+		)
 		self.assertEqual(mock_utp_parent_names.call_count, 2)
 
 	@patch("dinext_project_tasks_gantt.burndown._holiday_dates_in_range", return_value=[])
@@ -3390,6 +3432,62 @@ class TestTaskEpicBurndownReportExecute(FrappeTestCase):
 
 		self.assertEqual(
 			mock_get_burndown_series.call_args.kwargs["project_role_filters"], ["Developer"]
+		)
+
+	@patch(
+		"dinext_project_tasks_gantt.dinext_project_tasks_gantt.report.task_epic_burndown.task_epic_burndown.get_burndown_series"
+	)
+	def test_execute_returns_detail_rows_and_replaces_summary_columns(self, mock_get_burndown_series):
+		mock_get_burndown_series.return_value = {
+			"detail_rows": [
+				{
+					"period_label": "2026-05-10",
+					"segment_label": "Completed",
+					"volume": 5.0,
+					"task": "TASK-001",
+					"task_subject": "First task",
+				},
+				{
+					"period_label": "2026-05-11",
+					"segment_label": "Open",
+					"volume": 3.0,
+					"task": "TASK-002",
+					"task_subject": "Second task",
+				},
+			]
+		}
+
+		columns, rows, _, _ = execute_task_epic_burndown_report(
+			{
+				"project": "PROJ-1",
+				"from_date": "2026-05-01",
+				"to_date": "2026-05-31",
+				"measure": "hours",
+			}
+		)
+
+		self.assertEqual(
+			[column["fieldname"] for column in columns],
+			["period", "segment", "volume", "task"],
+		)
+		self.assertEqual(
+			rows,
+			[
+				{
+					"period": "2026-05-10",
+					"segment": "Completed",
+					"volume": 5.0,
+					"task": "First task",
+					"task_name": "TASK-001",
+				},
+				{
+					"period": "2026-05-11",
+					"segment": "Open",
+					"volume": 3.0,
+					"task": "Second task",
+					"task_name": "TASK-002",
+				},
+			],
 		)
 
 
