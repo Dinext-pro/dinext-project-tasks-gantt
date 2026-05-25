@@ -2742,7 +2742,7 @@ def _period_volume_burndown(
 	completed_above_expected: list[float] = []
 	unused_hours: list[float] = []
 	created_completed: list[float] = []
-	forecast_completed_total: list[float] = []
+	factual_completed_total: list[float] = []
 	detail_rows_by_source: list[list[dict[str, Any]]] = []
 	task_filters = {
 		"created": [],
@@ -2900,7 +2900,7 @@ def _period_volume_burndown(
 			completed.append(completed_value)
 			completed_above_expected.append(completed_above_expected_value)
 			unused_hours.append(released_value)
-			forecast_completed_total.append(completed_total_in_bucket)
+			factual_completed_total.append(completed_total_in_bucket)
 			created_value_by_task = {
 				name: max(0.0, flt(effective_scope_by_task.get(name)) - flt(bucket_hours_by_task.get(name)))
 				for name in created_task_names
@@ -3042,7 +3042,7 @@ def _period_volume_burndown(
 		created_completed.append(created_completed_value)
 		completed.append(max(0.0, completed_raw - created_completed_value))
 		completed_above_expected.append(0.0)
-		forecast_completed_total.append(progress_completed)
+		factual_completed_total.append(progress_completed)
 		created_value_by_task = {
 			task["name"]: max(
 				0.0,
@@ -3185,7 +3185,7 @@ def _period_volume_burndown(
 		"task_count": _("Tasks"),
 	}.get(measure, _("Volume"))
 	forecast_summary: dict[str, Any] = {"show": False}
-	velocity_completed_total = forecast_completed_total if not use_progress else forecast_completed_total
+	velocity_completed_total = factual_completed_total
 	forecast_completed = [0.0 for _ in categories]
 	forecast_open = list(open_volume)
 	forecast_from_index: int | None = None
