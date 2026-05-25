@@ -2157,6 +2157,16 @@ frappe.query_reports["Task Epic Burndown"] = {
 		ensureBurndownThemeObserver();
 
 		setTimeout(function () {
+			const qr = frappe.query_report;
+			const project =
+				qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+			const hasTableRows = !!(qr && Array.isArray(qr.data) && qr.data.length);
+			if (qr && project && !hasTableRows && !qr.__task_epic_burndown_initial_table_refresh_done) {
+				// Initial Query Report refresh can run before saved filter state is fully reflected in
+				// the server-side table payload. Retry once after onload so the datatable catches up.
+				qr.__task_epic_burndown_initial_table_refresh_done = true;
+				qr.refresh(true);
+			}
 			const nextSize = getContainerSize();
 			if (!renderState.isInitialRenderDone) {
 				scheduleRender(0, { reason: "initial-layout-check" });
@@ -2187,6 +2197,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 
 	after_datatable_render: function () {
 		const qr = frappe.query_report;
+		if (qr && Array.isArray(qr.data) && qr.data.length) {
+			qr.__task_epic_burndown_initial_table_refresh_done = true;
+		}
 		const force = !!(qr && qr.__task_epic_burndown_force_chart_after_table);
 		if (qr) {
 			qr.__task_epic_burndown_force_chart_after_table = false;
