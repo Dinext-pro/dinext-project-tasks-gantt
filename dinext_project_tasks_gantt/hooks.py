@@ -72,7 +72,6 @@ required_apps = [
 # ------------------
 
 # include js, css files in header of desk.html
-app_include_css = "/assets/dinext_project_tasks_gantt/css/task_progress_trend.css"
 # app_include_js = "/assets/dinext_project_tasks_gantt/js/dinext_project_tasks_gantt.js"
 
 # include js, css files in header of web template
@@ -91,7 +90,10 @@ app_include_css = "/assets/dinext_project_tasks_gantt/css/task_progress_trend.cs
 
 # include js in doctype views
 doctype_js = {
-	"Task": "public/js/task_progress_trend.js",
+	"Task": [
+		"public/js/task_progress_trend_styles.js",
+		"public/js/task_progress_trend.js",
+	],
 	"Project": [
 		"public/js/burndown_navigation.js",
 		"public/js/project_burndown_button.js",
