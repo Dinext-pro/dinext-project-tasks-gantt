@@ -1,3 +1,11 @@
+// Copyright (c) 2026, Dinext and contributors
+// For license information, please see license.txt
+
+(function () {
+	const STYLE_ID = "dinext-task-progress-trend-styles";
+
+	frappe.dom.set_style(
+		`
 .task-progress-trend-widget {
 	border-radius: 6px;
 	margin: 0;
@@ -35,3 +43,7 @@
 .task-progress-trend-state {
 	padding: 16px 0;
 }
+`,
+		STYLE_ID
+	);
+})();
