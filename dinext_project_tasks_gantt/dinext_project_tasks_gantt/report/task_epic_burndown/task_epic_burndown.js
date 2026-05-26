@@ -2,7 +2,7 @@
 // For license information, please see license.txt
 
 const TASK_EPIC_BURNDOWN_REPORT_CSS = "/assets/dinext_project_tasks_gantt/css/task_epic_burndown_report.css";
-const DINEXT_TASK_TYPE_TRANSLATION_CONTEXT = "Dinext.TaskType";
+const TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT = "Dinext.TaskType";
 const TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_KEYS = new Set(["day", "week", "month"]);
 const TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS = {
 	stage: { singular: "stage", plural: "stages" },
@@ -14,6 +14,28 @@ const TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS = [
 	{ value: "week", label: __("Week") },
 	{ value: "day", label: __("Day") },
 ];
+const TASK_EPIC_BURNDOWN_REPORT_NAME = "Task Epic Burndown";
+
+function task_epic_burndown_is_burndown_report(report) {
+	return (report?.report_name || "") === TASK_EPIC_BURNDOWN_REPORT_NAME;
+}
+
+function task_epic_burndown_teardown_mount(report) {
+	if (typeof window.__task_epic_burndown_destroy === "function") {
+		window.__task_epic_burndown_destroy();
+	}
+	if (!report?.page?.main) {
+		return;
+	}
+	const $main = report.page.main;
+	$main.find(".task-epic-burndown-chart-root").each(function () {
+		const inst = window.echarts?.getInstanceByDom?.(this);
+		if (inst && typeof inst.dispose === "function") {
+			inst.dispose();
+		}
+	});
+	$main.find(".task-epic-burndown-chart, .task-epic-burndown-summary").remove();
+}
 
 function task_epic_burndown_ensure_report_styles() {
 	if (window.__task_epic_burndown_report_css_promise) {
@@ -95,7 +117,7 @@ function task_epic_burndown_translate_task_type_label(value) {
 	if (!text) {
 		return text;
 	}
-	return __(text, null, DINEXT_TASK_TYPE_TRANSLATION_CONTEXT);
+	return __(text, null, TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT);
 }
 
 function task_epic_burndown_group_by_option_label(value) {
@@ -140,7 +162,7 @@ function task_epic_burndown_forecast_period_unit_singular() {
 	}
 	const periodUnits = TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS[key];
 	if (periodUnits) {
-		return __(periodUnits.singular, null, DINEXT_TASK_TYPE_TRANSLATION_CONTEXT);
+		return __(periodUnits.singular, null, TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT);
 	}
 	return task_epic_burndown_group_by_option_label(value) || __("period");
 }
@@ -158,7 +180,7 @@ function task_epic_burndown_forecast_period_unit_plural() {
 	}
 	const periodUnits = TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS[key];
 	if (periodUnits) {
-		return __(periodUnits.plural, null, DINEXT_TASK_TYPE_TRANSLATION_CONTEXT);
+		return __(periodUnits.plural, null, TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT);
 	}
 	const label = task_epic_burndown_group_by_option_label(value);
 	return label ? `${label} ${__("periods")}` : __("periods");
@@ -591,6 +613,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 			report.__task_epic_burndown_refresh_wrapped = true;
 			const originalRefresh = report.refresh.bind(report);
 			report.refresh = function (have_filters_changed) {
+				if (!task_epic_burndown_is_burndown_report(report)) {
+					task_epic_burndown_teardown_mount(report);
+					return originalRefresh.apply(this, arguments);
+				}
 				report.__task_epic_burndown_force_chart_after_table = have_filters_changed !== true;
 				return originalRefresh.apply(this, arguments);
 			};
@@ -801,6 +827,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}
 
 		function scheduleRender(delay = 120, options = {}) {
+			const qr = frappe.query_report;
+			if (!task_epic_burndown_is_burndown_report(qr)) {
+				task_epic_burndown_teardown_mount(qr);
+				return;
+			}
 			if (renderTimer) {
 				clearTimeout(renderTimer);
 			}
@@ -980,6 +1011,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}
 
 		function renderBurndown(options = {}) {
+			const qr = frappe.query_report;
+			if (!task_epic_burndown_is_burndown_report(qr)) {
+				task_epic_burndown_teardown_mount(qr);
+				return;
+			}
 			const filters = frappe.query_report.get_filter_values();
 			if (!filters.project) {
 				destroyChart();
@@ -2157,6 +2193,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 		ensureHoursOnlyFilterState();
 		window.__task_epic_burndown_render = renderBurndown;
 		window.__task_epic_burndown_schedule = scheduleRender;
+		window.__task_epic_burndown_destroy = destroyChart;
 
 		function ensureBurndownThemeObserver() {
 			if (typeof MutationObserver === "undefined" || window.__task_epic_burndown_theme_observed) {
@@ -2176,6 +2213,9 @@ frappe.query_reports["Task Epic Burndown"] = {
 				theme = next;
 				const qr = frappe.query_report;
 				if (!qr || typeof qr.get_filter_values !== "function") {
+					return;
+				}
+				if (!task_epic_burndown_is_burndown_report(qr)) {
 					return;
 				}
 				const fv = qr.get_filter_values();
@@ -2216,6 +2256,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}, 400);
 
 		$(window).on("resize.task_epic_burndown", function () {
+			const qr = frappe.query_report;
+			if (!task_epic_burndown_is_burndown_report(qr)) {
+				return;
+			}
 			const nextSize = getContainerSize();
 			if (resizeChartIfNeeded(nextSize)) {
 				return;
@@ -2232,6 +2276,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 
 	after_datatable_render: function () {
 		const qr = frappe.query_report;
+		if (!task_epic_burndown_is_burndown_report(qr)) {
+			task_epic_burndown_teardown_mount(qr);
+			return;
+		}
 		if (qr && Array.isArray(qr.data) && qr.data.length) {
 			qr.__task_epic_burndown_initial_table_refresh_done = true;
 		}
