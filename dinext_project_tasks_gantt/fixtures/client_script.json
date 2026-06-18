@@ -4,6 +4,17 @@
   "doctype": "Client Script",
   "dt": "Task",
   "enabled": 1,
+  "modified": "2026-06-19 00:49:19.518104",
+  "module": "Dinext Project Tasks Gantt",
+  "name": "Confirm",
+  "script": " frappe.ui.form.on('Task', {\n  refresh: function(frm) {\n    if (frm.doc.confirm) {\n      if (frm.doc.owner === frappe.session.user) {\n        frm.set_df_property('status', 'options', 'Open\\nCompleted');\n      } else {\n        frm.set_df_property('status', 'options', 'Open\\nWorking\\nPending Review');\n      }\n    } else {\n      if (frm.doc.owner === frappe.session.user) {\n        frm.set_df_property('status', 'options', 'Open\\nWorking\\nPending Review\\nOverdue\\nTemplate\\nCompleted\\nCancelled');\n      } else {\n        frm.set_df_property('status', 'options', 'Open\\nWorking\\nPending Review\\nOverdue\\nTemplate\\nCompleted\\nCancelled');\n      }\n    }\n  }\n});\n\nfrappe.ui.form.on(\"Task\", \"onload\", function(frm) {\n    // Проверяем, является ли текущий пользователь владельцем задачи\n    if (frappe.session.user !== frm.doc.owner) {\n        // Проверяем, имеет ли текущий пользователь роль Dinext_Project_Manager\n        if (frappe.user.has_role(\"Dinext_Project_Manager\")) {\n            // Если роль есть, разрешаем редактирование кнопки \"confirm\"\n            frm.toggle_enable(\"confirm\", true);\n        } else {\n            // Если роли нет, отключаем кнопку \"confirm\"\n            frm.toggle_enable(\"confirm\", false);\n        }\n    } else {\n        // Если текущий пользователь является владельцем, разрешаем редактирование\n        frm.toggle_enable(\"confirm\", true);\n    }\n});\n\nfrappe.ui.form.on('Task', {\n    refresh(frm) {\n        // Проверяем, есть ли у пользователя роль \"Dinext_Project_Manager\"\n        if (!frappe.user.has_role(\"Dinext_Project_Manager\")) {\n            console.log(\"User does not have role: Dinext_Project_Manager\");\n            // Скрываем поле custom_project_team\n            frm.set_df_property('custom_include', 'read_only', 1);\n        } else {\n            console.log(\"User has role: Dinext_Project_Manager\");\n            // Показываем поле custom_project_team, если у пользователя есть роль\n            frm.set_df_property('custom_include', 'read_only', 0);\n        }\n    }\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Task",
+  "enabled": 1,
   "modified": "2026-04-11 20:38:54.580888",
   "module": "Dinext Project Tasks Gantt",
   "name": "Tree Plan-Fact Data_V2",
