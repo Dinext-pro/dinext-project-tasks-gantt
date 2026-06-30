@@ -198,10 +198,24 @@ doctype_tree_js = {
 # Hook on document methods and events
 
 doc_events = {
+	"Project": {
+		"before_save": "dinext_project_tasks_gantt.project_progress_audit.before_save_project",
+	},
 	"Task": {
-		"before_save": "dinext_project_tasks_gantt.task_progress_audit.before_save_task",
-		"on_update": "dinext_project_tasks_gantt.task_parent_progress.on_update_task",
-		"after_delete": "dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
+		"before_insert": "dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
+		"before_save": [
+			"dinext_project_tasks_gantt.task_progress_audit.before_save_task",
+			"dinext_project_tasks_gantt.project_progress_audit.before_save_task",
+		],
+		"on_update": [
+			"dinext_project_tasks_gantt.project_progress_audit.on_update_task",
+			"dinext_project_tasks_gantt.task_parent_progress.on_update_task",
+		],
+		"on_trash": "dinext_project_tasks_gantt.project_progress_audit.on_trash_task",
+		"after_delete": [
+			"dinext_project_tasks_gantt.project_progress_audit.after_delete_task",
+			"dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
+		],
 	},
 }
 
