@@ -7,7 +7,7 @@ import { expEndColumn, expStartColumn } from "./dates.js";
 import { durationColumn } from "./duration.js";
 import { includeColumn } from "./include.js";
 import { planFactColumn } from "./plan_fact/index.js";
-import { priorityColumn } from "./priority.js";
+import { priorityColumn } from "./priority/index.js";
 import { progressColumn } from "./progress.js";
 import { statusColumn } from "./status/index.js";
 import { subjectColumn } from "./subject/index.js";

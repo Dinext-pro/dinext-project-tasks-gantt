@@ -6,7 +6,6 @@ import {
 	wireTreeGanttHooks,
 } from "./gantt/index.js";
 import { buildShell, setupResize } from "./shell/layout.js";
-import { setupToolbar } from "./shell/toolbar.js";
 import { setColumnContext } from "./table/columns/context.js";
 import { loadTable } from "./table/index.js";
 
@@ -19,6 +18,7 @@ export async function mount({ page }) {
 		ganttEl: null,
 		table: null,
 		gantt: null,
+		fullscreenShell: null,
 	};
 
 	const reload = async () => {
@@ -28,6 +28,8 @@ export async function mount({ page }) {
 			onCellsSaved: () => scheduleGanttRefresh(state),
 			// Client sort reorders source — gantt bars must follow row order.
 			onSortChange: () => scheduleGanttRefresh(state),
+			// page.main = page-form filters + WBS shell (WR fullscreen pattern).
+			fullscreenShell: state.fullscreenShell,
 		});
 		if (state.table) {
 			wireTreeGanttHooks(state.table, state);
@@ -59,12 +61,11 @@ export async function mount({ page }) {
 	});
 
 	const main = page.main.get(0);
+	state.fullscreenShell = main;
 	const zones = buildShell(main);
 	state.tableHost = zones.tableHost;
 	state.ganttEl = zones.gantt;
 	const disposeResize = setupResize(zones);
-
-	setupToolbar({ page, state });
 
 	await reload();
 

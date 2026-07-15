@@ -107,12 +107,38 @@ function createExpandHandler(getArgs, onTreeChange) {
 }
 
 /**
+ * Fullscreen shell = page.main (page-form filters + WBS shell), WR pattern.
+ * @param {HTMLElement} container
+ * @param {HTMLElement | null | undefined} shell
+ */
+function resolveFullscreenOpts(container, shell) {
+	const fsShell =
+		shell ||
+		container?.closest?.(".layout-main-section") ||
+		container?.closest?.(".task-wbs-v2-shell");
+	if (!fsShell) {
+		return undefined;
+	}
+	return {
+		target: "shell",
+		shell: fsShell,
+		onEnter: ({ element }) => {
+			element?.classList.add("task-wbs-v2--fullscreen");
+		},
+		onExit: ({ element }) => {
+			element?.classList.remove("task-wbs-v2--fullscreen");
+		},
+	};
+}
+
+/**
  * @param {HTMLElement} container
  * @param {() => object} getArgs
  * @param {{
  *   onTreeChange?: () => void,
  *   onCellsSaved?: (changes) => void,
  *   onSortChange?: (payload: { sort: object[], table: object }) => void,
+ *   fullscreenShell?: HTMLElement | null,
  * }} [hooks]
  */
 export async function loadTable(container, getArgs, hooks = {}) {
@@ -125,7 +151,8 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	const state = getState(container);
 	const gen = (state.loadGen = (state.loadGen || 0) + 1);
 	const args = readArgs(getArgs);
-	const { onTreeChange, onCellsSaved, onSortChange } = hooks;
+	const { onTreeChange, onCellsSaved, onSortChange, fullscreenShell } = hooks;
+	const fullscreen = resolveFullscreenOpts(container, fullscreenShell);
 
 	container.classList.remove("text-muted");
 
@@ -194,6 +221,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				headerHeight: HEADER_HEIGHT,
 				tooltipShowDelay: 0,
 			},
+			...(fullscreen ? { fullscreen } : {}),
 			onExpandRow: createExpandHandler(getArgs, onTreeChange),
 			onValidateCells,
 			onSaveCells: async (ctx) => {
@@ -230,10 +258,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 }
 
 /**
- * Full project tree nested + expandAll UI.
+ * Full project tree nested + expand UI (table toolbar Expand all).
  * @param {HTMLElement} [container] table host — used for loadGen abort
+ * @param {() => void | Promise<void>} [expandUi] native table.expandAll (avoid recurse)
  */
-export async function expandAllRows(table, getArgs, container) {
+export async function expandAllRows(table, getArgs, container, expandUi) {
 	const args = readArgs(getArgs);
 	if (!args.project || !table) return;
 	const hostState = container?._twbTable;
@@ -254,8 +283,12 @@ export async function expandAllRows(table, getArgs, container) {
 		const nested = nestRows(flat);
 		// refresh() re-applies active client sort to new source.
 		table.refresh?.(nested);
-		if (typeof table.expandAll === "function") {
-			await table.expandAll();
+		const expand =
+			typeof expandUi === "function"
+				? expandUi
+				: table.expandAll?.bind(table);
+		if (expand) {
+			await expand();
 		}
 		if (gen != null && hostState?.loadGen !== gen) {
 			return;
@@ -264,8 +297,4 @@ export async function expandAllRows(table, getArgs, container) {
 	} finally {
 		frappe.dom.unfreeze();
 	}
-}
-
-export function collapseAllRows(table) {
-	table?.collapseAll?.();
 }

@@ -5,6 +5,7 @@ import {
 	GANTT_PADDING,
 	GANTT_UPPER_HEADER,
 } from "../constants.js";
+import { expandAllRows } from "../table/index.js";
 import { collectVisibleRows, rowsToGanttTasks } from "./tasks.js";
 import { setupScrollSync, setupToolbarOffsetSync } from "./sync.js";
 import { setupHoverSync } from "./hover.js";
@@ -283,12 +284,27 @@ export function scheduleGanttRefresh(state) {
 	});
 }
 
-/** DinextTable has no onCollapseRow — patch collapse* to refresh gantt. */
+/**
+ * Patch tree expand/collapse:
+ * - expandAll → load full project tree (lazy roots alone are not enough)
+ * - collapse* → refresh gantt (DinextTable has no onCollapseRow)
+ */
 export function wireTreeGanttHooks(table, state) {
 	if (!table || table._twb_v2_gantt_hooks) {
 		return;
 	}
 	table._twb_v2_gantt_hooks = true;
+
+	const expandAll = table.expandAll?.bind(table);
+	if (expandAll) {
+		table.expandAll = () =>
+			expandAllRows(table, state.getArgs, state.tableHost, expandAll)
+				.then(() => scheduleGanttRefresh(state))
+				.catch((e) => {
+					console.error(e);
+					frappe.msgprint(e.message || String(e));
+				});
+	}
 
 	const collapse = table.collapseRow?.bind(table);
 	if (collapse) {

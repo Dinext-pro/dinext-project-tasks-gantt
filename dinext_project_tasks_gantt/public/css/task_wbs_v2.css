@@ -23,6 +23,31 @@
 	overflow: hidden;
 }
 
+/* Fullscreen shell = page.main (filters + table/gantt), WR pattern. */
+#page-task-wbs-v2 .layout-main-section:fullscreen,
+#page-task-wbs-v2 .layout-main-section.task-wbs-v2--fullscreen {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	max-height: 100%;
+	box-sizing: border-box;
+	padding: 8px;
+	overflow: hidden;
+	background-color: var(--card-bg, var(--bg-color, #fff));
+}
+
+#page-task-wbs-v2 .layout-main-section:fullscreen .page-form,
+#page-task-wbs-v2 .layout-main-section.task-wbs-v2--fullscreen .page-form {
+	flex: 0 0 auto;
+}
+
+#page-task-wbs-v2 .layout-main-section:fullscreen .task-wbs-v2-shell,
+#page-task-wbs-v2 .layout-main-section.task-wbs-v2--fullscreen .task-wbs-v2-shell {
+	flex: 1 1 auto;
+	min-height: 0;
+	height: auto;
+}
+
 .task-wbs-v2-panel {
 	position: relative;
 	z-index: 1;
@@ -542,7 +567,8 @@ body.task-wbs-v2-resizing {
 
 /* Tree: Open/Template без спец-цвета */
 
-.twb-v2-status-cell {
+.twb-v2-status-cell,
+.twb-v2-priority-cell {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -550,23 +576,29 @@ body.task-wbs-v2-resizing {
 	min-height: 100%;
 }
 
-.twb-v2-status--editable {
+.twb-v2-status--editable,
+.twb-v2-priority--editable {
 	cursor: pointer;
 }
 
 .twb-v2-status-edit,
-.twb-v2-status-control {
+.twb-v2-priority-edit,
+.twb-v2-status-control,
+.twb-v2-priority-control {
 	width: 100%;
 	display: flex;
 	align-items: center;
 }
 
 .twb-v2-status-control .form-control,
-.twb-v2-status-control select {
+.twb-v2-status-control select,
+.twb-v2-priority-control .form-control,
+.twb-v2-priority-control select {
 	min-height: 22px;
 	height: 22px;
 	padding: 0 4px;
 	font-size: var(--text-xs, 11px);
+	border-radius: 0;
 }
 
 .task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority--urgent {
@@ -586,7 +618,7 @@ body.task-wbs-v2-resizing {
 
 .task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority--low {
 	color: var(--text-muted);
-	background-color: color-mix(in srgb, var(--text-color) 6%, transparent);
+	background-color: transparent;
 }
 
 /* dates — center, compact (Tree details-cell parity) */
