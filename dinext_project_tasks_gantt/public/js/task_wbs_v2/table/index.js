@@ -1,6 +1,8 @@
 import { getChildren } from "../api.js";
 import { HEADER_HEIGHT, ROW_HEIGHT } from "../constants.js";
-import { getColumns } from "./columns.js";
+import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/check.js";
+import { refreshPlanFact } from "./columns/plan_fact/limits.js";
+import { getColumns } from "./columns/index.js";
 import { nestRows, toTableRows } from "./rows.js";
 import {
 	changesAffectGantt,
@@ -74,6 +76,24 @@ async function fetchRootRows(getArgs) {
 	);
 }
 
+function sideDataCtx(getArgs, table) {
+	const args = readArgs(getArgs);
+	return { project: args.project || null, table };
+}
+
+function scheduleSideDataRefresh(getArgs, table, rows) {
+	const ctx = sideDataCtx(getArgs, table);
+	if (!ctx.project || !ctx.table) {
+		return;
+	}
+	refreshPlanFact(ctx, rows).catch((e) => {
+		console.error("[task_wbs_v2] plan_fact refresh", e);
+	});
+	refreshConflicts(getArgs, table, rows).catch((e) => {
+		console.error("[task_wbs_v2] deps conflict refresh", e);
+	});
+}
+
 function createExpandHandler(getArgs, onTreeChange) {
 	return async ({ rowId, table }) => {
 		const children = toTableRows(
@@ -82,6 +102,7 @@ function createExpandHandler(getArgs, onTreeChange) {
 		// Sort layer reorders children inside setRowChildren when sort active.
 		table.setRowChildren(rowId, children);
 		onTreeChange?.();
+		scheduleSideDataRefresh(getArgs, table, children);
 	};
 }
 
@@ -130,6 +151,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		if (state.table) {
 			state.table.refresh?.(rows);
 			onTreeChange?.();
+			scheduleSideDataRefresh(getArgs, state.table);
 			return state.table;
 		}
 
@@ -150,20 +172,40 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			onSortChange: (payload) => {
 				onSortChange?.(payload);
 			},
+			// Tree: no vertical rules; horizontal = 1px dashed gray.
 			theme: {
 				cellHorizontalPadding: 4,
 				spacing: 4,
+				columnBorder: false,
+				headerColumnBorder: false,
+				pinnedColumnBorder: false,
+				rowBorder: {
+					style: "dashed",
+					width: 1,
+					color: "gray",
+				},
+			},
+			// Resize only subject — others fixed (Tree parity).
+			defaultColDef: {
+				resizable: false,
 			},
 			gridOptions: {
 				rowHeight: ROW_HEIGHT,
 				headerHeight: HEADER_HEIGHT,
+				tooltipShowDelay: 0,
 			},
 			onExpandRow: createExpandHandler(getArgs, onTreeChange),
 			onValidateCells,
 			onSaveCells: async (ctx) => {
 				const ok = await onSaveCells(ctx);
-				if (ok && changesAffectGantt(ctx.changes)) {
-					onCellsSaved?.(ctx.changes);
+				if (ok) {
+					if (changesAffectGantt(ctx.changes)) {
+						onCellsSaved?.(ctx.changes);
+					}
+					if (dateFieldsAffectConflicts(ctx.changes)) {
+						// Full loaded set — successors may gain/lose conflicts.
+						scheduleSideDataRefresh(getArgs, state.table);
+					}
 				}
 				return ok;
 			},
@@ -175,6 +217,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		}
 
 		onTreeChange?.();
+		scheduleSideDataRefresh(getArgs, state.table, rows);
 		return state.table;
 	} catch (err) {
 		if (gen !== state.loadGen) return null;
@@ -186,10 +229,15 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	}
 }
 
-/** Full project tree nested + expandAll UI. */
-export async function expandAllRows(table, getArgs) {
+/**
+ * Full project tree nested + expandAll UI.
+ * @param {HTMLElement} [container] table host — used for loadGen abort
+ */
+export async function expandAllRows(table, getArgs, container) {
 	const args = readArgs(getArgs);
 	if (!args.project || !table) return;
+	const hostState = container?._twbTable;
+	const gen = hostState?.loadGen;
 	frappe.dom.freeze(__("Loading…"));
 	try {
 		const flat = toTableRows(
@@ -200,12 +248,19 @@ export async function expandAllRows(table, getArgs) {
 				})
 			)
 		);
+		if (gen != null && hostState?.loadGen !== gen) {
+			return;
+		}
 		const nested = nestRows(flat);
 		// refresh() re-applies active client sort to new source.
 		table.refresh?.(nested);
 		if (typeof table.expandAll === "function") {
 			await table.expandAll();
 		}
+		if (gen != null && hostState?.loadGen !== gen) {
+			return;
+		}
+		scheduleSideDataRefresh(getArgs, table);
 	} finally {
 		frappe.dom.unfreeze();
 	}

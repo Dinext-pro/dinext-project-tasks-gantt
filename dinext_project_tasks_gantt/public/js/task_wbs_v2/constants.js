@@ -17,10 +17,11 @@ export const ROW_HEIGHT = 27;
 export const GANTT_BAR_HEIGHT = 19;
 export const GANTT_PADDING = 8;
 
-/** frappe-gantt grid-header = upper + lower + 10px chrome. */
+/** frappe-gantt grid-header = upper + lower + chrome (keep table/gantt sync). */
 export const GANTT_UPPER_HEADER = 40;
 export const GANTT_LOWER_HEADER = 26;
 export const GANTT_HEADER_CHROME = 10;
+/** Table headerHeight = gantt upper+lower+chrome (76). Gantt host: CSS padding-top 3px. */
 export const HEADER_HEIGHT =
 	GANTT_UPPER_HEADER + GANTT_LOWER_HEADER + GANTT_HEADER_CHROME;
 

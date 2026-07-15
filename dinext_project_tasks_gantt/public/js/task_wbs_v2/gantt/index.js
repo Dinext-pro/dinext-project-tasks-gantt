@@ -6,7 +6,7 @@ import {
 	GANTT_UPPER_HEADER,
 } from "../constants.js";
 import { collectVisibleRows, rowsToGanttTasks } from "./tasks.js";
-import { setupScrollSync } from "./sync.js";
+import { setupScrollSync, setupToolbarOffsetSync } from "./sync.js";
 import { setupHoverSync } from "./hover.js";
 
 async function ensureAssets() {
@@ -105,7 +105,6 @@ function buildOptions(holidays) {
 			"var(--g-weekend-highlight-color)": weekend,
 			"var(--g-holiday-highlight-color)": fest,
 		},
-		// Edit later — bars visible only.
 		readonly: true,
 		readonly_progress: true,
 		readonly_dates: true,
@@ -121,6 +120,10 @@ function bindSync(state) {
 		state.ganttHoverCleanup();
 		state.ganttHoverCleanup = null;
 	}
+	if (typeof state.ganttToolbarSyncCleanup === "function") {
+		state.ganttToolbarSyncCleanup();
+		state.ganttToolbarSyncCleanup = null;
+	}
 	if (state.tableHost && state.ganttEl) {
 		state.ganttSyncCleanup = setupScrollSync(state.tableHost, state.ganttEl);
 		state.ganttHoverCleanup = setupHoverSync(
@@ -128,10 +131,34 @@ function bindSync(state) {
 			state.ganttEl,
 			state.table
 		);
+		state.ganttToolbarSyncCleanup = setupToolbarOffsetSync(
+			state.tableHost,
+			state.ganttEl
+		);
 	}
 }
 
-export async function ensureGantt(state) {
+async function waitFrame() {
+	await new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+/** Visible AG rows; retry a few frames — nodes empty mid refresh/create. */
+async function collectGanttTasks(table) {
+	for (let i = 0; i < 5; i++) {
+		const rows = collectVisibleRows(table);
+		if (rows.length) {
+			return rowsToGanttTasks(rows);
+		}
+		await waitFrame();
+	}
+	return [];
+}
+
+/**
+ * Mount or refresh gantt from current table. No gen-cancel mid-flight —
+ * callers use dirty-loop so the latest table state is applied after await.
+ */
+async function runGanttUpdate(state) {
 	if (!state?.ganttEl) {
 		return null;
 	}
@@ -143,11 +170,10 @@ export async function ensureGantt(state) {
 
 	await ensureAssets();
 
-	const tasks = rowsToGanttTasks(collectVisibleRows(state.table));
+	const tasks = await collectGanttTasks(state.table);
 	if (!tasks.length) {
-		state.ganttEl.innerHTML = "";
-		state.gantt = null;
-		return null;
+		// Keep previous chart if AG briefly has 0 nodes; only wipe when none yet.
+		return state.gantt || null;
 	}
 
 	if (!state.holidays || state.holidaysProject !== project) {
@@ -155,40 +181,66 @@ export async function ensureGantt(state) {
 		state.holidaysProject = project;
 	}
 
-	if (state.gantt?.refresh) {
+	// Project may have changed while holidays loaded.
+	if (state.getArgs?.()?.project !== project || !state.table) {
+		return null;
+	}
+
+	if (state.gantt?.refresh && state.ganttEl.querySelector?.(".gantt")) {
 		state.gantt.refresh(tasks);
 		bindSync(state);
 		return state.gantt;
 	}
 
+	state.gantt = null;
 	state.ganttEl.innerHTML = "";
 	const mountTarget = state.ganttEl.id ? `#${state.ganttEl.id}` : state.ganttEl;
-	state.gantt = new Gantt(
-		mountTarget,
-		tasks,
-		buildOptions(state.holidays)
-	);
+	state.gantt = new Gantt(mountTarget, tasks, buildOptions(state.holidays || []));
 	bindSync(state);
 	return state.gantt;
 }
 
-export function refreshGantt(state) {
-	if (!state?.table || !state.gantt) {
-		return ensureGantt(state);
+/** Serial dirty-loop: coalesce bursts, never cancel an in-flight mount. */
+async function pumpGanttUpdates(state) {
+	if (state._ganttPumping) {
+		return;
 	}
-	const tasks = rowsToGanttTasks(collectVisibleRows(state.table));
-	if (!tasks.length) {
-		destroyGantt(state);
+	state._ganttPumping = true;
+	try {
+		while (state._ganttDirty) {
+			state._ganttDirty = false;
+			await runGanttUpdate(state);
+		}
+	} finally {
+		state._ganttPumping = false;
+		// Dirty set during finally window.
+		if (state._ganttDirty) {
+			void pumpGanttUpdates(state);
+		}
+	}
+}
+
+export async function ensureGantt(state) {
+	if (!state) {
 		return null;
 	}
-	state.gantt.refresh(tasks);
-	bindSync(state);
-	return state.gantt;
+	state._ganttDirty = true;
+	await pumpGanttUpdates(state);
+	return state.gantt || null;
+}
+
+export function refreshGantt(state) {
+	return ensureGantt(state);
 }
 
 export function destroyGantt(state) {
 	if (!state) {
 		return;
+	}
+	state._ganttDirty = false;
+	if (state._ganttRaf) {
+		cancelAnimationFrame(state._ganttRaf);
+		state._ganttRaf = 0;
 	}
 	if (typeof state.ganttSyncCleanup === "function") {
 		state.ganttSyncCleanup();
@@ -198,17 +250,34 @@ export function destroyGantt(state) {
 		state.ganttHoverCleanup();
 		state.ganttHoverCleanup = null;
 	}
+	if (typeof state.ganttToolbarSyncCleanup === "function") {
+		state.ganttToolbarSyncCleanup();
+		state.ganttToolbarSyncCleanup = null;
+	}
 	state.gantt = null;
 	state.holidays = null;
 	state.holidaysProject = null;
+	state._ganttPumping = false;
 	if (state.ganttEl) {
 		state.ganttEl.innerHTML = "";
 	}
 }
 
+/** Mark dirty + kick pump (rAF coalesce for sync callers). */
 export function scheduleGanttRefresh(state) {
-	requestAnimationFrame(() => {
-		Promise.resolve(refreshGantt(state)).catch((e) =>
+	if (!state) {
+		return;
+	}
+	state._ganttDirty = true;
+	if (state._ganttPumping) {
+		return;
+	}
+	if (state._ganttRaf) {
+		return;
+	}
+	state._ganttRaf = requestAnimationFrame(() => {
+		state._ganttRaf = 0;
+		Promise.resolve(pumpGanttUpdates(state)).catch((e) =>
 			console.error("[task_wbs_v2] gantt refresh", e)
 		);
 	});

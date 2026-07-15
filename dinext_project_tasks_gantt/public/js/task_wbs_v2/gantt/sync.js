@@ -1,3 +1,6 @@
+/** Base gantt top offset (px). Live value set by setupToolbarOffsetSync (overrides CSS). */
+const GANTT_BASE_TOP_PAD = 1.5;
+
 function tableViewport(tableHost) {
 	return tableHost?.querySelector?.(".ag-body-viewport") || null;
 }
@@ -44,5 +47,31 @@ export function setupScrollSync(tableHost, ganttEl) {
 	return function cleanup() {
 		left.removeEventListener("scroll", fromLeft);
 		right.removeEventListener("scroll", fromRight);
+	};
+}
+
+/**
+ * When DinextTable toolbar opens/pins, grid shifts down in-flow.
+ * Mirror that offset on gantt (base 3px + toolbar height).
+ */
+export function setupToolbarOffsetSync(tableHost, ganttEl) {
+	const toolbar = tableHost?.querySelector?.(".dinext-table-toolbar");
+	if (!toolbar || !ganttEl) {
+		return () => {};
+	}
+
+	const apply = () => {
+		const h = toolbar.offsetHeight || 0;
+		ganttEl.style.paddingTop = `${GANTT_BASE_TOP_PAD + h}px`;
+	};
+
+	apply();
+
+	const ro = new ResizeObserver(apply);
+	ro.observe(toolbar);
+
+	return function cleanup() {
+		ro.disconnect();
+		ganttEl.style.paddingTop = "";
 	};
 }

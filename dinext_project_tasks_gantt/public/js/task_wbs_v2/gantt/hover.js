@@ -22,20 +22,29 @@ function highlightTableRow(tableHost, table, rowId, on) {
 		return;
 	}
 	const id = String(rowId);
-	let row = tableHost.querySelector(`.ag-row[row-id="${CSS.escape(id)}"]`);
-	if (!row && table?.api?.getRowNode) {
-		const node = table.api.getRowNode(id);
-		const idx = node?.rowIndex;
-		if (idx != null && table.api.getDisplayedRowAtIndex) {
-			const displayed = table.api.getDisplayedRowAtIndex(idx);
-			if (displayed?.rowIndex != null) {
-				row = tableHost.querySelector(
-					`.ag-center-cols-container .ag-row[row-index="${displayed.rowIndex}"]`
-				);
-			}
-		}
+	// Pinned left + center keep separate `.ag-row` nodes — highlight all.
+	const rows = tableHost.querySelectorAll(
+		`.ag-row[row-id="${CSS.escape(id)}"]`
+	);
+	if (rows.length) {
+		rows.forEach((row) => row.classList.add(ROW_HOVER));
+		return;
 	}
-	row?.classList.add(ROW_HOVER);
+	if (!table?.api?.getRowNode) {
+		return;
+	}
+	const node = table.api.getRowNode(id);
+	const idx = node?.rowIndex;
+	if (idx == null || !table.api.getDisplayedRowAtIndex) {
+		return;
+	}
+	const displayed = table.api.getDisplayedRowAtIndex(idx);
+	if (displayed?.rowIndex == null) {
+		return;
+	}
+	tableHost
+		.querySelectorAll(`.ag-row[row-index="${displayed.rowIndex}"]`)
+		.forEach((row) => row.classList.add(ROW_HOVER));
 }
 
 function highlightGanttBar(ganttEl, rowId, on) {

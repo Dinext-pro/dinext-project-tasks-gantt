@@ -1,3 +1,14 @@
+export function el(tag, className, text) {
+	const node = document.createElement(tag);
+	if (className) {
+		node.className = className;
+	}
+	if (text != null && text !== "") {
+		node.textContent = text;
+	}
+	return node;
+}
+
 export function slugClass(value) {
 	if (!value) {
 		return "";
@@ -9,17 +20,24 @@ export function slugClass(value) {
 		.replace(/[^a-z0-9_\-]/g, "");
 }
 
-export function parseTags(raw) {
+/**
+ * Frappe _user_tags: leading comma, then tags.
+ * Tree: split(",").slice(1, limit+1).
+ */
+export function parseTags(raw, limit = null) {
 	if (!raw) {
 		return [];
 	}
 	if (Array.isArray(raw)) {
-		return raw.map(String).map((s) => s.trim()).filter(Boolean);
+		const tags = raw.map(String).map((s) => s.trim()).filter(Boolean);
+		return limit == null ? tags : tags.slice(0, limit);
 	}
-	return String(raw)
-		.split(",")
+	const parts = String(raw).split(",");
+	const tags = parts
+		.slice(1)
 		.map((s) => s.trim())
 		.filter(Boolean);
+	return limit == null ? tags : tags.slice(0, limit);
 }
 
 export function formatDate(value) {

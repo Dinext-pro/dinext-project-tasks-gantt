@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.utils import cint
+from frappe.utils import add_user_info, cint
 
 
 ALLOWED_SORT_FIELDS = frozenset(
@@ -99,6 +99,22 @@ def _attach_relations(rows: list[dict]) -> None:
 			by_parent.setdefault(rel["parent"], []).append(rel)
 	for row in rows:
 		row["relations"] = by_parent.get(row["id"], [])
+
+
+def _publish_assign_user_info(rows: list[dict]) -> None:
+	"""Expose assignee fullname/image for frappe.avatar_group (boot.user_info)."""
+	users: set[str] = set()
+	for row in rows:
+		for user in row.get("assign") or []:
+			if user:
+				users.add(user)
+	if not users:
+		return
+	user_info: dict = {}
+	add_user_info(users, user_info)
+	if user_info:
+		# Same channel as frappe.handler message payload (list views use this key).
+		frappe.response["user_info"] = user_info
 
 
 def _to_canonical(row: dict) -> dict:
@@ -234,4 +250,5 @@ def get_children(**kwargs) -> list[dict]:
 	_attach_relations(rows)
 	for row in rows:
 		row["can_write"] = 1 if frappe.has_permission("Task", "write", row["id"]) else 0
+	_publish_assign_user_info(rows)
 	return rows

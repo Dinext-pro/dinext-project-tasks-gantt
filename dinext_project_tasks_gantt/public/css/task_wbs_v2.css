@@ -58,7 +58,7 @@
 	content: "⁝⁝";
 	position: absolute;
 	top: calc(50% - 8.5px);
-	right: -3px;
+	right: -2px;
 	font-size: 15px;
 	background-color: #ebebeb;
 	color: black;
@@ -82,14 +82,66 @@
 	min-height: 0;
 }
 
+/* --- table chrome (Tree header / details-cell) --- */
+
+.task-wbs-v2-table-host.dinext-table .ag-header-cell .ag-header-cell-label {
+	justify-content: center;
+	width: 100%;
+}
+
+.task-wbs-v2-table-host.dinext-table .ag-header-cell .ag-header-cell-text {
+	text-align: center;
+}
+
+/* Subject header slightly larger; other headers smaller than Quartz default */
+.task-wbs-v2-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text {
+	font-size: var(--text-base, 14px);
+	font-weight: 600;
+}
+
+.task-wbs-v2-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text {
+	font-size: var(--text-xs, 11px);
+	font-weight: 500;
+	line-height: 1.2;
+}
+
+/* Date headers: wrap «Прогноз …» in narrow cols */
+.task-wbs-v2-table-host.dinext-table .ag-header-cell.twb-v2-header--wrap .ag-header-cell-label,
+.task-wbs-v2-table-host.dinext-table .ag-header-cell.twb-v2-header--wrap .ag-header-cell-text {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: unset;
+	line-height: 1.15;
+}
+
+/* Cell content centered except subject (tree col keeps left layout) */
+.task-wbs-v2-table-host.dinext-table .ag-cell:not([col-id="subject"]) > .ag-cell-wrapper {
+	justify-content: center;
+	width: 100%;
+}
+
+.task-wbs-v2-table-host.dinext-table .ag-cell:not([col-id="subject"]) {
+	text-align: center;
+}
+
 /* --- gantt --- */
 
 .task-wbs-v2-gantt {
 	overflow: hidden;
+	box-sizing: border-box;
+	/* Fallback before JS; live pad = GANTT_BASE_TOP_PAD (+ toolbar) in sync.js. */
+	padding-top: 2.5px;
+	transition: padding-top 0.22s ease;
 	/* Light tweaks (scoped — survive frappe-gantt.css :root load order). */
 	--g-holiday-highlight-color: #e6fae6;
 	--g-progress-color: #e4f5e9;
 	--g-arrow-color: #a4a4a4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.task-wbs-v2-gantt {
+		transition: none;
+	}
 }
 
 .task-wbs-v2-gantt .gantt-container {
@@ -150,7 +202,7 @@
 	stroke-width: 0.5;
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-row.twb-v2-row--hover {
+.task-wbs-v2-table-host.dinext-table .ag-row.twb-v2-row--hover {
 	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
@@ -210,11 +262,21 @@
 	background-color: var(--primary, #2490ef);
 }
 
-.task-wbs-v2-table-host .dinext-table,
+.task-wbs-v2-table-host.dinext-table,
 .task-wbs-v2-table-host .ag-root-wrapper {
 	flex: 1 1 auto;
 	min-height: 0;
 	height: 100%;
+}
+
+/* AG themeQuartz paints checked ТШ blue (accent). Vars on theme child. Tree = no blue fill. */
+.task-wbs-v2-table-host.dinext-table [class*="ag-theme-checkboxStyle"] {
+	--ag-checkbox-checked-background-color: var(--ag-checkbox-unchecked-background-color) !important;
+	--ag-checkbox-checked-border-color: var(
+		--ag-checkbox-unchecked-border-color,
+		var(--ag-foreground-color)
+	) !important;
+	--ag-checkbox-checked-shape-color: var(--ag-foreground-color) !important;
 }
 
 body.task-wbs-v2-resizing {
@@ -222,28 +284,150 @@ body.task-wbs-v2-resizing {
 	user-select: none;
 }
 
+/* --- dependency conflicts (Tree .conflict parity) --- */
+
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-dep-conflict,
+.task-wbs-v2-table-host.dinext-table .twb-v2-subject.twb-v2-dep-conflict {
+	color: var(--danger, #e74c3c) !important;
+}
+
 /* --- table cell chrome (column parity) --- */
 
+/* Subject = Tree .tree-link content (label + hover toolbar). */
 .twb-v2-subject {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
 	min-width: 0;
+	max-width: 100%;
 	width: 100%;
+	line-height: 1.2;
+	vertical-align: middle;
+}
+
+.twb-v2-subject--colored {
+	padding-left: 6px;
+}
+
+.twb-v2-subject-main {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	flex: 1 1 auto;
 }
 
 .twb-v2-milestone {
-	color: var(--text-muted, #7c7c7c);
-	font-size: 10px;
+	display: block;
 	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+	object-fit: contain;
 }
 
 .twb-v2-subject-text {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	min-width: 0;
+	cursor: pointer;
 }
 
+.twb-v2-subject-text:hover {
+	text-decoration: underline;
+}
+
+/* Tree inline Control(Data) on subject click. */
+.twb-v2-subject-edit {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: 100%;
+}
+
+.twb-v2-subject-edit .frappe-control,
+.twb-v2-subject-edit .form-group {
+	margin: 0 !important;
+	max-width: 100%;
+}
+
+.twb-v2-subject-edit .form-control {
+	background: transparent !important;
+	border: none !important;
+	box-shadow: none !important;
+	padding: 0 !important;
+	height: 22px !important;
+	min-height: 22px !important;
+	font-size: inherit;
+	line-height: 1.2;
+}
+
+.twb-v2-subject:has(.twb-v2-subject-edit) .twb-v2-subject-toolbar {
+	display: none !important;
+}
+
+/* Tree: .tree-link:hover .tree-node-toolbar { display: inline-flex }.
+ * Host node IS .dinext-table (same element) — no descendant combinator. */
+.twb-v2-subject-toolbar {
+	display: none;
+	flex: 0 0 auto;
+	align-items: center;
+	align-self: center;
+	gap: 1px;
+	margin-left: 4px;
+	white-space: nowrap;
+}
+
+.task-wbs-v2-table-host.dinext-table .ag-row-hover .twb-v2-subject-toolbar,
+.task-wbs-v2-table-host .ag-row-hover .twb-v2-subject-toolbar,
+.task-wbs-v2-table-host.dinext-table .ag-cell:hover .twb-v2-subject-toolbar,
+.task-wbs-v2-table-host .ag-cell:hover .twb-v2-subject-toolbar {
+	display: inline-flex !important;
+}
+
+/* AG cells clip overflowing toolbar — keep subject cell visible. */
+.task-wbs-v2-table-host.dinext-table-tree-content,
+.task-wbs-v2-table-host .ag-cell[col-id="subject"],
+.task-wbs-v2-table-host .ag-cell.ag-column-first {
+	overflow: visible;
+}
+
+/* Tree sticky .tree-link: opaque bg + edge shadow while center scrolls. */
+.task-wbs-v2-table-host .ag-pinned-left-cols-container,
+.task-wbs-v2-table-host .ag-pinned-left-header {
+	background: var(--bg-color, var(--card-bg, #fff));
+	z-index: 2;
+}
+
+.task-wbs-v2-table-host .ag-pinned-left-cols-container {
+	box-shadow: 1px 0 3px -2px gray;
+}
+
+.task-wbs-v2-table-host .ag-pinned-left-cols-container .ag-cell[col-id="subject"] {
+	background: var(--bg-color, var(--card-bg, #fff));
+}
+
+[data-theme="dark"] .task-wbs-v2-table-host .ag-pinned-left-cols-container,
+[data-theme="dark"] .task-wbs-v2-table-host .ag-pinned-left-header,
+[data-theme="dark"]
+	.task-wbs-v2-table-host
+	.ag-pinned-left-cols-container
+	.ag-cell[col-id="subject"] {
+	background: var(--bg-color, #242424);
+}
+
+.twb-v2-subject-toolbar .btn {
+	padding: 0 4px;
+	min-height: 18px;
+	line-height: 1.1;
+	font-size: 11px;
+	border-radius: 2px;
+}
+
+.twb-v2-subject-toolbar .btn.fa:before {
+	margin: 0;
+}
+
+/* Assign — Tree .details-cell.assign */
 .twb-v2-assign {
 	display: flex;
 	align-items: center;
@@ -252,25 +436,55 @@ body.task-wbs-v2-resizing {
 	height: 100%;
 }
 
-.twb-v2-progress {
-	width: 100%;
-	height: 8px;
-	background: var(--bg-color, #f3f3f3);
-	border-radius: 4px;
-	overflow: hidden;
+.twb-v2-assign--editable {
+	cursor: pointer;
 }
 
-.twb-v2-progress-bar {
-	height: 100%;
-	background: var(--bg-green, #28a745);
-	border-radius: 4px;
+.task-wbs-v2-table-host .ag-cell[col-id="assign"]:hover {
+	background-color: var(--control-bg);
+}
+
+.twb-v2-assign-avatars .avatar {
+	width: 22px;
+	height: 22px;
+}
+
+.twb-v2-assign-avatars .avatar-frame {
+	width: 22px;
+	height: 22px;
+}
+
+/*
+ * Tree: .progress-bar.progress-bar-success inside cell.
+ * Bootstrap .progress-bar is float + height:100% — parent needs fixed height
+ * (otherwise bar collapses to 0 in AG cell).
+ */
+.twb-v2-progress {
+	display: block;
+	width: 100%;
+	height: 12px;
+	overflow: hidden;
+	border-radius: 2px;
+	background-color: color-mix(in srgb, var(--text-color) 10%, transparent);
+}
+
+.twb-v2-progress-bar,
+.twb-v2-progress .progress-bar {
+	float: left;
+	height: 12px;
+	min-height: 12px;
+	background-color: var(--green-500, #98d85b);
+	box-shadow: none;
 }
 
 .twb-v2-tags {
 	display: flex;
 	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: center;
 	gap: 4px;
 	overflow: hidden;
+	width: 100%;
 }
 
 .twb-v2-tag-pill {
@@ -278,67 +492,187 @@ body.task-wbs-v2-resizing {
 	max-width: 72px;
 	padding: 0 6px;
 	border-radius: 8px;
-	font-size: 11px;
+	font-size: var(--text-xs, 11px);
 	line-height: 18px;
 	background: var(--bg-light-gray, #e8e8e8);
+	cursor: pointer;
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-status,
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-priority {
-	font-weight: 500;
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-status,
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority {
+	font-weight: 400;
 	font-size: var(--text-xs, 11px);
-	text-align: center;
+	line-height: 1.15;
+	padding-block: 0;
+	padding-inline: 2px;
+}
+
+/* Priority labels: vertical + horizontal center (AG cell is inline-block) */
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority {
+	display: flex !important;
+	align-items: center;
 	justify-content: center;
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-status--completed {
+/* DinextTable: fill on `.ag-cell` (cellClassRules), not child renderer */
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-status--completed {
 	color: var(--text-on-green);
 	background-color: var(--bg-green);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-status--overdue {
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-status--overdue {
 	color: var(--alert-text-danger);
 	background-color: var(--alert-bg-danger);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-status--cancelledled {
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-status--cancelled {
 	color: var(--text-on-light-gray);
 	background-color: var(--bg-light-gray);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-status--working {
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-status--working {
 	color: var(--text-on-blue);
 	background-color: var(--bg-blue);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-status--pending_review {
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-status--pending_review {
 	color: var(--text-on-dark-blue);
 	background-color: var(--bg-dark-blue);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-status--open {
-	color: var(--text-color);
-	background-color: color-mix(in srgb, var(--text-color) 6%, transparent);
+/* Tree: Open/Template без спец-цвета */
+
+.twb-v2-status-cell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	min-height: 100%;
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-priority--urgent {
+.twb-v2-status--editable {
+	cursor: pointer;
+}
+
+.twb-v2-status-edit,
+.twb-v2-status-control {
+	width: 100%;
+	display: flex;
+	align-items: center;
+}
+
+.twb-v2-status-control .form-control,
+.twb-v2-status-control select {
+	min-height: 22px;
+	height: 22px;
+	padding: 0 4px;
+	font-size: var(--text-xs, 11px);
+}
+
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority--urgent {
 	color: var(--text-on-red);
 	background-color: var(--bg-red);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-priority--high {
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority--high {
 	color: var(--text-orange);
 	background-color: var(--bg-orange);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-priority--medium {
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority--medium {
 	color: var(--text-on-yellow);
 	background-color: var(--bg-yellow);
 }
 
-.task-wbs-v2-table-host .dinext-table .ag-cell.twb-v2-priority--low {
+.task-wbs-v2-table-host.dinext-table .ag-cell.twb-v2-priority--low {
 	color: var(--text-muted);
 	background-color: color-mix(in srgb, var(--text-color) 6%, transparent);
+}
+
+/* dates — center, compact (Tree details-cell parity) */
+.task-wbs-v2-table-host.dinext-table .ag-cell[col-id="exp_start_date"],
+.task-wbs-v2-table-host.dinext-table .ag-cell[col-id="exp_end_date"] {
+	font-size: var(--text-xs, 11px);
+	text-align: center;
+}
+
+.task-wbs-v2-table-host.dinext-table .ag-cell[col-id="exp_start_date"] > .ag-cell-wrapper,
+.task-wbs-v2-table-host.dinext-table .ag-cell[col-id="exp_end_date"] > .ag-cell-wrapper {
+	justify-content: center;
+	width: 100%;
+}
+
+/* progress — fixed-height track, vertically centered in row */
+.task-wbs-v2-table-host.dinext-table .ag-cell[col-id="progress"] {
+	display: flex !important;
+	align-items: center;
+	padding-block: 0;
+	padding-inline: 4px;
+}
+
+/* duration — Tree 50px */
+.task-wbs-v2-table-host.dinext-table .ag-cell[col-id="expected_time"] {
+	font-size: var(--text-xs, 11px);
+}
+
+/* type — muted compact */
+.task-wbs-v2-table-host.dinext-table .ag-cell[col-id="type"] {
+	font-size: var(--text-xs, 11px);
+	color: var(--text-muted);
+}
+
+.twb-v2-plan-fact {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+.twb-v2-plan-fact-btn.plan-fact-button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border-radius: 50%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+}
+
+.twb-v2-plan-fact-btn.plan-fact-button i {
+	margin: 0;
+}
+
+/* Tree hex status colors (button + dialog formatters .block/.message/…) */
+.task-wbs-v2-table-host .plan-fact-button.block,
+.modal-body .block {
+	color: #f44336;
+}
+
+.task-wbs-v2-table-host .plan-fact-button.message,
+.modal-body .message {
+	color: #ff9800;
+}
+
+.task-wbs-v2-table-host .plan-fact-button.warning,
+.modal-body .warning {
+	color: #ffeb3b;
+}
+
+.task-wbs-v2-table-host .plan-fact-button.normal,
+.modal-body .normal {
+	color: #4caf50;
+}
+
+.task-wbs-v2-table-host .plan-fact-button.no-plan,
+.task-wbs-v2-table-host .plan-fact-button.no-data,
+.modal-body .no-plan {
+	color: #9e9e9e;
+}
+
+.modal-body div[data-fieldname="plan_fact_table"] .row-check.col {
+	display: none;
 }
 
 body.task-wbs-v2-resizing iframe {

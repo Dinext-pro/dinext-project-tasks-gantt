@@ -11,7 +11,7 @@ export function setupToolbar({ page, state }) {
 	page.__task_wbs_v2_toolbar = true;
 
 	page.add_inner_button(__("Expand All"), () => {
-		expandAllRows(state.table, state.getArgs)
+		expandAllRows(state.table, state.getArgs, state.tableHost)
 			.then(() => scheduleGanttRefresh(state))
 			.catch((e) => {
 				console.error(e);

@@ -30,6 +30,9 @@ export async function getChildren(args) {
 			limit: args.limit || null,
 		},
 	});
+	if (r.user_info && typeof frappe.update_user_info === "function") {
+		frappe.update_user_info(r.user_info);
+	}
 	return r.message || [];
 }
 
