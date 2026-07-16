@@ -9,8 +9,9 @@ import { buildShell, setupResize } from "./shell/layout.js";
 import { setColumnContext } from "./table/columns/context.js";
 import { loadTable } from "./table/index.js";
 
-export async function mount({ page }) {
+export async function mount({ page, fromTreeCutover = false }) {
 	page.set_title(DEFAULT_TITLE);
+	page.wrapper?.addClass?.("task-wbs-v2-page");
 
 	const state = {
 		getArgs: null,
@@ -19,6 +20,7 @@ export async function mount({ page }) {
 		table: null,
 		gantt: null,
 		fullscreenShell: null,
+		fromTreeCutover: !!fromTreeCutover,
 	};
 
 	const reload = async () => {

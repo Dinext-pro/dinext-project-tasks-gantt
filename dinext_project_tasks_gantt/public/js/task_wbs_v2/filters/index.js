@@ -5,11 +5,22 @@ import { filterDefaults, taskSelectOptions } from "./defaults.js";
 export async function setupFilters({ page, onChange }) {
 	await frappe.model.with_doctype("Task");
 
+	if (page.__task_wbs_v2_filters_getArgs) {
+		return page.__task_wbs_v2_filters_getArgs;
+	}
+
 	const args = filterDefaults();
 	const emit = () => onChange?.();
 	let lastProject = args.project;
 
-	page.add_field({
+	const addIfMissing = (df) => {
+		if (page.fields_dict?.[df.fieldname]) {
+			return page.fields_dict[df.fieldname];
+		}
+		return page.add_field(df);
+	};
+
+	addIfMissing({
 		fieldname: "project",
 		fieldtype: "Link",
 		options: "Project",
@@ -35,7 +46,7 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	page.add_field({
+	addIfMissing({
 		fieldname: "task",
 		fieldtype: "Link",
 		options: "Task",
@@ -53,7 +64,7 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	page.add_field({
+	addIfMissing({
 		fieldname: "status",
 		fieldtype: "Select",
 		label: __("Status"),
@@ -64,7 +75,7 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	page.add_field({
+	addIfMissing({
 		fieldname: "priority",
 		fieldtype: "Select",
 		label: __("Priority"),
@@ -75,7 +86,7 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	page.add_field({
+	addIfMissing({
 		fieldname: "assign",
 		fieldtype: "Link",
 		options: "User",
@@ -86,7 +97,7 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	page.add_field({
+	addIfMissing({
 		fieldname: "tag",
 		fieldtype: "Link",
 		options: "Tag",
@@ -97,7 +108,7 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	page.add_field({
+	addIfMissing({
 		fieldname: "limit",
 		fieldtype: "Int",
 		label: __("Limit"),
@@ -108,10 +119,12 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	if (args.project) {
+	if (args.project && page.fields_dict.project) {
 		await page.fields_dict.project.set_value(args.project);
 		void setPageTitle(page, args.project);
 	}
 
-	return () => ({ ...args });
+	const getArgs = () => ({ ...args });
+	page.__task_wbs_v2_filters_getArgs = getArgs;
+	return getArgs;
 }
