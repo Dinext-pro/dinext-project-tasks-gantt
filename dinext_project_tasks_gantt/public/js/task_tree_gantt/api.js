@@ -1,7 +1,7 @@
 const GET_CHILDREN = "dinext_project_tasks_gantt.task_tree_gantt.api.get_children";
 const SAVE_CELLS = "dinext_project_tasks_gantt.task_tree_gantt.api.save_cells";
 const TIMESHEET_LIMITS =
-	"project_workload_assignment.project_workload_api.calculate_timesheet_limits";
+	"project_workload_assignment.api.calculate_timesheet_limits";
 const CHECK_DEPENDENCIES = "check_dependencies_for_tasks";
 const PREVIEW_PROPAGATION = "preview_propagation";
 const APPLY_PROPAGATION = "apply_propagation";
