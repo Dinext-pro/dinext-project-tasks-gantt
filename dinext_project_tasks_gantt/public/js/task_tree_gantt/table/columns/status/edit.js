@@ -1,0 +1,137 @@
+/**
+ * Tree createControl(Select) for status — with_doc, workflow, confirm options.
+ */
+import { fieldCanEdit, saveCells } from "../../save.js";
+import { getOnGanttRefresh } from "../context.js";
+import { getStatusOptions } from "./options.js";
+
+function evaluateReadOnlyDependsOn(expression, doc) {
+	if (typeof expression === "boolean") return expression;
+	if (!expression) return false;
+	const expr = String(expression);
+	if (expr.startsWith("eval:")) {
+		try {
+			return !!frappe.utils.eval(expr.slice(5), { doc });
+		} catch (e) {
+			return false;
+		}
+	}
+	const value = doc?.[expr];
+	if (Array.isArray(value)) return !!value.length;
+	return !!value;
+}
+
+function fieldIsWritable(doc, taskId) {
+	if (frappe.workflow?.is_read_only?.("Task", taskId)) return false;
+	const df = frappe.meta.get_field("Task", "status", taskId);
+	if (!df) return true;
+	let status = frappe.perm.get_field_display_status(df, doc, null, false);
+	if (
+		status === "Write" &&
+		df.read_only_depends_on &&
+		evaluateReadOnlyDependsOn(df.read_only_depends_on, doc)
+	) {
+		status = "Read";
+	}
+	return status === "Write";
+}
+
+function stampStatus(row, params, next) {
+	row.status = next;
+	if (params.node?.data) {
+		params.node.data.status = next;
+	}
+}
+
+/**
+ * @param {{
+ *   wrap: HTMLElement,
+ *   row: object,
+ *   params: object,
+ * }} opts
+ */
+export async function startStatusInlineEdit({ wrap, row, params }) {
+	if (!fieldCanEdit(row, "status")) return;
+	if (wrap.querySelector(".tree-gantt-status-edit")) return;
+
+	const taskId = row.id;
+	let doc;
+	try {
+		doc = await frappe.model.with_doc("Task", taskId);
+	} catch (e) {
+		console.error("[task_tree_gantt] status with_doc", e);
+		return;
+	}
+	if (!fieldIsWritable(doc, taskId)) return;
+
+	// Prefer live confirm/owner from doc for options (row may be stale).
+	const optionsRow = {
+		...row,
+		confirm: doc.confirm ?? row.confirm,
+		owner: doc.owner || row.owner,
+	};
+	const options = getStatusOptions(optionsRow);
+	const oldValue = row.status || "";
+
+	wrap.replaceChildren();
+	const host = document.createElement("div");
+	host.className = "tree-gantt-status-edit";
+	wrap.appendChild(host);
+
+	let finished = false;
+	const finish = async (commit) => {
+		if (finished) return;
+		finished = true;
+		const control = host._control;
+		const next = control ? control.get_value() : oldValue;
+
+		if (commit && next != null && String(next) !== String(oldValue)) {
+			const ok = await saveCells([{ id: taskId, field: "status", value: next }]);
+			if (ok) {
+				stampStatus(row, params, next);
+				frappe.model.clear_doc?.("Task", taskId);
+				getOnGanttRefresh()?.();
+			}
+		}
+
+		host._control = null;
+		params.api?.refreshCells?.({
+			rowNodes: params.node ? [params.node] : undefined,
+			columns: ["status"],
+			force: true,
+		});
+	};
+
+	const control = frappe.ui.form.make_control({
+		parent: $(host),
+		doctype: "Task",
+		docname: taskId,
+		only_input: true,
+		df: {
+			fieldname: "status",
+			fieldtype: "Select",
+			label: "",
+			options: options.join("\n"),
+		},
+		value: oldValue,
+		render_input: true,
+	});
+	host._control = control;
+	control.$wrapper?.addClass?.("tree-gantt-status-control");
+	control.$wrapper?.find?.(".control-label, .help-box, .clearfix")?.hide?.();
+	control.$input?.trigger?.("focus");
+
+	control.$input?.on?.("change", () => {
+		void finish(true);
+	});
+	control.$input?.on?.("keydown", (ev) => {
+		if (ev.key === "Escape") {
+			ev.preventDefault();
+			ev.stopPropagation();
+			void finish(false);
+		}
+	});
+	control.$input?.on?.("blur", () => {
+		setTimeout(() => void finish(false), 150);
+	});
+}

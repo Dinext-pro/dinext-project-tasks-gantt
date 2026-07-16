@@ -104,7 +104,7 @@ doctype_tree_js = {
 	"Task": [
 		"public/js/burndown_navigation.js",
 		"public/js/task_tree_burndown_button.js",
-		"public/js/task_tree_wbs_adapter.js",
+		"public/js/task_tree_gantt_adapter.js",
 	],
 }
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
