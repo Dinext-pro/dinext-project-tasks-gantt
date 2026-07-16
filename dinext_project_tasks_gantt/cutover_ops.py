@@ -1,6 +1,5 @@
 # Copyright (c) 2026, Dinext and contributors
-# Temporary one-shot: disable Tree CS + get_children SS for cutover.
-# Run: bench --site dev.dinext.localhost execute dinext_project_tasks_gantt.cutover_ops.disable_tree_scripts
+# Cutover helpers for Task Tree → task_wbs_v2.
 
 import frappe
 
@@ -18,6 +17,11 @@ CS_NAMES = [
 
 SS_NAMES = [
 	"Task Get Tree Nodes_V6",
+]
+
+DESK_PAGE_NAMES = [
+	"task-wbs",
+	"task-wbs-v2",
 ]
 
 
@@ -68,3 +72,15 @@ def enable_tree_scripts():
 	frappe.db.commit()
 	frappe.clear_cache()
 	return updated
+
+
+def delete_desk_pages():
+	"""Remove dev Desk Pages after cutover to /app/tree/Task."""
+	deleted = []
+	for name in DESK_PAGE_NAMES:
+		if frappe.db.exists("Page", name):
+			frappe.delete_doc("Page", name, force=1)
+			deleted.append(name)
+	frappe.db.commit()
+	frappe.clear_cache()
+	return deleted

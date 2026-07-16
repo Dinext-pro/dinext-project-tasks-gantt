@@ -1,8 +1,6 @@
 /* Same as Task Tree Style V4: tag + limit are col-md-1. */
 @media (min-width: 768px) {
-	#page-task-wbs-v2 .page-form > div:nth-child(6),
 .task-wbs-v2-page .page-form > div:nth-child(6),
-	#page-task-wbs-v2 .page-form > div:nth-child(7),
 .task-wbs-v2-page .page-form > div:nth-child(7) {
 		flex: 0 0 8.33333333% !important;
 		max-width: 8.33333333% !important;
@@ -10,7 +8,6 @@
 }
 
 /* Layout split — visual parity with Task Tree Layout V2 (.draggable-border). */
-#page-task-wbs-v2 .container.page-body,
 .task-wbs-v2-page .container.page-body {
 	max-height: calc(100vh - var(--navbar-height) - 65px);
 	overflow-y: hidden;
@@ -27,9 +24,7 @@
 }
 
 /* Fullscreen shell = page.main (filters + table/gantt), WR pattern. */
-#page-task-wbs-v2 .layout-main-section:fullscreen,
 .task-wbs-v2-page .layout-main-section:fullscreen,
-#page-task-wbs-v2 .layout-main-section.task-wbs-v2--fullscreen ,
 .task-wbs-v2-page .layout-main-section.task-wbs-v2--fullscreen {
 	display: flex;
 	flex-direction: column;
@@ -41,16 +36,12 @@
 	background-color: var(--card-bg, var(--bg-color, #fff));
 }
 
-#page-task-wbs-v2 .layout-main-section:fullscreen .page-form,
 .task-wbs-v2-page .layout-main-section:fullscreen .page-form,
-#page-task-wbs-v2 .layout-main-section.task-wbs-v2--fullscreen .page-form ,
 .task-wbs-v2-page .layout-main-section.task-wbs-v2--fullscreen .page-form {
 	flex: 0 0 auto;
 }
 
-#page-task-wbs-v2 .layout-main-section:fullscreen .task-wbs-v2-shell,
 .task-wbs-v2-page .layout-main-section:fullscreen .task-wbs-v2-shell,
-#page-task-wbs-v2 .layout-main-section.task-wbs-v2--fullscreen .task-wbs-v2-shell ,
 .task-wbs-v2-page .layout-main-section.task-wbs-v2--fullscreen .task-wbs-v2-shell {
 	flex: 1 1 auto;
 	min-height: 0;
