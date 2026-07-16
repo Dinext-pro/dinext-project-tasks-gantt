@@ -22,12 +22,14 @@ fixtures = [
         "doctype": "Client Script",
         "filters": [
             ["module", "in", ["Dinext Project Tasks Gantt"]],
+            ["enabled", "=", 1]
         ]
     },
     {
         "doctype": "Server Script",
         "filters": [
             ["module", "in", ["Dinext Project Tasks Gantt"]],
+            ["disabled", "=", 0]
         ]
     },
     {
@@ -307,8 +309,6 @@ doc_events = {
 # auth_hooks = [
 # 	"dinext_project_tasks_gantt.auth.validate"
 # ]
-
-boot_session = "dinext_project_tasks_gantt.boot.boot_session"
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True

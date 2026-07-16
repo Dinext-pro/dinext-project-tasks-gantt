@@ -1,23 +1,10 @@
 // Copyright (c) 2026, Dinext and contributors
 // For license information, please see license.txt
 /**
- * Cutover: /app/tree/Task → task_wbs_v2 when site_config.task_wbs_tree_cutover = 1.
- * Does not delete legacy CS; enable flag only after CS enabled=0.
+ * /app/tree/Task → task_wbs_v2 (DinextTable + Gantt).
  */
 (function () {
 	const TASK_DOCTYPE = "Task";
-	const FLAG = "task_wbs_tree_cutover";
-
-	function isCutoverEnabled() {
-		const boot = frappe.boot || {};
-		if (cint(boot[FLAG]) === 1) {
-			return true;
-		}
-		if (cint(boot.sysdefaults?.[FLAG]) === 1) {
-			return true;
-		}
-		return false;
-	}
 
 	function clearMainExceptPageForm(page) {
 		const main = page?.main?.get?.(0);
@@ -81,24 +68,20 @@
 			frappe.throw(__("task_wbs_v2 bundle failed to load"));
 		}
 
-		const mounted = await api.mount({ page, fromTreeCutover: true });
+		const mounted = await api.mount({ page });
 		setupBurndown(page, mounted?.state?.getArgs);
 	}
 
 	function install() {
-		if (!isCutoverEnabled()) {
-			return;
-		}
-
 		frappe.provide("frappe.treeview_settings");
 		let settings = frappe.treeview_settings[TASK_DOCTYPE];
 		if (!settings) {
 			settings = frappe.treeview_settings[TASK_DOCTYPE] = {};
 		}
-		if (settings.__task_wbs_v2_cutover) {
+		if (settings.__task_wbs_v2) {
 			return;
 		}
-		settings.__task_wbs_v2_cutover = true;
+		settings.__task_wbs_v2 = true;
 
 		// TreeView must not add ERPNext filters — mount owns page-form.
 		settings.filters = [];
@@ -109,7 +92,7 @@
 
 		settings.onload = function (treeview) {
 			void mountWbs(treeview).catch((e) => {
-				console.error("[task_wbs_v2 cutover]", e);
+				console.error("[task_wbs_v2]", e);
 				frappe.msgprint({
 					title: __("Error"),
 					indicator: "red",
@@ -119,7 +102,7 @@
 		};
 
 		settings.post_render = function () {
-			/* classic tree skipped */
+			/* classic tree unused */
 		};
 	}
 
