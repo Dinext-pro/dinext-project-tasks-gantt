@@ -3,7 +3,7 @@
  * Import as `./columns/index.js` — no sibling table/columns.js.
  */
 import { assignColumn } from "./assign/index.js";
-import { expEndColumn, expStartColumn } from "./dates.js";
+import { expEndColumn, expStartColumn } from "./dates/index.js";
 import { durationColumn } from "./duration.js";
 import { includeColumn } from "./include.js";
 import { planFactColumn } from "./plan_fact/index.js";

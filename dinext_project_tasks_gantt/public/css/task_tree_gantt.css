@@ -579,14 +579,17 @@ body.task-tree-gantt-resizing {
 }
 
 .tree-gantt-status--editable,
-.tree-gantt-priority--editable {
+.tree-gantt-priority--editable,
+.tree-gantt-date--editable {
 	cursor: pointer;
 }
 
 .tree-gantt-status-edit,
 .tree-gantt-priority-edit,
+.tree-gantt-date-edit,
 .tree-gantt-status-control,
-.tree-gantt-priority-control {
+.tree-gantt-priority-control,
+.tree-gantt-date-control {
 	width: 100%;
 	display: flex;
 	align-items: center;
@@ -595,12 +598,28 @@ body.task-tree-gantt-resizing {
 .tree-gantt-status-control .form-control,
 .tree-gantt-status-control select,
 .tree-gantt-priority-control .form-control,
-.tree-gantt-priority-control select {
+.tree-gantt-priority-control select,
+.tree-gantt-date-control .form-control,
+.tree-gantt-date-control input {
 	min-height: 22px;
 	height: 22px;
 	padding: 0 4px;
 	font-size: var(--text-xs, 11px);
 	border-radius: 0;
+}
+
+.tree-gantt-date-cell {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	min-height: 100%;
+	overflow: visible;
+}
+
+/* Keep datepicker above AG clipped cells. */
+.task-tree-gantt-table-host.dinext-table .ag-cell:has(.tree-gantt-date-edit) {
+	overflow: visible;
+	z-index: 5;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--urgent {
