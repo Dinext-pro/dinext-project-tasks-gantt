@@ -1,6 +1,14 @@
 import { saveCells as apiSaveCells } from "../api.js";
+import { ensureAssignUserInfo } from "../api.js";
+import {
+	normalizeUsers,
+	sameUsers,
+	syncTaskAssign,
+} from "./columns/assign/persist.js";
+import { isValidPriorityValue } from "./columns/priority/options.js";
+import { isValidStatusValue } from "./columns/status/options.js";
 
-const EDITABLE_FIELDS = new Set([
+const TASK_FIELDS = new Set([
 	"subject",
 	"status",
 	"priority",
@@ -10,6 +18,8 @@ const EDITABLE_FIELDS = new Set([
 	"custom_include",
 ]);
 
+const EDITABLE_FIELDS = new Set([...TASK_FIELDS, "assign"]);
+
 export function rowCanWrite(row) {
 	if (!row?.id) return false;
 	return row.can_write === 1 || row.can_write === true;
@@ -17,6 +27,19 @@ export function rowCanWrite(row) {
 
 export function fieldCanEdit(row, field) {
 	return EDITABLE_FIELDS.has(field) && rowCanWrite(row);
+}
+
+/** Task name — not tree `_rowId` path. */
+export function taskIdFromChange(change) {
+	if (change?.row?.id) {
+		return String(change.row.id);
+	}
+	const raw = String(change?.rowId || "");
+	if (!raw) {
+		return "";
+	}
+	const parts = raw.split(":");
+	return parts[parts.length - 1] || raw;
 }
 
 function toFrappeDate(value) {
@@ -50,7 +73,20 @@ function normalizeSaveValue(field, value) {
 		const n = Number(value);
 		return Number.isFinite(n) ? n : value;
 	}
+	if (field === "assign") {
+		return normalizeUsers(value);
+	}
 	return value;
+}
+
+function rejectSelectValue(fieldLabel, value) {
+	const shown =
+		value == null || value === "" ? __("(empty)") : String(value);
+	frappe.show_alert({
+		message: __("Invalid {0}: {1}", [fieldLabel, shown]),
+		indicator: "orange",
+	});
+	return false;
 }
 
 export function onValidateCells({ changes }) {
@@ -64,7 +100,9 @@ export function onValidateCells({ changes }) {
 		}
 		if (!rowCanWrite(change.row)) {
 			frappe.show_alert({
-				message: __("Not permitted to write Task {0}", [change.rowId]),
+				message: __("Not permitted to write Task {0}", [
+					taskIdFromChange(change),
+				]),
 				indicator: "red",
 			});
 			return false;
@@ -75,6 +113,12 @@ export function onValidateCells({ changes }) {
 				indicator: "orange",
 			});
 			return false;
+		}
+		if (change.field === "status" && !isValidStatusValue(change.newValue, change.row)) {
+			return rejectSelectValue(__("Status"), change.newValue);
+		}
+		if (change.field === "priority" && !isValidPriorityValue(change.newValue)) {
+			return rejectSelectValue(__("Priority"), change.newValue);
 		}
 	}
 	return true;
@@ -106,16 +150,69 @@ export async function saveCells(payload) {
 	}
 }
 
+async function saveAssignChanges(changes) {
+	const assignChanges = (changes || []).filter((c) => c.field === "assign");
+	if (!assignChanges.length) {
+		return true;
+	}
+
+	try {
+		const usersForInfo = new Set();
+		for (const change of assignChanges) {
+			const taskId = taskIdFromChange(change);
+			const next = normalizeUsers(change.newValue);
+			const prev = normalizeUsers(change.oldValue);
+			if (sameUsers(prev, next)) {
+				continue;
+			}
+			await syncTaskAssign(taskId, next);
+			next.forEach((u) => usersForInfo.add(u));
+			if (change.row) {
+				change.row.assign = next;
+			}
+		}
+		if (usersForInfo.size) {
+			await ensureAssignUserInfo([...usersForInfo]);
+		}
+		frappe.show_alert(
+			{
+				message: __("Данные успешно обновлены"),
+				indicator: "green",
+			},
+			5
+		);
+		return true;
+	} catch (e) {
+		frappe.show_alert(
+			{
+				message: e.message || __("Assign failed"),
+				indicator: "red",
+			},
+			7
+		);
+		return false;
+	}
+}
+
 export async function onSaveCells({ changes }) {
-	const payload = changes
-		.filter((c) => EDITABLE_FIELDS.has(c.field))
+	const taskPayload = (changes || [])
+		.filter((c) => TASK_FIELDS.has(c.field))
 		.map((c) => ({
-			id: c.rowId,
+			id: taskIdFromChange(c),
 			field: c.field,
 			value: normalizeSaveValue(c.field, c.newValue),
-		}));
+		}))
+		.filter((c) => c.id);
 
-	return saveCells(payload);
+	const assignOk = await saveAssignChanges(changes);
+	if (!assignOk) {
+		return false;
+	}
+
+	if (!taskPayload.length) {
+		return true;
+	}
+	return saveCells(taskPayload);
 }
 
 export function changesAffectGantt(changes) {
@@ -126,6 +223,7 @@ export function changesAffectGantt(changes) {
 			c.field === "status" ||
 			c.field === "priority" ||
 			c.field === "subject" ||
-			c.field === "progress"
+			c.field === "progress" ||
+			c.field === "assign"
 	);
 }

@@ -6,6 +6,7 @@ import { el, slugClass } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { startPriorityInlineEdit } from "./edit.js";
+import { parsePriorityValue } from "./options.js";
 
 const PRIORITY_SLUGS = ["urgent", "high", "medium", "low"];
 
@@ -35,12 +36,14 @@ export function priorityCellClassRules() {
 	return rules;
 }
 
-function wireClick(wrap, params, row) {
+function wireEdit(wrap, params, row) {
 	if (!fieldCanEdit(row, "priority")) {
 		return;
 	}
 	wrap.classList.add("tree-gantt-priority--editable");
-	wrap.addEventListener("click", (ev) => {
+	wrap.title = [wrap.title, __("Double-click to edit")].filter(Boolean).join(" — ");
+	// Single click → selection / fill-handle; dblclick → Select.
+	wrap.addEventListener("dblclick", (ev) => {
 		ev.preventDefault();
 		ev.stopPropagation();
 		void startPriorityInlineEdit({ wrap, row, params });
@@ -55,7 +58,7 @@ export function renderPriority(params) {
 	wrap.textContent = label;
 	wrap.title = label;
 	wrap.dataset.priority = value;
-	wireClick(wrap, params, row);
+	wireEdit(wrap, params, row);
 	return wrap;
 }
 
@@ -64,9 +67,11 @@ export function priorityColumn() {
 		field: "priority",
 		headerName: __("Приоритет"),
 		...fixedCol(TREE_COL_WIDTH.priority),
-		edit: false,
+		edit: (row) => fieldCanEdit(row, "priority"),
+		suppressClickEdit: true,
 		cellRenderer: renderPriority,
 		valueFormatter: (params) => priorityLabel(params.value),
+		valueParser: parsePriorityValue,
 		cellClass: priorityCellClass,
 		cellClassRules: priorityCellClassRules(),
 	};

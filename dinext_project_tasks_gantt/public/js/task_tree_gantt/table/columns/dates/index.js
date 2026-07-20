@@ -1,44 +1,20 @@
 /**
- * Columns «Прогноз начала/завершения» — display + click → Frappe Date calendar.
+ * «Прогноз начала/завершения»:
+ * - core `type: date` → ISO + fill/paste
+ * - domain `FrappeDateCellEditor` → Desk calendar
  */
 import {
 	dateConflictClass,
 	endDateConflictTooltip,
 	startDateConflictTooltip,
 } from "../../../dependencies/check.js";
-import { el, formatDate } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
-import { startDateInlineEdit } from "./edit.js";
+import { FrappeDateCellEditor } from "./frappe-date-editor.js";
 
-export function dateValueFormatter(params) {
-	if (!params.value) {
-		return "\u00a0";
-	}
-	return formatDate(params.value);
-}
-
-function wireClick(wrap, params, row, field) {
-	if (!fieldCanEdit(row, field)) {
-		return;
-	}
-	wrap.classList.add("tree-gantt-date--editable");
-	wrap.addEventListener("click", (ev) => {
-		ev.preventDefault();
-		ev.stopPropagation();
-		void startDateInlineEdit({ wrap, row, params, field });
-	});
-}
-
-function renderDateCell(params, field) {
-	const row = params.data || {};
-	const value = row[field] || params.value || "";
-	const wrap = el("div", "tree-gantt-date-cell");
-	const label = value ? formatDate(value) : "\u00a0";
-	wrap.textContent = label;
-	wrap.title = value ? formatDate(value) : "";
-	wireClick(wrap, params, row, field);
-	return wrap;
+function dateCellClass(params) {
+	const conflict = dateConflictClass(params);
+	return ["dinext-table-cell--align-center", conflict].filter(Boolean).join(" ");
 }
 
 function dateColumnBase(field, headerName, tooltipValueGetter) {
@@ -46,11 +22,10 @@ function dateColumnBase(field, headerName, tooltipValueGetter) {
 		field,
 		headerName,
 		...fixedCol(TREE_COL_WIDTH[field]),
-		// Inline Frappe ControlDate (calendar); not AG date editor.
-		edit: false,
-		cellRenderer: (params) => renderDateCell(params, field),
-		valueFormatter: dateValueFormatter,
-		cellClass: dateConflictClass,
+		type: "date",
+		edit: (row) => fieldCanEdit(row, field),
+		cellEditor: FrappeDateCellEditor,
+		cellClass: dateCellClass,
 		tooltipValueGetter,
 		wrapHeaderText: true,
 		headerClass: "tree-gantt-header--wrap",

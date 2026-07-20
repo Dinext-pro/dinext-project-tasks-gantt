@@ -1,12 +1,17 @@
 /**
- * Column «Ответств.» — Tree assign cell:
- * avatar_group(max 3), empty "-", click → start_pwa_dialog when can_write.
+ * Column «Ответств.»:
+ * - single click → selection / fill-handle (no dialog)
+ * - dblclick cell → PWA dialog
+ * - click avatar → PWA dialog (shortcut)
+ * - dialog / fill / paste → commitCellChanges (undo/redo + onSaveCells)
  */
 import { el } from "../../format.js";
 import { ensureAssignUserInfo } from "../../../api.js";
+import { rowCanWrite } from "../../save.js";
 import { getColumnsPage, getOnAssignSaved } from "../context.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { openAssignDialog } from "./dialog.js";
+import { normalizeUsers, sameUsers } from "./persist.js";
 
 function assignUsers(row, value) {
 	if (Array.isArray(value)) {
@@ -25,36 +30,85 @@ function renderAvatars(users) {
 	return list;
 }
 
-async function applyAssignToRow(row, params, users) {
-	await ensureAssignUserInfo(users);
-	row.assign = users;
-	if (params.node?.data) {
-		params.node.data.assign = users;
+/**
+ * Route assign mutation through DinextTable pipeline (validate/save/undo).
+ * @returns {boolean}
+ */
+function commitAssignChange(params, row, nextUsers) {
+	const table = params.context?.dinextTable;
+	const oldValue = normalizeUsers(row?.assign);
+	const newValue = normalizeUsers(nextUsers);
+	if (sameUsers(oldValue, newValue)) {
+		return false;
 	}
-	params.api?.refreshCells?.({
-		rowNodes: params.node ? [params.node] : undefined,
-		columns: ["assign"],
-		force: true,
+	if (!params.node || typeof table?.commitCellChanges !== "function") {
+		console.error("[task_tree_gantt] assign commit: table/node missing");
+		return false;
+	}
+
+	const source =
+		typeof DinextTable?.CELL_CHANGE_SOURCES?.EDIT === "string"
+			? DinextTable.CELL_CHANGE_SOURCES.EDIT
+			: "edit";
+
+	const { applied } = table.commitCellChanges({
+		source,
+		changes: [
+			{
+				node: params.node,
+				field: "assign",
+				oldValue,
+				newValue,
+				rowIndex: params.node.rowIndex,
+				colId: params.column?.getColId?.() || "assign",
+			},
+		],
 	});
-	getOnAssignSaved?.(row.id, users);
+	return applied > 0;
 }
 
-function wireClick(wrap, params, row) {
+async function applyAssignFromDialog(row, params, users) {
+	const newValue = normalizeUsers(users);
+	await ensureAssignUserInfo(newValue);
+	const ok = commitAssignChange(params, row, newValue);
+	if (ok) {
+		getOnAssignSaved?.(row.id, newValue);
+	}
+}
+
+function openAssign(row, params) {
+	const page = getColumnsPage();
+	const project = page?.fields_dict?.project?.get_value?.() || null;
+	openAssignDialog({
+		row,
+		project,
+		onSaved: (users) => {
+			void applyAssignFromDialog(row, params, users);
+		},
+	});
+}
+
+function wireAssignActions(wrap, params, row, avatarsEl) {
 	if (!row.can_write) {
 		return;
 	}
 	wrap.classList.add("tree-gantt-assign--editable");
-	wrap.addEventListener("click", (ev) => {
+	wrap.title = [wrap.title, __("Double-click to assign")].filter(Boolean).join(" — ");
+
+	wrap.addEventListener("dblclick", (ev) => {
 		ev.preventDefault();
 		ev.stopPropagation();
-		const page = getColumnsPage();
-		const project = page?.fields_dict?.project?.get_value?.() || null;
-		openAssignDialog({
-			row,
-			project,
-			onSaved: (users) => applyAssignToRow(row, params, users),
-		});
+		openAssign(row, params);
 	});
+
+	if (avatarsEl) {
+		avatarsEl.classList.add("tree-gantt-assign-avatars--action");
+		avatarsEl.addEventListener("click", (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			openAssign(row, params);
+		});
+	}
 }
 
 /** Display / clipboard label for assign user list. */
@@ -63,7 +117,7 @@ export function assignValueFormatter(params) {
 	return users.length ? users.join(", ") : "";
 }
 
-/** Paste path — column edit:false, but AG still wants a parser for object type. */
+/** Paste / fill path — array of user ids. */
 export function assignValueParser(params) {
 	const raw = params.newValue;
 	if (Array.isArray(raw)) {
@@ -88,14 +142,16 @@ export function renderAssign(params) {
 	const label = assignValueFormatter(params);
 	wrap.title = label || "-";
 
+	let avatarsEl = null;
 	if (!users.length) {
 		wrap.classList.add("text-muted");
 		wrap.textContent = "-";
 	} else {
-		wrap.appendChild(renderAvatars(users));
+		avatarsEl = renderAvatars(users);
+		wrap.appendChild(avatarsEl);
 	}
 
-	wireClick(wrap, params, row);
+	wireAssignActions(wrap, params, row, avatarsEl);
 	return wrap;
 }
 
@@ -104,9 +160,9 @@ export function assignColumn() {
 		field: "assign",
 		headerName: __("Ответств."),
 		...fixedCol(TREE_COL_WIDTH.assign),
-		edit: false,
+		edit: (row) => rowCanWrite(row),
+		suppressClickEdit: true,
 		sortable: false,
-		// Array field — disable AG inference (warning #48 Formatter/Parser).
 		cellDataType: false,
 		cellRenderer: renderAssign,
 		valueFormatter: assignValueFormatter,

@@ -1,6 +1,10 @@
 /**
  * Tree getStatuses — meta options; confirm + non-owner → drop Completed.
  */
+import {
+	isAllowedSelectOption,
+	resolveSelectOption,
+} from "../select-value.js";
 
 export function getStatusOptions(row) {
 	const field = frappe.meta.get_field("Task", "status") || frappe.meta.get_docfield("Task", "status");
@@ -23,4 +27,14 @@ export function getStatusOptions(row) {
 	}
 
 	return options;
+}
+
+/** Paste / typed → English key (labels via __). Unmatched kept for validate. */
+export function parseStatusValue(params) {
+	return resolveSelectOption(params.newValue, getStatusOptions());
+}
+
+/** Per-row options (Completed rule) for fill/paste/edit validate. */
+export function isValidStatusValue(value, row) {
+	return isAllowedSelectOption(value, getStatusOptions(row));
 }

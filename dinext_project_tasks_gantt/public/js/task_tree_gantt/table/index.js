@@ -176,6 +176,9 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			columns: getColumns(),
 			edit: true,
 			selection: { enabled: true },
+			// Fill-handle / paste: dates, assign, status, priority, ТШ (custom_include).
+			clipboard: { enabled: true },
+			fillHandle: { enabled: true },
 			// Client source-tree sort (dinext_common sort layer) — not AG flat sort.
 			sort: {
 				enabled: true,

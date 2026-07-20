@@ -1,8 +1,8 @@
 /**
  * Tree createControl(Select) for status — with_doc, workflow, confirm options.
+ * Persist via commitCellChanges (fill/paste/undo share the same path).
  */
-import { fieldCanEdit, saveCells } from "../../save.js";
-import { getOnGanttRefresh } from "../context.js";
+import { fieldCanEdit } from "../../save.js";
 import { getStatusOptions } from "./options.js";
 
 function evaluateReadOnlyDependsOn(expression, doc) {
@@ -36,11 +36,37 @@ function fieldIsWritable(doc, taskId) {
 	return status === "Write";
 }
 
-function stampStatus(row, params, next) {
-	row.status = next;
-	if (params.node?.data) {
-		params.node.data.status = next;
+function commitStatusChange(params, row, next) {
+	const table = params.context?.dinextTable;
+	const oldValue = row.status || "";
+	const newValue = next || "";
+	if (String(oldValue) === String(newValue)) {
+		return false;
 	}
+	if (!params.node || typeof table?.commitCellChanges !== "function") {
+		console.error("[task_tree_gantt] status commit: table/node missing");
+		return false;
+	}
+
+	const source =
+		typeof DinextTable?.CELL_CHANGE_SOURCES?.EDIT === "string"
+			? DinextTable.CELL_CHANGE_SOURCES.EDIT
+			: "edit";
+
+	const { applied } = table.commitCellChanges({
+		source,
+		changes: [
+			{
+				node: params.node,
+				field: "status",
+				oldValue,
+				newValue,
+				rowIndex: params.node.rowIndex,
+				colId: params.column?.getColId?.() || "status",
+			},
+		],
+	});
+	return applied > 0;
 }
 
 /**
@@ -79,18 +105,16 @@ export async function startStatusInlineEdit({ wrap, row, params }) {
 	wrap.appendChild(host);
 
 	let finished = false;
-	const finish = async (commit) => {
+	const finish = (commit) => {
 		if (finished) return;
 		finished = true;
 		const control = host._control;
 		const next = control ? control.get_value() : oldValue;
 
 		if (commit && next != null && String(next) !== String(oldValue)) {
-			const ok = await saveCells([{ id: taskId, field: "status", value: next }]);
+			const ok = commitStatusChange(params, row, next);
 			if (ok) {
-				stampStatus(row, params, next);
 				frappe.model.clear_doc?.("Task", taskId);
-				getOnGanttRefresh()?.();
 			}
 		}
 
@@ -122,16 +146,16 @@ export async function startStatusInlineEdit({ wrap, row, params }) {
 	control.$input?.trigger?.("focus");
 
 	control.$input?.on?.("change", () => {
-		void finish(true);
+		finish(true);
 	});
 	control.$input?.on?.("keydown", (ev) => {
 		if (ev.key === "Escape") {
 			ev.preventDefault();
 			ev.stopPropagation();
-			void finish(false);
+			finish(false);
 		}
 	});
 	control.$input?.on?.("blur", () => {
-		setTimeout(() => void finish(false), 150);
+		setTimeout(() => finish(false), 150);
 	});
 }

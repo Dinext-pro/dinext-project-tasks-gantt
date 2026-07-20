@@ -463,8 +463,14 @@ body.task-tree-gantt-resizing {
 	height: 100%;
 }
 
+/* Cell: pointer. Avatars: cell (+) — click opens dialog. */
 .tree-gantt-assign--editable {
 	cursor: pointer;
+}
+
+.tree-gantt-assign-avatars--action,
+.tree-gantt-assign-avatars--action .avatar {
+	cursor: cell;
 }
 
 .task-tree-gantt-table-host .ag-cell[col-id="assign"]:hover {
@@ -579,17 +585,79 @@ body.task-tree-gantt-resizing {
 }
 
 .tree-gantt-status--editable,
-.tree-gantt-priority--editable,
-.tree-gantt-date--editable {
+.tree-gantt-priority--editable {
 	cursor: pointer;
+}
+
+/* Dense grid: square edit chrome (AG quartz uses --ag-card-radius). */
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing {
+	border-radius: 0;
+}
+
+/*
+ * Datepicker on body. Desk --shadow-* use black rgba — invisible on dark table.
+ * Outline + deep drop for separation from grid.
+ */
+.datepicker.tree-gantt-datepicker {
+	/* border-radius: 0; */
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.12),
+		0 10px 28px rgba(51, 49, 49, 0.72);
+}
+
+.datepicker.tree-gantt-datepicker .datepicker--pointer {
+	border-radius: 0;
+}
+
+/*
+ * Frappe ControlDate — in-cell AG editor (not popup).
+ * Fill cell like .dinext-table-date-editor; calendar floats on body.
+ */
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-editor,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .form-group,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .control-input-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .control-input {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	margin: 0 !important;
+	padding: 0;
+	display: flex;
+	align-items: stretch;
+	box-sizing: border-box;
+	background: transparent;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .form-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	margin: 0;
+	padding: 0 4px;
+	border: none !important;
+	border-radius: 0;
+	box-shadow: none !important;
+	outline: none !important;
+	background: transparent !important;
+	font-size: inherit;
+	text-align: center;
+	box-sizing: border-box;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .form-control:focus,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input:focus {
+	border: none !important;
+	box-shadow: none !important;
+	outline: none !important;
 }
 
 .tree-gantt-status-edit,
 .tree-gantt-priority-edit,
-.tree-gantt-date-edit,
 .tree-gantt-status-control,
-.tree-gantt-priority-control,
-.tree-gantt-date-control {
+.tree-gantt-priority-control {
 	width: 100%;
 	display: flex;
 	align-items: center;
@@ -598,28 +666,12 @@ body.task-tree-gantt-resizing {
 .tree-gantt-status-control .form-control,
 .tree-gantt-status-control select,
 .tree-gantt-priority-control .form-control,
-.tree-gantt-priority-control select,
-.tree-gantt-date-control .form-control,
-.tree-gantt-date-control input {
+.tree-gantt-priority-control select {
 	min-height: 22px;
 	height: 22px;
 	padding: 0 4px;
 	font-size: var(--text-xs, 11px);
 	border-radius: 0;
-}
-
-.tree-gantt-date-cell {
-	display: flex;
-	align-items: center;
-	width: 100%;
-	min-height: 100%;
-	overflow: visible;
-}
-
-/* Keep datepicker above AG clipped cells. */
-.task-tree-gantt-table-host.dinext-table .ag-cell:has(.tree-gantt-date-edit) {
-	overflow: visible;
-	z-index: 5;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--urgent {

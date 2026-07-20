@@ -1,9 +1,8 @@
 /**
  * Tree createControl(Select) for priority — English values in/out.
- * Labels translated by Frappe Select (same as status).
+ * Persist via commitCellChanges (fill/paste/undo share the same path).
  */
-import { fieldCanEdit, saveCells } from "../../save.js";
-import { getOnGanttRefresh } from "../context.js";
+import { fieldCanEdit } from "../../save.js";
 import { getPriorityOptions } from "./options.js";
 
 function evaluateReadOnlyDependsOn(expression, doc) {
@@ -37,11 +36,37 @@ function fieldIsWritable(doc, taskId) {
 	return status === "Write";
 }
 
-function stampPriority(row, params, next) {
-	row.priority = next;
-	if (params.node?.data) {
-		params.node.data.priority = next;
+function commitPriorityChange(params, row, next) {
+	const table = params.context?.dinextTable;
+	const oldValue = row.priority || "";
+	const newValue = next || "";
+	if (String(oldValue) === String(newValue)) {
+		return false;
 	}
+	if (!params.node || typeof table?.commitCellChanges !== "function") {
+		console.error("[task_tree_gantt] priority commit: table/node missing");
+		return false;
+	}
+
+	const source =
+		typeof DinextTable?.CELL_CHANGE_SOURCES?.EDIT === "string"
+			? DinextTable.CELL_CHANGE_SOURCES.EDIT
+			: "edit";
+
+	const { applied } = table.commitCellChanges({
+		source,
+		changes: [
+			{
+				node: params.node,
+				field: "priority",
+				oldValue,
+				newValue,
+				rowIndex: params.node.rowIndex,
+				colId: params.column?.getColId?.() || "priority",
+			},
+		],
+	});
+	return applied > 0;
 }
 
 /**
@@ -74,7 +99,7 @@ export async function startPriorityInlineEdit({ wrap, row, params }) {
 	wrap.appendChild(host);
 
 	let finished = false;
-	const finish = async (commit) => {
+	const finish = (commit) => {
 		if (finished) return;
 		finished = true;
 		const control = host._control;
@@ -82,13 +107,9 @@ export async function startPriorityInlineEdit({ wrap, row, params }) {
 
 		if (commit && next != null && String(next) !== String(oldValue)) {
 			// Save English Select value only (never translated label).
-			const ok = await saveCells([
-				{ id: taskId, field: "priority", value: next },
-			]);
+			const ok = commitPriorityChange(params, row, next);
 			if (ok) {
-				stampPriority(row, params, next);
 				frappe.model.clear_doc?.("Task", taskId);
-				getOnGanttRefresh()?.();
 			}
 		}
 
@@ -120,16 +141,16 @@ export async function startPriorityInlineEdit({ wrap, row, params }) {
 	control.$input?.trigger?.("focus");
 
 	control.$input?.on?.("change", () => {
-		void finish(true);
+		finish(true);
 	});
 	control.$input?.on?.("keydown", (ev) => {
 		if (ev.key === "Escape") {
 			ev.preventDefault();
 			ev.stopPropagation();
-			void finish(false);
+			finish(false);
 		}
 	});
 	control.$input?.on?.("blur", () => {
-		setTimeout(() => void finish(false), 150);
+		setTimeout(() => finish(false), 150);
 	});
 }

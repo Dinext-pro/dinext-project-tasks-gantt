@@ -6,6 +6,7 @@ import { el, slugClass } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { startStatusInlineEdit } from "./edit.js";
+import { parseStatusValue } from "./options.js";
 
 const STATUS_SLUGS = [
 	"completed",
@@ -42,12 +43,14 @@ export function statusCellClassRules() {
 	return rules;
 }
 
-function wireClick(wrap, params, row) {
+function wireEdit(wrap, params, row) {
 	if (!fieldCanEdit(row, "status")) {
 		return;
 	}
 	wrap.classList.add("tree-gantt-status--editable");
-	wrap.addEventListener("click", (ev) => {
+	wrap.title = [wrap.title, __("Double-click to edit")].filter(Boolean).join(" — ");
+	// Single click → selection / fill-handle; dblclick → Select.
+	wrap.addEventListener("dblclick", (ev) => {
 		ev.preventDefault();
 		ev.stopPropagation();
 		void startStatusInlineEdit({ wrap, row, params });
@@ -62,7 +65,7 @@ export function renderStatus(params) {
 	wrap.textContent = label;
 	wrap.title = label;
 	wrap.dataset.status = value;
-	wireClick(wrap, params, row);
+	wireEdit(wrap, params, row);
 	return wrap;
 }
 
@@ -71,8 +74,11 @@ export function statusColumn() {
 		field: "status",
 		headerName: __("Статус"),
 		...fixedCol(TREE_COL_WIDTH.status),
-		edit: false,
+		edit: (row) => fieldCanEdit(row, "status"),
+		suppressClickEdit: true,
 		cellRenderer: renderStatus,
+		valueFormatter: (params) => statusLabel(params.value),
+		valueParser: parseStatusValue,
 		cellClass: statusCellClass,
 		cellClassRules: statusCellClassRules(),
 	};
