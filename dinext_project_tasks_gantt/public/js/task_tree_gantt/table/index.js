@@ -179,6 +179,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			// Fill-handle / paste: dates, assign, status, priority, ТШ (custom_include).
 			clipboard: { enabled: true },
 			fillHandle: { enabled: true },
+			// UI-only tree DnD (no persist) — remove / wire onRowReorder when ready.
+			rowReorder: {
+				enabled: true,
+				allowTree: "reparent",
+			},
 			// Client source-tree sort (dinext_common sort layer) — not AG flat sort.
 			sort: {
 				enabled: true,
