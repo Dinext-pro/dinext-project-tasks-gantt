@@ -4,7 +4,7 @@ import { fixedCol, TREE_COL_WIDTH } from "./widths.js";
 export function includeColumn() {
 	return {
 		field: "custom_include",
-		headerName: __("ТШ"),
+		headerName: __("TS"),
 		...fixedCol(TREE_COL_WIDTH.custom_include),
 		type: "checkbox",
 		sortable: false,

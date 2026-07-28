@@ -72,7 +72,7 @@ export function renderStatus(params) {
 export function statusColumn() {
 	return {
 		field: "status",
-		headerName: __("Статус"),
+		headerName: __("Status"),
 		...fixedCol(TREE_COL_WIDTH.status),
 		edit: (row) => fieldCanEdit(row, "status"),
 		suppressClickEdit: true,

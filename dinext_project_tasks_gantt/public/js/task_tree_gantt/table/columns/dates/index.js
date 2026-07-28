@@ -35,7 +35,7 @@ function dateColumnBase(field, headerName, tooltipValueGetter) {
 export function expStartColumn() {
 	return dateColumnBase(
 		"exp_start_date",
-		__("Прогноз начала"),
+		__("Forecast Start"),
 		startDateConflictTooltip
 	);
 }
@@ -43,7 +43,7 @@ export function expStartColumn() {
 export function expEndColumn() {
 	return dateColumnBase(
 		"exp_end_date",
-		__("Прогноз завершения"),
+		__("Forecast Completion"),
 		endDateConflictTooltip
 	);
 }

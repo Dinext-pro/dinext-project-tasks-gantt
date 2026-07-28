@@ -158,7 +158,7 @@ export function renderAssign(params) {
 export function assignColumn() {
 	return {
 		field: "assign",
-		headerName: __("Ответств."),
+		headerName: __("Resp."),
 		...fixedCol(TREE_COL_WIDTH.assign),
 		edit: (row) => rowCanWrite(row),
 		suppressClickEdit: true,

@@ -88,7 +88,7 @@
 		settings.toolbar = [];
 		settings.extend_toolbar = false;
 		settings.get_tree_root = false;
-		settings.root_label = __("Структурный план проекта");
+		settings.root_label = __("Project Structure Plan");
 
 		settings.onload = function (treeview) {
 			void mountTreeGantt(treeview).catch((e) => {

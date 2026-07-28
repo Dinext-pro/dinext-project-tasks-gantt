@@ -10,6 +10,7 @@ import {
 	onValidateCells,
 } from "./save.js";
 import { SORT_COMPARATORS } from "./sort.js";
+import { createOnRowReorder } from "../dnd/index.js";
 
 const ensureBundle = () => frappe.require(["dinext-table.bundle.js"]);
 
@@ -170,6 +171,9 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		}
 
 		container.replaceChildren();
+		const projectKey = args.project || "no-project";
+		const taskKey = args.task ? `:${args.task}` : "";
+
 		state.table = await DinextTable.create({
 			container,
 			data: rows,
@@ -179,11 +183,14 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			// Fill-handle / paste: dates, assign, status, priority, ТШ (custom_include).
 			clipboard: { enabled: true },
 			fillHandle: { enabled: true },
-			// UI-only tree DnD (no persist) — remove / wire onRowReorder when ready.
+			toolbar: {
+				persistKey: `task-tree-gantt:${projectKey}${taskKey}`,
+			},
 			rowReorder: {
 				enabled: true,
 				allowTree: "reparent",
 			},
+			onRowReorder: createOnRowReorder(),
 			// Client source-tree sort (dinext_common sort layer) — not AG flat sort.
 			sort: {
 				enabled: true,

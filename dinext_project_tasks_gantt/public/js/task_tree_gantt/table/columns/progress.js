@@ -20,7 +20,7 @@ export function renderProgress(params) {
 export function progressColumn() {
 	return {
 		field: "progress",
-		headerName: __("Прогресс"),
+		headerName: __("Progress"),
 		...fixedCol(TREE_COL_WIDTH.progress),
 		edit: false,
 		cellRenderer: renderProgress,

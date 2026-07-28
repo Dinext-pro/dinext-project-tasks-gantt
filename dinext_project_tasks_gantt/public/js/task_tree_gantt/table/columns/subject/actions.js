@@ -162,7 +162,7 @@ export function previewDownstream(row) {
 	if (typeof _tds_preview_tree === "function") {
 		_tds_preview_tree(taskId, "downstream", (mode, changes) => {
 			if (mode === "async") {
-				frappe.show_alert(__("Обновите дерево задач после выполнения изменений"));
+				frappe.show_alert(__("Refresh the task tree after applying changes"));
 				return;
 			}
 			void changes;

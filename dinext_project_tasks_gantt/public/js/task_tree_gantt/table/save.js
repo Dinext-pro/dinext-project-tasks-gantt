@@ -132,7 +132,7 @@ export async function saveCells(payload) {
 		await apiSaveCells(payload);
 		frappe.show_alert(
 			{
-				message: __("Данные успешно обновлены"),
+				message: __("Data updated successfully"),
 				indicator: "green",
 			},
 			5
@@ -176,7 +176,7 @@ async function saveAssignChanges(changes) {
 		}
 		frappe.show_alert(
 			{
-				message: __("Данные успешно обновлены"),
+				message: __("Data updated successfully"),
 				indicator: "green",
 			},
 			5

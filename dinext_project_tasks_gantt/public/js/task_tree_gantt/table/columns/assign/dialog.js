@@ -15,7 +15,7 @@ export function openAssignDialog({ row, project = null, onSaved }) {
 		return;
 	}
 	if (typeof start_pwa_dialog !== "function") {
-		frappe.msgprint(__("Функция назначения нагрузки недоступна"));
+		frappe.msgprint(__("Workload assignment function is unavailable"));
 		return;
 	}
 

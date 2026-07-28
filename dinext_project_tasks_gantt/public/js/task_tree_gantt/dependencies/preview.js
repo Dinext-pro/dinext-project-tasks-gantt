@@ -10,14 +10,13 @@ const LARGE_AMOUNT_THRESHOLD = 200;
 function showPreviewDialog(previewList, refreshCtx) {
 	if (!previewList?.length) {
 		frappe.show_alert(
-			__("Не выявлено нарушений зависимостей вниз по дереву задач")
+			__("No downward task dependency violations found")
 		);
 		return;
 	}
 
 	const d = new frappe.ui.Dialog({
-		title: __(
-			"Необходимые изменения для устранения нарушений зависимостей задач"
+		title: __("Required changes to resolve task dependency violations"
 		),
 		size: "extra-large",
 		fields: [
@@ -29,7 +28,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 				in_place_edit: true,
 				fields: [
 					{
-						label: __("Задача"),
+						label: __("Task"),
 						fieldname: "subject",
 						fieldtype: "Data",
 						read_only: 1,
@@ -37,7 +36,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 						columns: 2,
 					},
 					{
-						label: __("Текущ. начало"),
+						label: __("Curr. Start"),
 						fieldname: "current_start",
 						fieldtype: "Date",
 						read_only: 1,
@@ -45,7 +44,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 						columns: 1,
 					},
 					{
-						label: __("Текущ. окончание"),
+						label: __("Curr. End"),
 						fieldname: "current_end",
 						fieldtype: "Date",
 						read_only: 1,
@@ -53,7 +52,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 						columns: 1,
 					},
 					{
-						label: __("Предл. начало"),
+						label: __("Prop. Start"),
 						fieldname: "proposed_start",
 						fieldtype: "Date",
 						read_only: 1,
@@ -61,7 +60,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 						columns: 1,
 					},
 					{
-						label: __("Предл. окончание"),
+						label: __("Prop. End"),
 						fieldname: "proposed_end",
 						fieldtype: "Date",
 						read_only: 1,
@@ -69,7 +68,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 						columns: 1,
 					},
 					{
-						label: __("Причины"),
+						label: __("Reasons"),
 						fieldname: "reasons",
 						fieldtype: "Data",
 						read_only: 1,
@@ -80,12 +79,12 @@ function showPreviewDialog(previewList, refreshCtx) {
 				data: previewList,
 			},
 		],
-		primary_action_label: __("Выполнить выбранные"),
+		primary_action_label: __("Apply Selected"),
 		primary_action() {
 			const selected =
 				this.fields_dict.dependencies_rows.grid.get_selected_children();
 			if (!selected.length) {
-				frappe.msgprint(__("Необходимо выбрать изменения"));
+				frappe.msgprint(__("You must select changes"));
 				return;
 			}
 			const changes = selected.map((p) => ({
@@ -106,7 +105,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 					}
 					if (message?.success) {
 						frappe.show_alert(
-							__("Выполнены изменения: {0}", [message.changed])
+							__("Changes applied: {0}", [message.changed])
 						);
 						d.hide();
 						if (refreshCtx?.getArgs && refreshCtx?.table) {
@@ -136,7 +135,7 @@ function showPreviewDialog(previewList, refreshCtx) {
 				void apply("sync");
 			}
 		},
-		secondary_action_label: __("Закрыть"),
+		secondary_action_label: __("Close"),
 		secondary_action() {
 			d.hide();
 		},

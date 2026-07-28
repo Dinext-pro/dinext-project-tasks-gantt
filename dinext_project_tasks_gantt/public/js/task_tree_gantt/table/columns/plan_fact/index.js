@@ -13,7 +13,7 @@ function renderPlanFactButton(row) {
 	btn.type = "button";
 	// Tree: .plan-fact-button.{status} (hex colors + dialog formatters share status class)
 	btn.className = `btn btn-xs plan-fact-button tree-gantt-plan-fact-btn ${status}`;
-	btn.title = row?.plan_fact_title || __("Нет данных по трудозатратам");
+	btn.title = row?.plan_fact_title || __("No work efforts data");
 	btn.dataset.docname = row?.id || "";
 	btn.innerHTML = '<i class="fa fa-info-circle"></i>';
 
@@ -39,7 +39,7 @@ export function renderPlanFact(params) {
 export function planFactColumn() {
 	return {
 		field: "plan_fact",
-		headerName: __("ТРЗ"),
+		headerName: __("WE"),
 		...fixedCol(TREE_COL_WIDTH.plan_fact),
 		sortable: false,
 		edit: false,

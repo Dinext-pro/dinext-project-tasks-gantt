@@ -1,4 +1,4 @@
-export const DEFAULT_TITLE = __("Структурный план проекта");
+export const DEFAULT_TITLE = __("Project Structure Plan");
 
 export const PROJECT_STORAGE_SUFFIX = ":tree:project";
 

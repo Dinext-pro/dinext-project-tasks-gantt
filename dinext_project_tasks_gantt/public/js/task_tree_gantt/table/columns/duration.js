@@ -11,7 +11,7 @@ export function durationValueFormatter(params) {
 export function durationColumn() {
 	return {
 		field: "expected_time",
-		headerName: __("Длит-сть"),
+		headerName: __("Duration"),
 		...fixedCol(TREE_COL_WIDTH.expected_time),
 		type: "number",
 		// Tree centers duration; override number preset align-right.

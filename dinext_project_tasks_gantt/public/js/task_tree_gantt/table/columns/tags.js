@@ -52,7 +52,7 @@ export function renderTags(params) {
 export function tagsColumn() {
 	return {
 		field: "user_tags",
-		headerName: __("Метки"),
+		headerName: __("Labels"),
 		...fixedCol(TREE_COL_WIDTH.user_tags),
 		sortable: false,
 		edit: false,

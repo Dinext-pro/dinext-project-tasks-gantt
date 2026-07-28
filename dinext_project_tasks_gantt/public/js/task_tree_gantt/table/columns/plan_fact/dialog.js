@@ -27,10 +27,10 @@ export function showPlanFactDialog(row) {
 	}
 
 	const d = new frappe.ui.Dialog({
-		title: __("План-факт трудозатрат"),
+		title: __("Work Efforts Plan vs Actual"),
 		fields: [
 			{
-				label: __("Задача"),
+				label: __("Task"),
 				fieldname: "name",
 				fieldtype: "Data",
 				read_only: 1,
@@ -44,7 +44,7 @@ export function showPlanFactDialog(row) {
 				in_place_edit: true,
 				fields: [
 					{
-						label: __("Роль"),
+						label: __("Role"),
 						fieldname: "role",
 						fieldtype: "Data",
 						read_only: 1,
@@ -52,7 +52,7 @@ export function showPlanFactDialog(row) {
 						columns: 3,
 					},
 					{
-						label: __("План"),
+						label: __("Plan"),
 						fieldname: "planned_hours",
 						fieldtype: "Float",
 						precision: 1,
@@ -62,7 +62,7 @@ export function showPlanFactDialog(row) {
 						formatter: formatPlanField,
 					},
 					{
-						label: __("Факт"),
+						label: __("Actual"),
 						fieldname: "total_hours",
 						fieldtype: "Float",
 						precision: 1,
@@ -81,7 +81,7 @@ export function showPlanFactDialog(row) {
 						formatter: formatPctField,
 					},
 					{
-						label: __("Учтены трудозатраты от"),
+						label: __("Work efforts included from"),
 						fieldname: "users",
 						fieldtype: "Data",
 						read_only: 1,
@@ -106,8 +106,8 @@ export function showPlanFactDialog(row) {
 		warning.className = "alert alert-danger";
 		warning.style.cssText = "margin: 15px 0; display: flex; align-items: center; gap: 8px;";
 		warning.innerHTML = `<i class="fa fa-exclamation-triangle" style="font-size: 1.2em;"></i>
-			<div><strong>${__("Внимание!")}</strong>
-			${__("Для данной задачи обязательно указание плановых трудозатрат")}</div>`;
+			<div><strong>${__("Attention!")}</strong>
+			${__("Planned work efforts are required for this task")}</div>`;
 		d.$wrapper.find(".modal-body").prepend(warning);
 	}
 

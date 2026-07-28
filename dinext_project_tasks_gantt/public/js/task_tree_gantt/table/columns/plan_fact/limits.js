@@ -53,12 +53,12 @@ export function getMaxStatus(positions) {
 
 function tooltipFor(status) {
 	if (status === "normal") {
-		return __("Трудозатраты в пределах планов/лимитов");
+		return __("Work efforts within plans/limits");
 	}
 	if (status === "no-data" || status === "no-plan") {
-		return __("Не определены плановые трудозатраты");
+		return __("Planned work efforts are not defined");
 	}
-	return __("Контроль трудозатрат по задаче");
+	return __("Task Work Efforts Control");
 }
 
 function applyPlanFactFields(row, status, taskData, title) {
@@ -151,7 +151,7 @@ export async function refreshPlanFact(ctx, rows) {
 				row,
 				"no-data",
 				[],
-				__("Нет данных по трудозатратам")
+				__("No work efforts data")
 			);
 		}
 		byId[row.id] = row;

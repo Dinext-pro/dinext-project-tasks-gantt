@@ -65,7 +65,7 @@ export function renderPriority(params) {
 export function priorityColumn() {
 	return {
 		field: "priority",
-		headerName: __("Приоритет"),
+		headerName: __("Priority"),
 		...fixedCol(TREE_COL_WIDTH.priority),
 		edit: (row) => fieldCanEdit(row, "priority"),
 		suppressClickEdit: true,

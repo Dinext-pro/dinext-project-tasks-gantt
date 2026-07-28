@@ -107,7 +107,7 @@ export function subjectTooltip(params) {
 export function subjectColumn() {
 	return {
 		field: "subject",
-		headerName: __("Задача"),
+		headerName: __("Task"),
 		// Tree .tree-link is position:sticky left — AG pin left.
 		pinned: "left",
 		suppressMovable: true,
