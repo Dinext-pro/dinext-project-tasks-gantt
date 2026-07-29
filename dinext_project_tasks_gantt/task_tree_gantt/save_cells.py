@@ -45,6 +45,17 @@ def _normalize_value(field: str, value):
 	return value
 
 
+def _persist_task(task_id: str, values: dict) -> None:
+	"""Persist via Document.save() so ERPNext validate + DocType events run.
+
+	Avoid db.set_value: skips ISS-2026-02606 date sync, PWA, status/Issue mirrors,
+	treeview preventive validation, etc.
+	"""
+	doc = frappe.get_doc("Task", task_id)
+	doc.update(values)
+	doc.save()
+
+
 def save_cells(changes=None) -> dict:
 	"""
 	Persist Tree Gantt cell edits.
@@ -74,7 +85,7 @@ def save_cells(changes=None) -> dict:
 
 	updated = 0
 	for task_id, values in by_id.items():
-		frappe.db.set_value("Task", task_id, values, update_modified=True)
+		_persist_task(task_id, values)
 		updated += 1
 
 	return {"updated": updated}
