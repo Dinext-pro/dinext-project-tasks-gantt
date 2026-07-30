@@ -3,8 +3,9 @@ import { ensureAssignUserInfo } from "../api.js";
 import {
 	normalizeUsers,
 	sameUsers,
-	syncTaskAssign,
+	syncTaskAssignMany,
 } from "./columns/assign/persist.js";
+import { getColumnsPage } from "./columns/context.js";
 import { isValidPriorityValue } from "./columns/priority/options.js";
 import { isValidStatusValue } from "./columns/status/options.js";
 
@@ -156,7 +157,11 @@ async function saveAssignChanges(changes) {
 		return true;
 	}
 
+	const project =
+		getColumnsPage()?.fields_dict?.project?.get_value?.() || null;
+
 	try {
+		const ops = [];
 		const usersForInfo = new Set();
 		for (const change of assignChanges) {
 			const taskId = taskIdFromChange(change);
@@ -165,12 +170,22 @@ async function saveAssignChanges(changes) {
 			if (sameUsers(prev, next)) {
 				continue;
 			}
-			await syncTaskAssign(taskId, next);
+			ops.push({
+				taskId,
+				users: next,
+				project,
+				exp_start_date: change.row?.exp_start_date ?? null,
+				exp_end_date: change.row?.exp_end_date ?? null,
+			});
 			next.forEach((u) => usersForInfo.add(u));
 			if (change.row) {
 				change.row.assign = next;
 			}
 		}
+		if (!ops.length) {
+			return true;
+		}
+		await syncTaskAssignMany(ops);
 		if (usersForInfo.size) {
 			await ensureAssignUserInfo([...usersForInfo]);
 		}
