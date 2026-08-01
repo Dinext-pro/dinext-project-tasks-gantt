@@ -8,7 +8,7 @@ from dinext_project_tasks_gantt.burndown import get_burndown_series
 
 
 def execute(filters=None):
-	"""Script Report: summary table; chart loads from get_burndown_series via JS."""
+	"""Script Report: detail table; chart loads from get_burndown_series via JS."""
 	filters = filters or {}
 	if not filters.get("project"):
 		return [], [], None, None
@@ -20,42 +20,41 @@ def execute(filters=None):
 			to_date=filters.get("to_date"),
 			group_by=filters.get("group_by") or "month",
 			measure=filters.get("measure") or "hours",
-			exclude_group_tasks=0 if filters.get("exclude_group_tasks") in (0, "0", False) else 1,
-			task_type_filter=filters.get("task_type_filter") or None,
+			hours_source=filters.get("hours_source") or "pwea_plan",
+			project_role_filters=filters.get("project_role_filters") or None,
+			exclude_group_tasks=_checked_filter_value(filters, "exclude_group_tasks"),
+			use_task_weight=_checked_filter_value(filters, "use_task_weight"),
+			use_progress=_checked_filter_value(filters, "use_progress"),
+			task_type_filters=filters.get("task_types") or filters.get("task_type_filter") or None,
+			issue_type_filters=filters.get("issue_types") or None,
 			forecast_periods=int(filters.get("forecast_periods") or 6),
 		)
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "Task Epic Burndown execute")
 		return _columns(), [], None, None
 
-	rows = []
-	cat = payload.get("categories") or []
-	for i, name in enumerate(cat):
-		rows.append(
-			{
-				"category": name,
-				"remaining": payload.get("remaining", [None] * len(cat))[i],
-				"added": payload.get("added", [None] * len(cat))[i],
-				"completed": payload.get("completed", [None] * len(cat))[i],
-			}
-		)
-	for j, name in enumerate(payload.get("forecast_categories") or []):
-		rows.append(
-			{
-				"category": name,
-				"remaining": payload.get("forecast_remaining", [])[j],
-				"added": payload.get("forecast_added", [])[j],
-				"completed": payload.get("forecast_completed", [])[j],
-			}
-		)
+	rows = [
+		{
+			"period": row.get("period_label"),
+			"segment": row.get("segment_label"),
+			"volume": row.get("volume"),
+			"task": row.get("task_subject") or row.get("task"),
+			"task_name": row.get("task"),
+		}
+		for row in (payload.get("detail_rows") or [])
+	]
 
 	return _columns(), rows, None, None
 
 
 def _columns():
 	return [
-		{"fieldname": "category", "label": _("Bucket"), "fieldtype": "Data", "width": 200},
-		{"fieldname": "remaining", "label": _("Remaining"), "fieldtype": "Float", "width": 120},
-		{"fieldname": "added", "label": _("Added / Plan delta"), "fieldtype": "Float", "width": 120},
-		{"fieldname": "completed", "label": _("Completed / Actual"), "fieldtype": "Float", "width": 120},
+		{"fieldname": "period", "label": _("Period"), "fieldtype": "Data", "width": 180},
+		{"fieldname": "segment", "label": _("Segment"), "fieldtype": "Data", "width": 180},
+		{"fieldname": "volume", "label": _("Volume"), "fieldtype": "Float", "width": 120},
+		{"fieldname": "task", "label": _("Task"), "fieldtype": "Data", "width": 260},
 	]
+
+
+def _checked_filter_value(filters, key):
+	return 1 if filters.get(key) in (1, "1", True, "true") else 0

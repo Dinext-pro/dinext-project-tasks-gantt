@@ -72,7 +72,6 @@ required_apps = [
 # ------------------
 
 # include js, css files in header of desk.html
-app_include_css = "/assets/dinext_project_tasks_gantt/css/task_progress_trend.css"
 # app_include_js = "/assets/dinext_project_tasks_gantt/js/dinext_project_tasks_gantt.js"
 
 # include js, css files in header of web template
@@ -90,9 +89,23 @@ app_include_css = "/assets/dinext_project_tasks_gantt/css/task_progress_trend.cs
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Task": "public/js/task_progress_trend.js"}
+doctype_js = {
+	"Task": [
+		"public/js/task_progress_trend_styles.js",
+		"public/js/task_progress_trend.js",
+	],
+	"Project": [
+		"public/js/burndown_navigation.js",
+		"public/js/project_burndown_button.js",
+	],
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
-# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
+doctype_tree_js = {
+	"Task": [
+		"public/js/burndown_navigation.js",
+		"public/js/task_tree_burndown_button.js",
+	],
+}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
 # Svg Icons
@@ -185,8 +198,24 @@ doctype_js = {"Task": "public/js/task_progress_trend.js"}
 # Hook on document methods and events
 
 doc_events = {
+	"Project": {
+		"before_save": "dinext_project_tasks_gantt.project_progress_audit.before_save_project",
+	},
 	"Task": {
-		"before_save": "dinext_project_tasks_gantt.task_progress_audit.before_save_task",
+		"before_insert": "dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
+		"before_save": [
+			"dinext_project_tasks_gantt.task_progress_audit.before_save_task",
+			"dinext_project_tasks_gantt.project_progress_audit.before_save_task",
+		],
+		"on_update": [
+			"dinext_project_tasks_gantt.project_progress_audit.on_update_task",
+			"dinext_project_tasks_gantt.task_parent_progress.on_update_task",
+		],
+		"on_trash": "dinext_project_tasks_gantt.project_progress_audit.on_trash_task",
+		"after_delete": [
+			"dinext_project_tasks_gantt.project_progress_audit.after_delete_task",
+			"dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
+		],
 	},
 }
 
