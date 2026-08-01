@@ -1,6 +1,426 @@
 // Copyright (c) 2026, Dinext and contributors
 // For license information, please see license.txt
 
+const TASK_EPIC_BURNDOWN_REPORT_CSS = "/assets/dinext_project_tasks_gantt/css/task_epic_burndown_report.css";
+const TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT = "Dinext.TaskType";
+const TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_KEYS = new Set(["day", "week", "month"]);
+const TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS = {
+	stage: { singular: "stage", plural: "stages" },
+	phase: { singular: "phase", plural: "phases" },
+	sprint: { singular: "sprint", plural: "sprints" },
+};
+const TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS = [
+	{ value: "month", label: __("Month") },
+	{ value: "week", label: __("Week") },
+	{ value: "day", label: __("Day") },
+];
+const TASK_EPIC_BURNDOWN_REPORT_NAME = "Task Epic Burndown";
+
+function task_epic_burndown_is_burndown_report(report) {
+	return (report?.report_name || "") === TASK_EPIC_BURNDOWN_REPORT_NAME;
+}
+
+function task_epic_burndown_teardown_mount(report) {
+	if (typeof window.__task_epic_burndown_destroy === "function") {
+		window.__task_epic_burndown_destroy();
+	}
+	if (!report?.page?.main) {
+		return;
+	}
+	const $main = report.page.main;
+	$main.find(".task-epic-burndown-chart-root").each(function () {
+		const inst = window.echarts?.getInstanceByDom?.(this);
+		if (inst && typeof inst.dispose === "function") {
+			inst.dispose();
+		}
+	});
+	$main.find(".task-epic-burndown-chart, .task-epic-burndown-summary").remove();
+}
+
+function task_epic_burndown_ensure_report_styles() {
+	if (window.__task_epic_burndown_report_css_promise) {
+		return window.__task_epic_burndown_report_css_promise;
+	}
+	window.__task_epic_burndown_report_css_promise = frappe.require([TASK_EPIC_BURNDOWN_REPORT_CSS]);
+	return window.__task_epic_burndown_report_css_promise;
+}
+
+function task_epic_burndown_strip_standard_toolbar() {
+	const page = frappe.query_report && frappe.query_report.page;
+	if (!page || typeof page.remove_inner_button !== "function") {
+		return;
+	}
+	const grp = __("Actions");
+	[
+		__("Set Chart"),
+		__("Add Chart to Dashboard"),
+		__("Create Card"),
+		__("Download Report"),
+	].forEach(function (lbl) {
+		page.remove_inner_button(lbl, grp);
+	});
+}
+
+function task_epic_burndown_format_summaryPercent(value) {
+	const n = Number(value);
+	if (!Number.isFinite(n)) {
+		return "0";
+	}
+	return String(Math.round(n));
+}
+
+function task_epic_burndown_format_measure_value(d, value) {
+	const v = Number(value);
+	if (!Number.isFinite(v)) {
+		return "0";
+	}
+	const weightedTaskCount =
+		d &&
+		(d.use_task_weight === true ||
+			d.use_task_weight === 1 ||
+			String(d.use_task_weight || "").toLowerCase() === "true");
+	if (
+		d &&
+		(d.measure || "") === "task_count" &&
+		!d.use_progress &&
+		!weightedTaskCount
+	) {
+		return String(Math.round(v));
+	}
+	return v.toFixed(2);
+}
+
+function task_epic_burndown_measure_label_for_summary(d) {
+	const m = (d && d.measure) || "hours";
+	if (m === "story_points") {
+		return __("Story Points");
+	}
+	if (m === "task_count") {
+		return __("Tasks");
+	}
+	return __("Hours");
+}
+
+function task_epic_burndown_forecast_group_by_value() {
+	const qr = frappe.query_report;
+	const raw =
+		(qr && typeof qr.get_filter_value === "function" && qr.get_filter_value("group_by")) || "month";
+	return String(raw || "month").trim() || "month";
+}
+
+function task_epic_burndown_forecast_group_by_key() {
+	return task_epic_burndown_forecast_group_by_value().toLowerCase();
+}
+
+function task_epic_burndown_translate_task_type_label(value) {
+	const text = String(value || "").trim();
+	if (!text) {
+		return text;
+	}
+	return __(text, null, TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT);
+}
+
+function task_epic_burndown_group_by_option_label(value) {
+	const qr = frappe.query_report;
+	const target = String(value || "").trim();
+	if (!target) {
+		return target;
+	}
+	if (!TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_KEYS.has(target.toLowerCase())) {
+		return task_epic_burndown_translate_task_type_label(target);
+	}
+	if (!qr || typeof qr.get_filter !== "function") {
+		return target;
+	}
+	const groupByFilter = qr.get_filter("group_by", false);
+	const options = (groupByFilter && groupByFilter.df && groupByFilter.df.options) || [];
+	const match = options.find((option) => {
+		if (!option) {
+			return false;
+		}
+		if (typeof option === "string") {
+			return option === target;
+		}
+		return String(option.value || "").trim() === target;
+	});
+	if (!match) {
+		return target;
+	}
+	return typeof match === "string" ? match : String(match.label || match.value || target);
+}
+
+function task_epic_burndown_forecast_period_unit_singular() {
+	const value = task_epic_burndown_forecast_group_by_value();
+	const key = task_epic_burndown_forecast_group_by_key();
+	const m = {
+		day: __("day"),
+		week: __("week"),
+		month: __("month"),
+	};
+	if (m[key]) {
+		return m[key];
+	}
+	const periodUnits = TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS[key];
+	if (periodUnits) {
+		return __(periodUnits.singular, null, TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT);
+	}
+	return task_epic_burndown_group_by_option_label(value) || __("period");
+}
+
+function task_epic_burndown_forecast_period_unit_plural() {
+	const value = task_epic_burndown_forecast_group_by_value();
+	const key = task_epic_burndown_forecast_group_by_key();
+	const m = {
+		day: __("days"),
+		week: __("weeks"),
+		month: __("months"),
+	};
+	if (m[key]) {
+		return m[key];
+	}
+	const periodUnits = TASK_EPIC_BURNDOWN_TASK_TYPE_PERIOD_UNITS[key];
+	if (periodUnits) {
+		return __(periodUnits.plural, null, TASK_EPIC_BURNDOWN_TASK_TYPE_TRANSLATION_CONTEXT);
+	}
+	const label = task_epic_burndown_group_by_option_label(value);
+	return label ? `${label} ${__("periods")}` : __("periods");
+}
+
+function task_epic_burndown_forecast_remaining_title(fs) {
+	const n = Number(fs && fs.remaining_periods);
+	if (!Number.isFinite(n) || n < 1) {
+		return String((fs && fs.remaining_periods_label) || "");
+	}
+	if (n === 1) {
+		return String(__("1 {0} remaining", [task_epic_burndown_forecast_period_unit_singular()]));
+	}
+	return String(
+		__("{0} {1} remaining", [String(n), task_epic_burndown_forecast_period_unit_plural()])
+	);
+}
+
+function task_epic_burndown_forecast_volume_tail(d) {
+	const m = (d && d.measure) || "hours";
+	if (m === "story_points") {
+		return __("remaining story points");
+	}
+	if (m === "task_count") {
+		return __("remaining tasks");
+	}
+	return __("remaining hours");
+}
+
+/** Stable legend/series id; label resolved via __() when legend/tooltip render (not only at setOption time). */
+function task_epic_burndown_segment_legend_label(nameOrKey) {
+	const k = String(nameOrKey || "").trim();
+	const byKey = {
+		completed: __("Completed in period"),
+		completed_above_expected: __("Completed above expected"),
+		unused_hours: __("Released hours"),
+		open: __("Open at period end"),
+		created: __("Created in period"),
+		created_completed: __("Created and completed"),
+	};
+	if (Object.prototype.hasOwnProperty.call(byKey, k)) {
+		return byKey[k];
+	}
+	return __(k);
+}
+
+let _taskEpicBurndownLegendMeasureCtx = null;
+
+const TASK_EPIC_BURNDOWN_LEGEND_METRICS = {
+	widthRatio: 0.92,
+	itemWidth: 18,
+	itemHeight: 10,
+	itemGap: 28,
+	iconTextGap: 5,
+	fontSize: 11,
+	singleRowPadding: [8, 8, 2, 8],
+	multiRowPadding: [10, 8, 10, 8],
+};
+
+function task_epic_burndown_legend_entry_width(label, metrics) {
+	const m = metrics || TASK_EPIC_BURNDOWN_LEGEND_METRICS;
+	const textWidth = task_epic_burndown_legend_measure_text_width(label, m.fontSize);
+	return m.itemWidth + m.iconTextGap + textWidth;
+}
+
+function task_epic_burndown_legend_content_width(containerWidth, metrics) {
+	const m = metrics || TASK_EPIC_BURNDOWN_LEGEND_METRICS;
+	const padding = m.singleRowPadding;
+	return Math.max(0, containerWidth * m.widthRatio - padding[3] - padding[1]);
+}
+
+function task_epic_burndown_legend_measure_text_width(text, fontSize) {
+	const label = String(text || "");
+	if (!label) {
+		return 0;
+	}
+	try {
+		if (typeof document !== "undefined") {
+			if (!_taskEpicBurndownLegendMeasureCtx) {
+				const canvas = document.createElement("canvas");
+				_taskEpicBurndownLegendMeasureCtx = canvas.getContext("2d");
+			}
+			if (_taskEpicBurndownLegendMeasureCtx) {
+				_taskEpicBurndownLegendMeasureCtx.font = `${fontSize}px sans-serif`;
+				return Math.ceil(_taskEpicBurndownLegendMeasureCtx.measureText(label).width);
+			}
+		}
+	} catch (e) {
+		// Fall through to character-width estimate.
+	}
+	return Math.ceil(label.length * 6.5);
+}
+
+function task_epic_burndown_legend_layout(options) {
+	const containerWidth = Math.max(0, Number(options && options.containerWidth) || 0);
+	const legendKeys = Array.isArray(options && options.legendKeys) ? options.legendKeys : [];
+	const axisLabelRotated = !!(options && options.axisLabelRotated);
+	const metrics = TASK_EPIC_BURNDOWN_LEGEND_METRICS;
+
+	const LEGEND_BOTTOM = 10;
+	const ROW_HEIGHT = metrics.itemHeight + metrics.fontSize + 2;
+	const SAFETY = 8;
+
+	const legendAreaWidth = task_epic_burndown_legend_content_width(containerWidth, metrics);
+	let legendRows = legendKeys.length ? 1 : 0;
+	if (legendKeys.length && legendAreaWidth > 0) {
+		let currentRowWidth = 0;
+		legendRows = 1;
+		legendKeys.forEach(function (key) {
+			const label = task_epic_burndown_segment_legend_label(key);
+			const entryWidth = task_epic_burndown_legend_entry_width(label, metrics);
+			const gapBefore = currentRowWidth > 0 ? metrics.itemGap : 0;
+			if (currentRowWidth > 0 && currentRowWidth + gapBefore + entryWidth > legendAreaWidth) {
+				legendRows += 1;
+				currentRowWidth = entryWidth;
+			} else {
+				currentRowWidth += gapBefore + entryWidth;
+			}
+		});
+	} else if (legendKeys.length) {
+		legendRows = legendKeys.length;
+	}
+
+	const multiRow = legendRows > 1;
+	const widthBucket = containerWidth > 0 ? Math.floor(containerWidth / 40) * 40 : 0;
+	const signature = `rows:${legendRows}|rot:${axisLabelRotated ? 1 : 0}|w:${widthBucket}`;
+
+	if (!multiRow) {
+		return {
+			legendRows,
+			gridBottom: 56,
+			legendBottom: 24,
+			legendPadding: metrics.singleRowPadding.slice(),
+			legendLineHeight: 14,
+			signature,
+		};
+	}
+
+	const lineHeight = 16;
+	const padding = metrics.multiRowPadding.slice();
+	const axisLabelExtra = axisLabelRotated ? 32 : 14;
+	const legendPaddingV = padding[0] + padding[2];
+	const gridBottom =
+		axisLabelExtra + legendRows * ROW_HEIGHT + legendPaddingV + LEGEND_BOTTOM + SAFETY;
+
+	return {
+		legendRows,
+		gridBottom: Math.round(gridBottom),
+		legendBottom: LEGEND_BOTTOM,
+		legendPadding: padding,
+		legendLineHeight: lineHeight,
+		signature,
+	};
+}
+
+function task_epic_burndown_render_forecast_legend($wrap, d) {
+	if (!$wrap || !$wrap.length) {
+		return;
+	}
+	$wrap.find(".task-epic-burndown-forecast-legend").remove();
+	const fs = d && d.forecast_summary;
+	if (!fs || fs.show !== true) {
+		return;
+	}
+	const title = frappe.utils.escape_html(task_epic_burndown_forecast_remaining_title(fs));
+	const vel = task_epic_burndown_format_measure_value(d, fs.velocity);
+	const unitLabel = task_epic_burndown_measure_label_for_summary(d);
+	const perSingular = task_epic_burndown_forecast_period_unit_singular();
+	const line2Raw = __("{0} {1} per {2}", [vel, unitLabel, perSingular]);
+	const line2 = frappe.utils.escape_html(String(line2Raw));
+	const rem = task_epic_burndown_format_measure_value(d, fs.remaining_volume);
+	const line3Raw = `${rem} ${task_epic_burndown_forecast_volume_tail(d)}`;
+	const line3 = frappe.utils.escape_html(String(line3Raw));
+	const block = `<div class="task-epic-burndown-forecast-legend">
+<div class="task-epic-burndown-forecast-legend__title">${title}</div>
+<div class="task-epic-burndown-forecast-legend__line">${line2}</div>
+<div class="task-epic-burndown-forecast-legend__line">${line3}</div>
+</div>`;
+	$wrap.append(block);
+}
+
+function task_epic_burndown_render_summary($summaryEl, d) {
+	if (!$summaryEl || !$summaryEl.length) {
+		return;
+	}
+	const s = d && d.summary;
+	if (!s) {
+		$summaryEl.empty();
+		return;
+	}
+	const pDone = task_epic_burndown_format_summaryPercent(s.completed_percent);
+	const unitLabel = task_epic_burndown_measure_label_for_summary(d);
+	const completedTailRaw = unitLabel
+		? __("completed ({0})", [unitLabel])
+		: __("completed");
+	const completedTail = frappe.utils.escape_html(String(completedTailRaw));
+	const unestimatedLabel = frappe.utils.escape_html(String(__("Tasks without estimate")));
+	const unsetNames = Array.isArray(s.unestimated_task_names) ? s.unestimated_task_names : [];
+	const unsetClickable = s.show_unestimated && unsetNames.length > 0;
+	const unsetTitle = frappe.utils.escape_html(String(__("Open task list")));
+	let left = "";
+	if (s.show_unestimated) {
+		const pUnset = task_epic_burndown_format_summaryPercent(s.unestimated_percent);
+		const unsetClasses = ["task-epic-burndown-summary__unset"];
+		if (unsetClickable) {
+			unsetClasses.push("task-epic-burndown-summary-unestimated");
+		}
+		left = `<span class="${unsetClasses.join(" ")}" title="${unsetTitle}"><strong class="task-epic-burndown-summary__percent--unset">${pUnset}%</strong> <span class="task-epic-burndown-summary__label">${unestimatedLabel}</span></span>`;
+	}
+	const right = `<span class="task-epic-burndown-summary__done"><strong class="task-epic-burndown-summary__percent--done">${pDone}%</strong> <span class="task-epic-burndown-summary__label">${completedTail}</span></span>`;
+	$summaryEl.html(`<div class="task-epic-burndown-summary-inner">${left}${right}</div>`);
+}
+
+function task_epic_burndown_normalize_list(value) {
+	if (!value) {
+		return [];
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => `${item}`.trim()).filter(Boolean);
+	}
+	if (typeof value === "string") {
+		const text = value.trim();
+		if (!text) {
+			return [];
+		}
+		if (text.startsWith("[")) {
+			try {
+				return task_epic_burndown_normalize_list(JSON.parse(text));
+			} catch (e) {
+				// Fall through to comma-separated parsing.
+			}
+		}
+		return text
+			.split(",")
+			.map((item) => item.trim())
+			.filter(Boolean);
+	}
+	return [`${value}`.trim()].filter(Boolean);
+}
+
 frappe.query_reports["Task Epic Burndown"] = {
 	filters: [
 		{
@@ -14,35 +434,141 @@ frappe.query_reports["Task Epic Burndown"] = {
 			fieldname: "from_date",
 			label: __("From Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.add_months(frappe.datetime.get_today(), -6),
+			default: frappe.datetime.add_months(frappe.datetime.get_today(), -2),
 			reqd: 1,
 		},
 		{
 			fieldname: "to_date",
 			label: __("To Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.get_today(),
+			default: frappe.datetime.add_months(frappe.datetime.get_today(), 2),
 			reqd: 1,
 		},
 		{
 			fieldname: "group_by",
 			label: __("X Axis Period"),
 			fieldtype: "Select",
-			options: ["month", "week", "day", "Sprint", "Stage", "Phase"],
-			default: "month",
+			options: TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS,
+			default: "day",
 		},
 		{
 			fieldname: "measure",
 			label: __("Measure"),
 			fieldtype: "Select",
-			options: ["hours", "story_points", "task_count"],
-			default: "hours",
+			options: [
+				{ value: "hours", label: __("Hours") },
+				{ value: "story_points", label: __("Story Points") },
+				{ value: "task_count", label: __("Tasks") },
+			],
+			default: "task_count",
+		},
+		{
+			fieldname: "hours_source",
+			label: __("Hours source"),
+			fieldtype: "Select",
+			options: [
+				{ value: "pwea_plan", label: __("Planned hours") },
+				{ value: "pwea_expected", label: __("Expected hours") },
+			],
+			default: "pwea_plan",
+			depends_on: "eval: doc.measure == 'hours'",
+		},
+		{
+			fieldname: "project_role_filters",
+			label: __("Project Roles"),
+			fieldtype: "MultiSelectList",
+			placeholder: __("Project Roles"),
+			depends_on: "eval: doc.measure == 'hours'",
+			get_data: function (txt) {
+				const qr = frappe.query_report;
+				const project = qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+				if (!project) {
+					return [];
+				}
+				return frappe
+					.call({
+						method: "dinext_project_tasks_gantt.burndown.get_project_role_options",
+						args: { project },
+					})
+					.then((r) => {
+						const options = r.message || [];
+						if (!txt) {
+							return options;
+						}
+						const q = txt.toLowerCase();
+						return options.filter((option) =>
+							(option.label || option.value || "").toLowerCase().includes(q)
+						);
+					});
+			},
+		},
+		{
+			fieldname: "task_types",
+			label: __("Task Types"),
+			fieldtype: "MultiSelectList",
+			placeholder: __("Task Types"),
+			get_data: function (txt) {
+				const qr = frappe.query_report;
+				const project = qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+				if (!project) {
+					return [];
+				}
+				return frappe
+					.call({
+						method: "dinext_project_tasks_gantt.burndown.get_project_task_type_options",
+						args: { project },
+					})
+					.then((r) => {
+						// Keep "__not_set__" option from API (see burndown.TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET); only drop Sprint.
+						const options = (r.message || []).filter((option) => option && option.value !== "Sprint");
+						if (!txt) {
+							return options;
+						}
+						const q = txt.toLowerCase();
+						return options.filter((option) =>
+							(option.label || option.value || "").toLowerCase().includes(q)
+						);
+					});
+			},
+		},
+		{
+			fieldname: "issue_types",
+			label: __("Issue Types"),
+			fieldtype: "MultiSelectList",
+			placeholder: __("Issue types"),
+			depends_on: "eval: (doc.task_types || []).includes('Issue')",
+			get_data: function (txt) {
+				const qr = frappe.query_report;
+				const project = qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+				const taskTypes =
+					qr && typeof qr.get_filter_value === "function"
+						? task_epic_burndown_normalize_list(qr.get_filter_value("task_types"))
+						: [];
+				if (!project || !taskTypes.includes("Issue")) {
+					return [];
+				}
+				return frappe
+					.call({
+						method: "dinext_project_tasks_gantt.burndown.get_project_issue_type_options",
+						args: { project },
+					})
+					.then((r) => {
+						const options = r.message || [];
+						if (!txt) {
+							return options;
+						}
+						const q = txt.toLowerCase();
+						return options.filter((option) =>
+							(option.label || option.value || "").toLowerCase().includes(q)
+						);
+					});
+			},
 		},
 		{
 			fieldname: "use_task_weight",
-			label: __("Учитывать вес задачи"),
+			label: __("Use task weight in count"),
 			fieldtype: "Check",
-			default: 0,
+			default: 1,
 			depends_on: "eval: doc.measure == 'task_count'",
 		},
 		{
@@ -56,53 +582,265 @@ frappe.query_reports["Task Epic Burndown"] = {
 			label: __("Use task progress"),
 			fieldtype: "Check",
 			default: 1,
+			depends_on: "eval: doc.measure != 'hours'",
 		},
 		{
 			fieldname: "show_completion_forecast",
-			label: __("Прогноз выполнения"),
+			label: __("Completion forecast"),
 			fieldtype: "Check",
-			default: 0,
+			default: 1,
 		},
 	],
 
-	onload: function (report) {
-		let $wrap = null;
-		if (report.page && report.page.main) {
-			$wrap = report.page.main.find(".task-epic-burndown-chart").first();
-			if (!$wrap.length) {
-				$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
-				report.page.main.prepend($wrap);
-			}
-		} else if (report.parent) {
-			$wrap = $(report.parent).find(".task-epic-burndown-chart").first();
-			if (!$wrap.length) {
-				$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
-				$(report.parent).prepend($wrap);
-			}
-		} else {
-			$wrap = $('<div class="task-epic-burndown-chart" style="width:100%;min-height:460px;margin-bottom:12px;"></div>');
+	formatter: function (value, row, column, data, default_formatter) {
+		value = default_formatter(value, row, column, data);
+		if (!data || column.fieldname !== "task" || !data.task_name) {
+			return value;
 		}
-		report.$chart_area = $wrap;
+		const taskName = String(data.task_name || "").trim();
+		if (!taskName) {
+			return value;
+		}
+		const taskLabel = frappe.utils.escape_html(String(data.task || taskName));
+		const href = `/app/task/${encodeURIComponent(taskName)}`;
+		return `<a href="${href}" title="${frappe.utils.escape_html(taskName)}">${taskLabel}</a>`;
+	},
+
+	onload: function (report) {
+		// Query Report's run_serially does not await onload's inner promise; install
+		// before any async so the first refresh() is wrapped (see frappe.run_serially).
+		if (!report.__task_epic_burndown_refresh_wrapped) {
+			report.__task_epic_burndown_refresh_wrapped = true;
+			const originalRefresh = report.refresh.bind(report);
+			report.refresh = function (have_filters_changed) {
+				if (!task_epic_burndown_is_burndown_report(report)) {
+					task_epic_burndown_teardown_mount(report);
+					return originalRefresh.apply(this, arguments);
+				}
+				report.__task_epic_burndown_force_chart_after_table = have_filters_changed !== true;
+				return originalRefresh.apply(this, arguments);
+			};
+		}
+
+		task_epic_burndown_ensure_report_styles()
+			.catch(function (err) {
+				console.error(err);
+			})
+			.then(function () {
+		let $wrap = null;
+		let $summary = null;
+
+		function ensureContainers() {
+			if (report.page && report.page.main) {
+				const $main = report.page.main;
+				$wrap = $main.find(".task-epic-burndown-chart").first();
+				if (!$wrap.length) {
+					$wrap = $('<div class="task-epic-burndown-chart"></div>');
+					$main.prepend($wrap);
+				}
+				$summary = $main.find(".task-epic-burndown-summary").first();
+				if (!$summary.length) {
+					$summary = $('<div class="task-epic-burndown-summary"></div>');
+					$main.prepend($summary);
+				}
+				$summary.insertBefore($wrap);
+			} else if (report.parent) {
+				const $parent = $(report.parent);
+				$wrap = $parent.find(".task-epic-burndown-chart").first();
+				if (!$wrap.length) {
+					$wrap = $('<div class="task-epic-burndown-chart"></div>');
+					$parent.prepend($wrap);
+				}
+				$summary = $parent.find(".task-epic-burndown-summary").first();
+				if (!$summary.length) {
+					$summary = $('<div class="task-epic-burndown-summary"></div>');
+					$parent.prepend($summary);
+				}
+				$summary.insertBefore($wrap);
+			} else {
+				$wrap = $('<div class="task-epic-burndown-chart"></div>');
+				$summary = null;
+			}
+			report.$chart_area = $wrap;
+		}
+
+		ensureContainers();
+
+		let lastUnestimatedTaskNames = [];
+		let lastSummaryProject = null;
+		if ($summary && $summary.length) {
+			$summary.off("click.task_epic_burndown_unset");
+			$summary.on("click.task_epic_burndown_unset", ".task-epic-burndown-summary-unestimated", function () {
+				if (!lastSummaryProject || !lastUnestimatedTaskNames || !lastUnestimatedTaskNames.length) {
+					return;
+				}
+				frappe.route_options = {
+					project: ["=", lastSummaryProject],
+					name: ["in", lastUnestimatedTaskNames],
+				};
+				frappe.set_route("List", "Task");
+			});
+		}
 
 		let chart = null;
 		let renderTimer = null;
 		let renderRequestId = 0;
+		let pendingRenderOptions = {};
+		let isNormalizingIssueTypeFilter = false;
+		let isNormalizingGroupByFilter = false;
+		const renderState = {
+			lastCompletedKey: null,
+			lastRequestedKey: null,
+			lastRequestedSignature: null,
+			lastContainerSize: null,
+			lastThemeName: null,
+			isInitialRenderDone: false,
+			lastLegendLayoutSignature: null,
+			lastLegendKeys: [],
+			lastAxisLabelRotated: false,
+			lastGroupByOptionsProject: null,
+		};
 
 		function destroyChart() {
+			lastSummaryProject = null;
+			lastUnestimatedTaskNames = [];
+			renderState.lastCompletedKey = null;
+			renderState.lastRequestedKey = null;
+			renderState.lastRequestedSignature = null;
+			renderState.lastContainerSize = null;
+			renderState.lastThemeName = null;
+			renderState.isInitialRenderDone = false;
+			renderState.lastLegendLayoutSignature = null;
+			renderState.lastLegendKeys = [];
+			renderState.lastAxisLabelRotated = false;
+			renderState.lastGroupByOptionsProject = null;
 			if (chart) {
 				chart.dispose();
 				chart = null;
 			}
-			$wrap.empty();
+			if ($wrap && $wrap.length) {
+				$wrap.empty();
+			}
+			if ($summary && $summary.length) {
+				$summary.empty();
+			}
 		}
 
-		function scheduleRender(delay = 120) {
+		function getThemeVariableColor(variableName, fallback) {
+			if (
+				typeof getComputedStyle !== "function" ||
+				!document ||
+				!document.documentElement ||
+				!variableName
+			) {
+				return fallback;
+			}
+			const value = getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
+			return value || fallback;
+		}
+
+		function getEChartsThemeName() {
+			const root = document.documentElement;
+			return root && root.getAttribute("data-theme") === "dark" ? "dark" : undefined;
+		}
+
+		function getContainerSize() {
+			if (!$wrap || !$wrap.length) {
+				return null;
+			}
+			const rect = $wrap.get(0).getBoundingClientRect();
+			return {
+				width: Math.round(rect.width || 0),
+				height: Math.round(rect.height || 0),
+			};
+		}
+
+		function isSameContainerSize(left, right) {
+			if (!left && !right) {
+				return true;
+			}
+			if (!left || !right) {
+				return false;
+			}
+			return left.width === right.width && left.height === right.height;
+		}
+
+		function buildRenderKey(filters, normalized) {
+			return JSON.stringify({
+				project: filters.project || null,
+				from_date: filters.from_date || null,
+				to_date: filters.to_date || null,
+				group_by: filters.group_by || "month",
+				measure: filters.measure || "hours",
+				hours_source: filters.hours_source || "pwea_plan",
+				forecast_periods: filters.forecast_periods || 6,
+				exclude_group_tasks: normalized.excludeGroupTasks ? 1 : 0,
+				use_progress: normalized.useProgress ? 1 : 0,
+				show_completion_forecast: normalized.showCompletionForecastFilter ? 1 : 0,
+				use_task_weight: normalized.useTaskWeight ? 1 : 0,
+				task_types: normalized.taskTypes,
+				issue_types: normalized.issueTypes,
+				project_role_filters: normalized.projectRoleFilters,
+			});
+		}
+
+		function applyLegendLayoutIfNeeded(nextSize) {
+			if (!chart || chart.isDisposed() || !nextSize || nextSize.width <= 0) {
+				return false;
+			}
+			const layout = task_epic_burndown_legend_layout({
+				containerWidth: nextSize.width,
+				legendKeys: renderState.lastLegendKeys,
+				axisLabelRotated: renderState.lastAxisLabelRotated,
+			});
+			if (layout.signature === renderState.lastLegendLayoutSignature) {
+				return false;
+			}
+			chart.setOption({
+				grid: { bottom: layout.gridBottom },
+				legend: {
+					bottom: layout.legendBottom,
+					padding: layout.legendPadding,
+					textStyle: {
+						lineHeight: layout.legendLineHeight,
+					},
+				},
+			});
+			renderState.lastLegendLayoutSignature = layout.signature;
+			return true;
+		}
+
+		function resizeChartIfNeeded(nextSize) {
+			if (!chart || chart.isDisposed()) {
+				return false;
+			}
+			if (!nextSize || nextSize.width <= 0 || nextSize.height <= 0) {
+				return false;
+			}
+			if (isSameContainerSize(renderState.lastContainerSize, nextSize)) {
+				return false;
+			}
+			applyLegendLayoutIfNeeded(nextSize);
+			chart.resize();
+			renderState.lastContainerSize = nextSize;
+			return true;
+		}
+
+		function scheduleRender(delay = 120, options = {}) {
+			const qr = frappe.query_report;
+			if (!task_epic_burndown_is_burndown_report(qr)) {
+				task_epic_burndown_teardown_mount(qr);
+				return;
+			}
 			if (renderTimer) {
 				clearTimeout(renderTimer);
 			}
+			pendingRenderOptions = options || {};
 			renderTimer = setTimeout(function () {
+				const nextOptions = pendingRenderOptions || {};
+				pendingRenderOptions = {};
 				renderTimer = null;
-				renderBurndown();
+				renderBurndown(nextOptions);
 			}, delay);
 		}
 
@@ -113,13 +851,143 @@ frappe.query_reports["Task Epic Burndown"] = {
 				}
 				const originalOnChange = filter.df.onchange;
 				filter.df.onchange = function () {
+					if (filter.df.fieldname === "project") {
+						const args = arguments;
+						const qr = frappe.query_report;
+						const project =
+							qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+						refreshGroupByOptions(project).then((didNormalizeGroupBy) => {
+							if (!didNormalizeGroupBy && typeof originalOnChange === "function") {
+								originalOnChange.apply(this, args);
+							}
+							ensureIssueTypeFilterState();
+							ensureHoursOnlyFilterState();
+							scheduleRender(120, { reason: "filter-change" });
+						});
+						return;
+					}
 					if (typeof originalOnChange === "function") {
 						originalOnChange.apply(this, arguments);
 					}
-					scheduleRender();
+					if (isNormalizingGroupByFilter && filter.df.fieldname === "group_by") {
+						return;
+					}
+					if (isNormalizingIssueTypeFilter && filter.df.fieldname === "issue_types") {
+						return;
+					}
+					if (filter.df.fieldname === "task_types") {
+						ensureIssueTypeFilterState();
+					}
+					if (filter.df.fieldname === "measure") {
+						ensureHoursOnlyFilterState();
+					}
+					scheduleRender(120, { reason: "filter-change" });
 				};
 				filter.__task_epic_burndown_bound = true;
 			});
+		}
+
+		function currentProjectFilterValue() {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function") {
+				return null;
+			}
+			const projectFilter = qr.get_filter("project", false);
+			if (!projectFilter || typeof projectFilter.get_value !== "function") {
+				return null;
+			}
+			return projectFilter.get_value();
+		}
+
+		function refreshGroupByOptions(project) {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function") {
+				return Promise.resolve(false);
+			}
+			project = project || currentProjectFilterValue();
+			const groupByFilter = qr.get_filter("group_by", false);
+			if (!groupByFilter || !groupByFilter.df) {
+				return Promise.resolve(false);
+			}
+			const applyOptions = (options) => {
+				const nextOptions =
+					Array.isArray(options) && options.length
+						? options
+						: TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS;
+				groupByFilter.df.options = nextOptions;
+				if (typeof groupByFilter.set_options === "function") {
+					groupByFilter.set_options();
+				}
+				const currentValue =
+					typeof groupByFilter.get_value === "function"
+						? String(groupByFilter.get_value() || "").trim()
+						: "";
+				const hasCurrentValue = nextOptions.some((option) => {
+					if (!option) {
+						return false;
+					}
+					if (typeof option === "string") {
+						return option === currentValue;
+					}
+					return String(option.value || "").trim() === currentValue;
+				});
+				if (currentValue && hasCurrentValue) {
+					return Promise.resolve(false);
+				}
+				isNormalizingGroupByFilter = true;
+				const result = groupByFilter.set_value("month");
+				return Promise.resolve(result).finally(() => {
+					isNormalizingGroupByFilter = false;
+				}).then(() => true);
+			};
+			if (!project) {
+				return applyOptions(TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS);
+			}
+			return frappe
+				.call({
+					method: "dinext_project_tasks_gantt.burndown.get_project_x_axis_period_options",
+					args: { project },
+				})
+				.then((r) => applyOptions(r.message || []))
+				.catch(() => applyOptions(TASK_EPIC_BURNDOWN_CALENDAR_GROUP_BY_OPTIONS));
+		}
+
+		function ensureIssueTypeFilterState() {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function") {
+				return;
+			}
+			const taskTypes = task_epic_burndown_normalize_list(qr.get_filter_value("task_types"));
+			const issueTypesFilter = qr.get_filter("issue_types");
+			if (!issueTypesFilter) {
+				return;
+			}
+			if (!taskTypes.includes("Issue")) {
+				const currentIssueTypes = task_epic_burndown_normalize_list(issueTypesFilter.get_value());
+				if (currentIssueTypes.length) {
+					isNormalizingIssueTypeFilter = true;
+					issueTypesFilter.set_value([]);
+					isNormalizingIssueTypeFilter = false;
+				}
+			}
+			qr.refresh_filters_dependency();
+		}
+
+		function ensureHoursOnlyFilterState() {
+			const qr = frappe.query_report;
+			if (!qr || typeof qr.get_filter !== "function" || typeof qr.get_filter_value !== "function") {
+				return;
+			}
+			const measure = (qr.get_filter_value("measure") || "hours").toLowerCase();
+			if (measure === "hours") {
+				qr.refresh_filters_dependency();
+				return;
+			}
+			const roleFilter = qr.get_filter("project_role_filters");
+			if (roleFilter && task_epic_burndown_normalize_list(roleFilter.get_value()).length) {
+				roleFilter.set_value([]);
+			}
+			qr.refresh_filters_dependency();
 		}
 
 		/** Query Report omits falsy values from get_filter_values(); Check returns 0 when off. */
@@ -142,17 +1010,82 @@ frappe.query_reports["Task Epic Burndown"] = {
 			return !!raw;
 		}
 
-		function renderBurndown() {
+		function renderBurndown(options = {}) {
+			const qr = frappe.query_report;
+			if (!task_epic_burndown_is_burndown_report(qr)) {
+				task_epic_burndown_teardown_mount(qr);
+				return;
+			}
 			const filters = frappe.query_report.get_filter_values();
 			if (!filters.project) {
 				destroyChart();
 				return;
 			}
-			const requestId = ++renderRequestId;
-			const useProgress = getCheckFilterValue("use_progress", true);
+			if (renderState.lastGroupByOptionsProject !== filters.project) {
+				renderState.lastGroupByOptionsProject = filters.project;
+				refreshGroupByOptions(filters.project).then((didNormalizeGroupBy) => {
+					if (!didNormalizeGroupBy) {
+						scheduleRender(0, {
+							...options,
+							reason: "group-by-options-ready",
+						});
+					}
+				});
+				return;
+			}
+			ensureContainers();
+			const measureKey = (filters.measure || "hours").toLowerCase();
+			const useProgress =
+				measureKey === "hours" ? false : getCheckFilterValue("use_progress", true);
 			const excludeGroupTasks = getCheckFilterValue("exclude_group_tasks", true);
 			const showCompletionForecastFilter = getCheckFilterValue("show_completion_forecast", false);
 			const useTaskWeight = getCheckFilterValue("use_task_weight", false);
+			const taskTypes = task_epic_burndown_normalize_list(filters.task_types);
+			const issueTypes = task_epic_burndown_normalize_list(filters.issue_types);
+			const projectRoleFilters =
+				measureKey === "hours"
+					? task_epic_burndown_normalize_list(filters.project_role_filters)
+					: [];
+			const normalized = {
+				useProgress,
+				excludeGroupTasks,
+				showCompletionForecastFilter,
+				useTaskWeight,
+				taskTypes,
+				issueTypes: taskTypes.includes("Issue") ? issueTypes : [],
+				projectRoleFilters,
+			};
+			const nextContainerSize = getContainerSize();
+			const nextThemeName = getEChartsThemeName();
+			const nextRenderKey = buildRenderKey(filters, normalized);
+			const nextRequestSignature = JSON.stringify({
+				key: nextRenderKey,
+				theme: nextThemeName || null,
+				size: nextContainerSize,
+			});
+			const shouldForce = !!options.force;
+			const hasSameData = renderState.lastCompletedKey === nextRenderKey;
+			const hasSameTheme = renderState.lastThemeName === nextThemeName;
+			const hasSameSize = isSameContainerSize(renderState.lastContainerSize, nextContainerSize);
+			const hasSamePendingRequest = renderState.lastRequestedSignature === nextRequestSignature;
+
+			if (!shouldForce && hasSamePendingRequest) {
+				if (resizeChartIfNeeded(nextContainerSize)) {
+					return;
+				}
+				return;
+			}
+
+			if (!shouldForce && hasSameData && hasSameTheme) {
+				if (resizeChartIfNeeded(nextContainerSize)) {
+					return;
+				}
+				return;
+			}
+
+			renderState.lastRequestedKey = nextRenderKey;
+			renderState.lastRequestedSignature = nextRequestSignature;
+			const requestId = ++renderRequestId;
 
 			frappe.require(
 				["/assets/dinext_common/js/echarts.min.js"],
@@ -165,28 +1098,51 @@ frappe.query_reports["Task Epic Burndown"] = {
 							to_date: filters.to_date,
 							group_by: filters.group_by || "month",
 							measure: filters.measure || "hours",
+							hours_source: filters.hours_source || "pwea_plan",
 							exclude_group_tasks: excludeGroupTasks ? 1 : 0,
 							use_progress: useProgress ? 1 : 0,
 							forecast_periods: filters.forecast_periods || 6,
 							show_completion_forecast: showCompletionForecastFilter ? 1 : 0,
 							use_task_weight: useTaskWeight ? 1 : 0,
+							task_type_filters: taskTypes,
+							issue_type_filters: taskTypes.includes("Issue") ? issueTypes : [],
+							project_role_filters: projectRoleFilters,
 						},
 						callback: function (r) {
 							if (requestId !== renderRequestId) {
 								return;
 							}
 							if (!r.message || r.exc) {
+								renderState.lastRequestedKey = null;
+								renderState.lastRequestedSignature = null;
+								lastSummaryProject = null;
+								lastUnestimatedTaskNames = [];
+								if ($summary && $summary.length) {
+									$summary.empty();
+								}
+								if ($wrap && $wrap.length) {
+									$wrap.find(".task-epic-burndown-forecast-legend").remove();
+								}
 								return;
 							}
 							const d = r.message;
+							lastSummaryProject = filters.project;
+							lastUnestimatedTaskNames =
+								d.summary && Array.isArray(d.summary.unestimated_task_names)
+									? d.summary.unestimated_task_names.slice()
+									: [];
+							task_epic_burndown_render_summary($summary, d);
 							const z = (a) => (a || []).map((x) => (x === null || x === undefined ? 0 : x));
 							const cats = d.categories || [];
 							const created = z(d.created || d.added);
 							const openBase = z(d.open || d.remaining || d.end_scope);
 							const completedBase = z(d.completed);
+							const completedAboveExpectedBase = z(d.completed_above_expected);
+							const unusedHoursBase = z(d.unused_hours);
 							const createdCompleted = z(d.created_completed || d.same_period_completed);
 							const forecastCompleted = z(d.forecast_completed);
 							const forecastOpen = z(d.forecast_remaining);
+							const showReleasedHours = measureKey === "hours";
 							const holidayDates = new Set((d.holiday_dates || []).filter(Boolean));
 							const showCompletionForecast = showCompletionForecastFilter;
 							const todayStr = frappe.datetime.get_today();
@@ -270,28 +1226,92 @@ frappe.query_reports["Task Epic Burndown"] = {
 								if (segment === "completed") {
 									return `-${text}`;
 								}
+								if (segment === "completed_above_expected") {
+									return `-${text}`;
+								}
+								if (segment === "unused_hours") {
+									return `-${text}`;
+								}
 								return text;
 							};
-							const segmentColors = {
-								created: "#0b2f5a",
-								open: "#1f77b4",
-								completed: "#6fdc6f",
-								created_completed: "#0f5b5b",
-							};
-							const segmentLabelColor = {
-								created: "#ffffff",
-								open: "#ffffff",
-								completed: "#0a5c0a",
-								created_completed: "#a8ffb0",
-							};
-							const segmentLabelColorForecast = {
-								created: "#ffffff",
-								open: "#ffffff",
-								completed: "#02240a",
-								created_completed: "#e6ffea",
-							};
+							const isDark = getEChartsThemeName() === "dark";
+							const segmentColors = isDark
+								? {
+										created: "#3d6fa8",
+										open: "#5eb0e8",
+										completed: "#4d9e5c",
+										completed_above_expected: "#d97706",
+										unused_hours: "#9cab32",
+										created_completed: "#3d9090",
+									}
+								: {
+										created: "#0b2f5a",
+										open: "#1f77b4",
+										completed: "#6fdc6f",
+										completed_above_expected: "#f59e0b",
+										unused_hours: "#7f9624",
+										created_completed: "#0f5b5b",
+									};
+							const segmentLabelColor = isDark
+								? {
+										created: "#f8fafc",
+										open: "#f8fafc",
+										completed: "#bbf7d0",
+										completed_above_expected: "#fff7ed",
+										unused_hours: "#fff7d6",
+										created_completed: "#ccfbf1",
+									}
+								: {
+										created: "#ffffff",
+										open: "#ffffff",
+										completed: "#0a5c0a",
+										completed_above_expected: "#4a2d00",
+										unused_hours: "#fff8e1",
+										created_completed: "#a8ffb0",
+									};
+							const segmentLabelColorForecast = isDark
+								? {
+										created: "#f8fafc",
+										open: "#f8fafc",
+										completed: "#86efac",
+										completed_above_expected: "#ffedd5",
+										unused_hours: "#ffefbf",
+										created_completed: "#ecfdf5",
+									}
+								: {
+										created: "#ffffff",
+										open: "#ffffff",
+										completed: "#02240a",
+										completed_above_expected: "#5b3300",
+										unused_hours: "#fff8e1",
+										created_completed: "#e6ffea",
+									};
 							const forecastFillOpacity = 0.42;
-							const holidayBandFill = "rgba(120, 120, 120, 0.12)";
+							const holidayBandFill = isDark
+								? "rgba(148, 163, 184, 0.14)"
+								: "rgba(120, 120, 120, 0.12)";
+							const forecastBoundaryStroke = isDark
+								? "rgba(226, 232, 240, 0.88)"
+								: "rgba(70, 70, 70, 0.9)";
+							const axisTextColor = getThemeVariableColor(
+								"--text-color",
+								isDark ? "#d1d5db" : "#383838"
+							);
+							const gridLineColor = getThemeVariableColor(
+								"--border-color",
+								isDark ? "rgba(148, 163, 184, 0.22)" : "rgba(148, 163, 184, 0.28)"
+							);
+							const yAxisSplitLineColor = isDark
+								? "rgba(186, 198, 215, 0.52)"
+								: "rgba(71, 85, 105, 0.42)";
+							const tooltipBg = getThemeVariableColor(
+								"--popover-bg",
+								getThemeVariableColor("--card-bg", "#ffffff")
+							);
+							const tooltipBorder = getThemeVariableColor(
+								"--border-color",
+								isDark ? "#475569" : "#e2e8f0"
+							);
 							const waterfallData = [];
 							const holidayBandData = [];
 							const forecastBoundaryData = [];
@@ -317,19 +1337,34 @@ frappe.query_reports["Task Epic Burndown"] = {
 									showCompletionForecast && isForecast
 										? forecastCompleted[i] || 0
 										: completedBase[i] || 0;
+								const completedAboveExpectedValue =
+									showCompletionForecast && isForecast
+										? 0
+										: completedAboveExpectedBase[i] || 0;
+								const unusedHoursValue = showReleasedHours ? unusedHoursBase[i] || 0 : 0;
 								const openValue =
 									showCompletionForecast && isForecast
 										? forecastOpen[i] || 0
 										: openBase[i] || 0;
 								const createdCompletedValue =
 									showCompletionForecast && isForecast ? 0 : createdCompletedBaseValue;
-								const total = createdValue + openValue + completedValue + createdCompletedValue;
+								const total =
+									createdValue +
+									openValue +
+									completedValue +
+									completedAboveExpectedValue +
+									unusedHoursValue +
+									createdCompletedValue;
 
 								let barTop;
 								let openTop;
 								let openBottom;
 								let completedTop;
 								let completedBottom;
+								let completedAboveExpectedTop;
+								let completedAboveExpectedBottom;
+								let unusedHoursTop;
+								let unusedHoursBottom;
 								let createdTop;
 								let createdBottom;
 								let createdCompletedTop;
@@ -343,28 +1378,45 @@ frappe.query_reports["Task Epic Burndown"] = {
 									createdTop = createdBottom + createdValue;
 									openBottom = createdTop;
 									openTop = openBottom + openValue;
-									completedBottom = openTop;
+									unusedHoursBottom = openTop;
+									unusedHoursTop = unusedHoursBottom + unusedHoursValue;
+									completedBottom = unusedHoursTop;
 									completedTop = completedBottom + completedValue;
-									barTop = completedTop;
+									completedAboveExpectedBottom = completedTop;
+									completedAboveExpectedTop =
+										completedAboveExpectedBottom + completedAboveExpectedValue;
+									barTop = completedAboveExpectedTop;
 									barBottom = 0;
 								} else {
 									barTop = previousOpenTop == null ? 0 : previousOpenTop;
 									completedTop = barTop;
 									completedBottom = completedTop - completedValue;
-									openTop = completedBottom;
+									completedAboveExpectedBottom = completedTop;
+									completedAboveExpectedTop =
+										completedAboveExpectedBottom + completedAboveExpectedValue;
+									unusedHoursTop = completedBottom;
+									unusedHoursBottom = unusedHoursTop - unusedHoursValue;
+									openTop = unusedHoursBottom;
 									openBottom = openTop - openValue;
 									createdTop = openBottom;
 									createdBottom = createdTop - createdValue;
 									createdCompletedTop = createdBottom;
 									createdCompletedBottom = createdCompletedTop - createdCompletedValue;
-									barBottom = Math.min(openBottom, createdBottom, createdCompletedBottom);
+									barBottom = Math.min(
+										openBottom,
+										unusedHoursBottom,
+										createdBottom,
+										createdCompletedBottom
+									);
 								}
 
-								previousOpenTop = openValue > 0 ? openTop : barTop;
+								previousOpenTop = showReleasedHours ? openTop : openValue > 0 ? openTop : barTop;
 								yMin = Math.min(
 									yMin,
 									openBottom,
 									completedBottom,
+									completedAboveExpectedBottom,
+									unusedHoursBottom,
 									createdBottom,
 									createdCompletedBottom,
 									barBottom
@@ -373,6 +1425,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 									yMax,
 									openTop,
 									completedTop,
+									completedAboveExpectedTop,
+									unusedHoursTop,
 									createdTop,
 									createdCompletedTop,
 									barTop
@@ -386,6 +1440,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 									created: createdValue,
 									open: openValue,
 									completed: completedValue,
+									completed_above_expected: completedAboveExpectedValue,
+									unused_hours: unusedHoursValue,
 									created_completed: createdCompletedValue,
 									total,
 									geometry: {
@@ -395,6 +1451,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 										openBottom,
 										completedTop,
 										completedBottom,
+										completedAboveExpectedTop,
+										completedAboveExpectedBottom,
+										unusedHoursTop,
+										unusedHoursBottom,
 										createdTop,
 										createdBottom,
 										createdCompletedTop,
@@ -414,6 +1474,10 @@ frappe.query_reports["Task Epic Burndown"] = {
 										openBottom: g.openBottom + yShift,
 										completedTop: g.completedTop + yShift,
 										completedBottom: g.completedBottom + yShift,
+										completedAboveExpectedTop: g.completedAboveExpectedTop + yShift,
+										completedAboveExpectedBottom: g.completedAboveExpectedBottom + yShift,
+										unusedHoursTop: g.unusedHoursTop + yShift,
+										unusedHoursBottom: g.unusedHoursBottom + yShift,
 										createdTop: g.createdTop + yShift,
 										createdBottom: g.createdBottom + yShift,
 										createdCompletedTop: g.createdCompletedTop + yShift,
@@ -435,18 +1499,181 @@ frappe.query_reports["Task Epic Burndown"] = {
 							let $chartRoot = $wrap.find(".task-epic-burndown-chart-root").first();
 							if (!$chartRoot.length) {
 								$wrap.empty();
-								$chartRoot = $('<div class="task-epic-burndown-chart-root" style="width:100%;min-height:460px;"></div>');
+								$chartRoot = $('<div class="task-epic-burndown-chart-root"></div>');
 								$wrap.append($chartRoot);
 							}
+							task_epic_burndown_render_forecast_legend($wrap, d);
 							const dom = $chartRoot.get(0);
-							if (!chart || chart.isDisposed()) {
-								chart = echarts.init(dom, null, { renderer: "canvas" });
-							} else {
-								chart.clear();
+							if (chart && !chart.isDisposed()) {
+								chart.dispose();
+								chart = null;
 							}
+							chart = echarts.init(dom, nextThemeName, { renderer: "canvas" });
+
+							const legendData = [
+								{
+									name: "completed",
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.completed },
+								},
+								{
+									name: "completed_above_expected",
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.completed_above_expected },
+								},
+								...(showReleasedHours
+									? [
+											{
+												name: "unused_hours",
+												icon: "roundRect",
+												itemStyle: { color: segmentColors.unused_hours },
+											},
+										]
+									: []),
+								{
+									name: "open",
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.open },
+								},
+								{
+									name: "created",
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.created },
+								},
+								{
+									name: "created_completed",
+									icon: "roundRect",
+									itemStyle: { color: segmentColors.created_completed },
+								},
+							];
+							const legendProxySeries = [
+								{
+									name: "completed",
+									type: "line",
+									color: segmentColors.completed,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.completed,
+									},
+									lineStyle: {
+										color: segmentColors.completed,
+										width: 8,
+									},
+								},
+								{
+									name: "completed_above_expected",
+									type: "line",
+									color: segmentColors.completed_above_expected,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.completed_above_expected,
+									},
+									lineStyle: {
+										color: segmentColors.completed_above_expected,
+										width: 8,
+									},
+								},
+								...(showReleasedHours
+									? [
+											{
+												name: "unused_hours",
+												type: "line",
+												color: segmentColors.unused_hours,
+												data: [],
+												silent: true,
+												showSymbol: false,
+												legendHoverLink: false,
+												tooltip: { show: false },
+												itemStyle: {
+													color: segmentColors.unused_hours,
+												},
+												lineStyle: {
+													color: segmentColors.unused_hours,
+													width: 8,
+												},
+											},
+										]
+									: []),
+								{
+									name: "open",
+									type: "line",
+									color: segmentColors.open,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.open,
+									},
+									lineStyle: {
+										color: segmentColors.open,
+										width: 8,
+									},
+								},
+								{
+									name: "created",
+									type: "line",
+									color: segmentColors.created,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.created,
+									},
+									lineStyle: {
+										color: segmentColors.created,
+										width: 8,
+									},
+								},
+								{
+									name: "created_completed",
+									type: "line",
+									color: segmentColors.created_completed,
+									data: [],
+									silent: true,
+									showSymbol: false,
+									legendHoverLink: false,
+									tooltip: { show: false },
+									itemStyle: {
+										color: segmentColors.created_completed,
+									},
+									lineStyle: {
+										color: segmentColors.created_completed,
+										width: 8,
+									},
+								},
+							];
+
+							const axisLabelRotated = cats.length > 8;
+							const legendLayout = task_epic_burndown_legend_layout({
+								containerWidth:
+									(nextContainerSize && nextContainerSize.width) ||
+									dom.clientWidth ||
+									800,
+								legendKeys: legendData.map(function (item) {
+									return item.name;
+								}),
+								axisLabelRotated,
+							});
+							renderState.lastLegendKeys = legendData.map(function (item) {
+								return item.name;
+							});
+							renderState.lastAxisLabelRotated = axisLabelRotated;
 
 							chart.setOption(
 								{
+									backgroundColor: "transparent",
 									animation: true,
 									animationDuration: 500,
 									animationEasing: "cubicOut",
@@ -460,66 +1687,176 @@ frappe.query_reports["Task Epic Burndown"] = {
 									},
 									tooltip: {
 										trigger: "item",
+										backgroundColor: tooltipBg,
+										borderColor: tooltipBorder,
+										borderWidth: 1,
+										textStyle: {
+											color: axisTextColor,
+										},
 										formatter: function (params) {
 											if (!params || !params.data) {
 												return "";
 											}
 											const rowData = params.data;
 											const lines = [
-												rowData.category +
-													'<table style="margin-top:4px;border-collapse:collapse;">',
+												'<div class="task-epic-burndown-tooltip">',
+												'<span class="task-epic-burndown-tooltip__category">' +
+													rowData.category +
+													"</span>" +
+													'<table class="task-epic-burndown-tooltip__table">',
 											];
 											const row = (k, v) =>
-												"<tr><td style=\"padding:2px 8px 2px 0\">" +
+												'<tr><td class="task-epic-burndown-tooltip__row-label">' +
 												k +
-												'</td><td style="text-align:right;font-weight:600">' +
+												'</td><td class="task-epic-burndown-tooltip__row-value">' +
 												v +
 												"</td></tr>";
 											lines.push(
 												row(
-													__("Completed in period"),
-													segmentLabel("completed", rowData.completed || 0)
+													task_epic_burndown_segment_legend_label(
+														"completed_above_expected"
+													),
+													segmentLabel(
+														"completed_above_expected",
+														rowData.completed_above_expected || 0
+													)
 												)
 											);
 											lines.push(
-												row(__("Open at period end"), segmentLabel("open", rowData.open || 0))
+												row(
+													task_epic_burndown_segment_legend_label("completed"),
+													segmentLabel("completed", rowData.completed || 0)
+												)
 											);
+											if (showReleasedHours) {
+												lines.push(
+													row(
+														task_epic_burndown_segment_legend_label("unused_hours"),
+														segmentLabel("unused_hours", rowData.unused_hours || 0)
+													)
+												);
+											}
 											lines.push(
-												row(__("Created in period"), segmentLabel("created", rowData.created || 0))
+												row(
+													task_epic_burndown_segment_legend_label("open"),
+													segmentLabel("open", rowData.open || 0)
+												)
 											);
 											lines.push(
 												row(
-													__("Created and completed"),
+													task_epic_burndown_segment_legend_label("created"),
+													segmentLabel("created", rowData.created || 0)
+												)
+											);
+											lines.push(
+												row(
+													task_epic_burndown_segment_legend_label("created_completed"),
 													segmentLabel("created_completed", rowData.created_completed || 0)
 												)
 											);
 											lines.push(row(__("Total visible volume"), formatValue(rowData.total || 0)));
-											lines.push("</table>");
+											lines.push("</table></div>");
 											return lines.join("");
 										},
 									},
-									legend: {
-										data: [
-											__("Completed in period"),
-											__("Open at period end"),
-											__("Created in period"),
-											__("Created and completed"),
-										],
+									toolbox: {
+										right: 8,
+										top: 4,
+										itemSize: 16,
+										iconStyle: {
+											borderColor: getThemeVariableColor("--text-muted", axisTextColor),
+										},
+										feature: {
+											saveAsImage: {
+												title: __("Save as Image"),
+												name: "task-epic-burndown",
+												pixelRatio: 2,
+												backgroundColor: getThemeVariableColor("--card-bg", "#ffffff"),
+											},
+										},
 									},
-									grid: { left: 48, right: 24, top: 48, bottom: 80 },
+									legend: {
+										show: true,
+										orient: "horizontal",
+										bottom: legendLayout.legendBottom,
+										left: "center",
+										width: `${TASK_EPIC_BURNDOWN_LEGEND_METRICS.widthRatio * 100}%`,
+										z: 20,
+										selectedMode: false,
+										itemWidth: TASK_EPIC_BURNDOWN_LEGEND_METRICS.itemWidth,
+										itemHeight: TASK_EPIC_BURNDOWN_LEGEND_METRICS.itemHeight,
+										itemGap: TASK_EPIC_BURNDOWN_LEGEND_METRICS.itemGap,
+										padding: legendLayout.legendPadding,
+										data: legendData,
+										formatter: function (name) {
+											return task_epic_burndown_segment_legend_label(name);
+										},
+										textStyle: {
+											color: axisTextColor,
+											fontSize: TASK_EPIC_BURNDOWN_LEGEND_METRICS.fontSize,
+											lineHeight: legendLayout.legendLineHeight,
+										},
+									},
+									grid: {
+										left: 48,
+										right: 24,
+										top: 52,
+										bottom: legendLayout.gridBottom,
+										containLabel: true,
+									},
 									xAxis: {
 										type: "category",
 										data: cats,
-										axisLabel: { rotate: cats.length > 8 ? 35 : 0 },
+										axisLine: {
+											lineStyle: {
+												color: gridLineColor,
+											},
+										},
+										axisLabel: {
+											rotate: cats.length > 8 ? 35 : 0,
+											color: axisTextColor,
+										},
+										splitLine: {
+											show: true,
+											lineStyle: {
+												color: gridLineColor,
+												type: "dashed",
+											},
+										},
 									},
 									yAxis: {
 										type: "value",
-										name: d.y_axis_label || "",
+										name: task_epic_burndown_measure_label_for_summary(d),
+										nameTextStyle: {
+											color: axisTextColor,
+										},
 										scale: false,
 										min: 0,
 										max: shiftedYMax,
+										minInterval: 1,
+										axisLine: {
+											show: true,
+											lineStyle: {
+												color: gridLineColor,
+											},
+										},
+										axisLabel: {
+											color: axisTextColor,
+											formatter: function (value) {
+												const n = Number(value);
+												return Number.isFinite(n) ? String(Math.round(n)) : value;
+											},
+										},
+										splitLine: {
+											show: true,
+											lineStyle: {
+												color: yAxisSplitLineColor,
+												type: "dashed",
+											},
+										},
 									},
 									series: [
+										...legendProxySeries,
 										{
 											name: "__holiday_bands",
 											type: "custom",
@@ -606,7 +1943,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 															},
 															transition: ["shape", "style"],
 															style: {
-																stroke: "rgba(70, 70, 70, 0.9)",
+																stroke: forecastBoundaryStroke,
 																lineWidth: 3,
 																lineDash: [6, 4],
 																opacity: 1,
@@ -621,6 +1958,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 											type: "custom",
 											data: waterfallData,
 											z: 10,
+											animationDelay: 0,
+											animationDelayUpdate: 0,
 											renderItem: function (params, api) {
 												const rowData = waterfallData[params.dataIndex];
 												const geometry = rowData.geometry;
@@ -629,6 +1968,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 												const bandWidth = api.size([1, 0])[0] * 0.72;
 												const left = xCenter - bandWidth / 2;
 												const coord = (value) => api.coord([categoryIndex, value])[1];
+												const barTopY = coord(geometry.barTop);
 												const segmentRect = (segment, topValue, bottomValue) => {
 													const topY = coord(topValue);
 													const bottomY = coord(bottomValue);
@@ -665,18 +2005,6 @@ frappe.query_reports["Task Epic Burndown"] = {
 																cursor: segmentCursor,
 															},
 														},
-														enterFrom: {
-															shape: {
-																x: rect.x,
-																y: rect.y + rect.height,
-																width: rect.width,
-																height: 0,
-															},
-															style: {
-																opacity: 0,
-															},
-														},
-														transition: ["shape", "style"],
 														style: {
 															fill: segmentColors[segment],
 															fillOpacity: rowData.isForecast ? forecastFillOpacity : 1,
@@ -695,6 +2023,8 @@ frappe.query_reports["Task Epic Burndown"] = {
 													if (height < 16) {
 														return null;
 													}
+													const textY = Math.min(topY, bottomY) + height / 2;
+													const isVerticalDayLabel = isDayGroup;
 													const labelPalette = rowData.isForecast
 														? segmentLabelColorForecast
 														: segmentLabelColor;
@@ -702,17 +2032,12 @@ frappe.query_reports["Task Epic Burndown"] = {
 														type: "text",
 														id: `${rowData.category}-${segment}-text`,
 														silent: true,
-														enterFrom: {
-															style: {
-																x: xCenter,
-																y: Math.min(topY, bottomY) + height / 2 + 8,
-																opacity: 0,
-															},
-														},
-														transition: ["style"],
+														rotation: isVerticalDayLabel ? Math.PI / 2 : 0,
+														originX: xCenter,
+														originY: textY,
 														style: {
 															x: xCenter,
-															y: Math.min(topY, bottomY) + height / 2,
+															y: textY,
 															text: segmentLabel(segment, rawValue),
 															textAlign: "center",
 															textVerticalAlign: "middle",
@@ -724,7 +2049,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 													};
 												};
 												const children = [
+													segmentRect(
+														"completed_above_expected",
+														geometry.completedAboveExpectedTop,
+														geometry.completedAboveExpectedBottom
+													),
 													segmentRect("completed", geometry.completedTop, geometry.completedBottom),
+													segmentRect(
+														"unused_hours",
+														geometry.unusedHoursTop,
+														geometry.unusedHoursBottom
+													),
 													segmentRect("open", geometry.openTop, geometry.openBottom),
 													segmentRect("created", geometry.createdTop, geometry.createdBottom),
 													segmentRect(
@@ -733,10 +2068,22 @@ frappe.query_reports["Task Epic Burndown"] = {
 														geometry.createdCompletedBottom
 													),
 													segmentText(
+														"completed_above_expected",
+														geometry.completedAboveExpectedTop,
+														geometry.completedAboveExpectedBottom,
+														rowData.completed_above_expected
+													),
+													segmentText(
 														"completed",
 														geometry.completedTop,
 														geometry.completedBottom,
 														rowData.completed
+													),
+													segmentText(
+														"unused_hours",
+														geometry.unusedHoursTop,
+														geometry.unusedHoursBottom,
+														rowData.unused_hours
 													),
 													segmentText("open", geometry.openTop, geometry.openBottom, rowData.open),
 													segmentText(
@@ -755,6 +2102,17 @@ frappe.query_reports["Task Epic Burndown"] = {
 												return {
 													type: "group",
 													cursor: rowData.isForecast ? "default" : "pointer",
+													originX: xCenter,
+													originY: barTopY,
+													scaleY: 1,
+													enterFrom: {
+														scaleY: 0,
+													},
+													enterAnimation: {
+														delay: categoryIndex * 10,
+														duration: 400,
+														easing: "cubicOut",
+													},
 													children,
 												};
 											},
@@ -763,6 +2121,11 @@ frappe.query_reports["Task Epic Burndown"] = {
 								},
 								true
 							);
+							renderState.lastCompletedKey = nextRenderKey;
+							renderState.lastThemeName = nextThemeName;
+							renderState.lastContainerSize = getContainerSize() || nextContainerSize;
+							renderState.lastLegendLayoutSignature = legendLayout.signature;
+							renderState.isInitialRenderDone = true;
 							chart.off("mousemove");
 							chart.on("mousemove", function (params) {
 								const segment = params.info && params.info.segment;
@@ -795,15 +2158,27 @@ frappe.query_reports["Task Epic Burndown"] = {
 									rowData && rowData.value !== undefined && rowData.value !== null
 										? rowData.value
 										: params.dataIndex;
-								const taskNames =
+								const docNames =
 									((d.task_filters || {})[segment] || [])[bucketIndex] || [];
-								if (!taskNames.length) {
+								if (!docNames.length) {
 									return;
 								}
 								frappe.route_options = {
 									project: ["=", filters.project],
-									name: ["in", taskNames],
+									name: ["in", docNames],
 								};
+								const measureKey = (filters.measure || "hours").toLowerCase();
+								if (
+									measureKey === "hours" &&
+									(
+										segment === "completed" ||
+										segment === "completed_above_expected" ||
+										segment === "created_completed"
+									)
+								) {
+									frappe.set_route("List", "User Timesheet Position");
+									return;
+								}
 								frappe.set_route("List", "Task");
 							});
 						},
@@ -813,32 +2188,111 @@ frappe.query_reports["Task Epic Burndown"] = {
 		}
 
 		bindFilterAutoRefresh();
+		refreshGroupByOptions();
+		ensureIssueTypeFilterState();
+		ensureHoursOnlyFilterState();
 		window.__task_epic_burndown_render = renderBurndown;
-		setTimeout(function () {
-			scheduleRender(0);
-		}, 400);
-		if (report.page && report.page.add_inner_button) {
-			report.page.add_inner_button(__("Refresh chart"), function () {
-				scheduleRender(0);
+		window.__task_epic_burndown_schedule = scheduleRender;
+		window.__task_epic_burndown_destroy = destroyChart;
+
+		function ensureBurndownThemeObserver() {
+			if (typeof MutationObserver === "undefined" || window.__task_epic_burndown_theme_observed) {
+				return;
+			}
+			window.__task_epic_burndown_theme_observed = true;
+			const root = document.documentElement;
+			if (!root) {
+				return;
+			}
+			let theme = root.getAttribute("data-theme");
+			const observer = new MutationObserver(function () {
+				const next = root.getAttribute("data-theme");
+				if (next === theme) {
+					return;
+				}
+				theme = next;
+				const qr = frappe.query_report;
+				if (!qr || typeof qr.get_filter_values !== "function") {
+					return;
+				}
+				if (!task_epic_burndown_is_burndown_report(qr)) {
+					return;
+				}
+				const fv = qr.get_filter_values();
+				if (!fv || !fv.project) {
+					return;
+				}
+				if (typeof window.__task_epic_burndown_schedule === "function") {
+					window.__task_epic_burndown_schedule(0);
+				}
 			});
+			observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
 		}
 
+		ensureBurndownThemeObserver();
+
+		setTimeout(function () {
+			const qr = frappe.query_report;
+			const project =
+				qr && typeof qr.get_filter_value === "function" ? qr.get_filter_value("project") : null;
+			const hasTableRows = !!(qr && Array.isArray(qr.data) && qr.data.length);
+			if (qr && project && !hasTableRows && !qr.__task_epic_burndown_initial_table_refresh_done) {
+				// Initial Query Report refresh can run before saved filter state is fully reflected in
+				// the server-side table payload. Retry once after onload so the datatable catches up.
+				qr.__task_epic_burndown_initial_table_refresh_done = true;
+				qr.refresh(true);
+			}
+			const nextSize = getContainerSize();
+			if (!renderState.isInitialRenderDone) {
+				scheduleRender(0, { reason: "initial-layout-check" });
+				return;
+			}
+			if (resizeChartIfNeeded(nextSize)) {
+				return;
+			}
+			if (!isSameContainerSize(renderState.lastContainerSize, nextSize)) {
+				scheduleRender(0, { reason: "layout-change-after-initial" });
+			}
+		}, 400);
+
 		$(window).on("resize.task_epic_burndown", function () {
-			if (chart) {
-				chart.resize();
+			const qr = frappe.query_report;
+			if (!task_epic_burndown_is_burndown_report(qr)) {
+				return;
+			}
+			const nextSize = getContainerSize();
+			if (resizeChartIfNeeded(nextSize)) {
+				return;
+			}
+			if (chart && !chart.isDisposed() && nextSize) {
+				if (applyLegendLayoutIfNeeded(nextSize)) {
+					chart.resize();
+				}
+				renderState.lastContainerSize = nextSize || renderState.lastContainerSize;
 			}
 		});
+			});
 	},
 
 	after_datatable_render: function () {
-		if (window.__task_epic_burndown_render) {
-			window.__task_epic_burndown_render();
+		const qr = frappe.query_report;
+		if (!task_epic_burndown_is_burndown_report(qr)) {
+			task_epic_burndown_teardown_mount(qr);
+			return;
 		}
-	},
-
-	after_datatable_refresh: function () {
-		if (window.__task_epic_burndown_render) {
-			window.__task_epic_burndown_render();
+		if (qr && Array.isArray(qr.data) && qr.data.length) {
+			qr.__task_epic_burndown_initial_table_refresh_done = true;
 		}
+		const force = !!(qr && qr.__task_epic_burndown_force_chart_after_table);
+		if (qr) {
+			qr.__task_epic_burndown_force_chart_after_table = false;
+		}
+		if (window.__task_epic_burndown_schedule) {
+			window.__task_epic_burndown_schedule(0, {
+				reason: force ? "after-datatable-render-user-reload" : "after-datatable-render",
+				force: force,
+			});
+		}
+		setTimeout(task_epic_burndown_strip_standard_toolbar, 0);
 	},
 };
