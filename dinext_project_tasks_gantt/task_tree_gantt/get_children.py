@@ -117,6 +117,30 @@ def _publish_assign_user_info(rows: list[dict]) -> None:
 		frappe.response["user_info"] = user_info
 
 
+def _attach_assign_sources(rows: list[dict]) -> None:
+	"""Split assign into PWA-backed vs Open-ToDo-only (for avatar chrome)."""
+	task_ids = [row["id"] for row in rows if row.get("id")]
+	pwa_by_task: dict[str, set[str]] = {tid: set() for tid in task_ids}
+	if task_ids and frappe.db.exists("DocType", "Project Workload Assignment"):
+		for rec in frappe.get_all(
+			"Project Workload Assignment",
+			filters={"task": ("in", task_ids)},
+			fields=["task", "user"],
+			limit_page_length=0,
+		):
+			task = rec.get("task")
+			user = rec.get("user")
+			if task and user and task in pwa_by_task:
+				pwa_by_task[task].add(user)
+
+	for row in rows:
+		assign = list(row.get("assign") or [])
+		pwa_users = [u for u in assign if u in pwa_by_task.get(row["id"], ())]
+		pwa_set = set(pwa_users)
+		row["assign_pwa"] = pwa_users
+		row["assign_todo_only"] = [u for u in assign if u not in pwa_set]
+
+
 def _to_canonical(row: dict) -> dict:
 	return {
 		"id": row["name"],
@@ -127,6 +151,8 @@ def _to_canonical(row: dict) -> dict:
 		"status": row.get("status"),
 		"priority": row.get("priority"),
 		"assign": _parse_assign(row.get("_assign")),
+		"assign_pwa": [],
+		"assign_todo_only": [],
 		"user_tags": row.get("_user_tags") or "",
 		"custom_planned_start_date": row.get("custom_planned_start_date"),
 		"custom_planned_end_date": row.get("custom_planned_end_date"),
@@ -248,6 +274,7 @@ def get_children(**kwargs) -> list[dict]:
 	rows = [_to_canonical(r) for r in raw_rows]
 	_type_labels(rows)
 	_attach_relations(rows)
+	_attach_assign_sources(rows)
 	for row in rows:
 		row["can_write"] = 1 if frappe.has_permission("Task", "write", row["id"]) else 0
 	_publish_assign_user_info(rows)

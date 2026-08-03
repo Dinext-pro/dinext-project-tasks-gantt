@@ -1,9 +1,9 @@
 /**
  * Column «Ответств.»:
  * - single click → selection / fill-handle (no dialog)
- * - dblclick cell → PWA dialog
- * - click avatar → PWA dialog (shortcut)
- * - dialog / fill / paste → commitCellChanges (undo/redo + onSaveCells)
+ * - dblclick cell / avatar → PWA dialog
+ * - fill / paste / bulk toolbar → ToDo sync only
+ * - avatars: PWA vs ToDo-only chrome
  */
 import { el } from "../../format.js";
 import { ensureAssignUserInfo } from "../../../api.js";
@@ -11,7 +11,11 @@ import { rowCanWrite } from "../../save.js";
 import { getColumnsPage, getOnAssignSaved } from "../context.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { openAssignDialog } from "./dialog.js";
-import { normalizeUsers, sameUsers } from "./persist.js";
+import {
+	normalizeUsers,
+	sameUsers,
+	stampAssignMetaAfterPwa,
+} from "./persist.js";
 
 function assignUsers(row, value) {
 	if (Array.isArray(value)) {
@@ -20,12 +24,51 @@ function assignUsers(row, value) {
 	return Array.isArray(row?.assign) ? row.assign : [];
 }
 
-function renderAvatars(users) {
-	const list = el("div", "list-assignments tree-gantt-assign-avatars d-flex align-items-center");
-	// frappe.avatar_group → jQuery; Tree uses [0].outerHTML
-	const node = frappe.avatar_group(users, 3, { filterable: false })[0];
-	if (node) {
-		list.appendChild(node);
+function todoOnlySet(row) {
+	return new Set(normalizeUsers(row?.assign_todo_only));
+}
+
+function renderAvatars(users, row) {
+	const list = el(
+		"div",
+		"list-assignments tree-gantt-assign-avatars d-flex align-items-center"
+	);
+	const todoOnly = todoOnlySet(row);
+	const shown = users.slice(0, 3);
+	for (const user of shown) {
+		const wrap = el("span", "tree-gantt-assign-avatar");
+		const fullName = frappe.user?.full_name?.(user) || user;
+		const isTodoOnly = todoOnly.has(user);
+		wrap.classList.add(
+			isTodoOnly
+				? "tree-gantt-assign-avatar--todo"
+				: "tree-gantt-assign-avatar--pwa"
+		);
+		const avatarHtml = frappe.avatar(user, "avatar-small");
+		const tmp = document.createElement("div");
+		tmp.innerHTML = avatarHtml;
+		const avatarNode = tmp.firstElementChild;
+		if (avatarNode) {
+			wrap.appendChild(avatarNode);
+		}
+		if (isTodoOnly) {
+			const tip = __("{0}: assigned via ToDo only (no workload)", [fullName]);
+			wrap.setAttribute("aria-label", tip);
+			$(wrap).tooltip({
+				title: tip,
+				container: "body",
+				trigger: "hover",
+				delay: { show: 200, hide: 0 },
+			});
+		} else {
+			wrap.title = fullName;
+		}
+		list.appendChild(wrap);
+	}
+	if (users.length > 3) {
+		const more = el("span", "avatar-group-more text-muted");
+		more.textContent = `+${users.length - 3}`;
+		list.appendChild(more);
 	}
 	return list;
 }
@@ -70,6 +113,11 @@ function commitAssignChange(params, row, nextUsers) {
 async function applyAssignFromDialog(row, params, users) {
 	const newValue = normalizeUsers(users);
 	await ensureAssignUserInfo(newValue);
+	// Mark as PWA before save so ToDo-sync stamp keeps them in assign_pwa.
+	stampAssignMetaAfterPwa(row, newValue);
+	if (params.node?.data && params.node.data !== row) {
+		stampAssignMetaAfterPwa(params.node.data, newValue);
+	}
 	const ok = commitAssignChange(params, row, newValue);
 	if (ok) {
 		getOnAssignSaved?.(row.id, newValue);
@@ -147,7 +195,7 @@ export function renderAssign(params) {
 		wrap.classList.add("text-muted");
 		wrap.textContent = "-";
 	} else {
-		avatarsEl = renderAvatars(users);
+		avatarsEl = renderAvatars(users, row);
 		wrap.appendChild(avatarsEl);
 	}
 

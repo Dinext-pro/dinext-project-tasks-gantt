@@ -3,9 +3,9 @@ import { ensureAssignUserInfo } from "../api.js";
 import {
 	normalizeUsers,
 	sameUsers,
+	stampAssignMetaAfterTodoSync,
 	syncTaskAssignMany,
 } from "./columns/assign/persist.js";
-import { getColumnsPage } from "./columns/context.js";
 import { isValidPriorityValue } from "./columns/priority/options.js";
 import { isValidStatusValue } from "./columns/status/options.js";
 
@@ -157,9 +157,6 @@ async function saveAssignChanges(changes) {
 		return true;
 	}
 
-	const project =
-		getColumnsPage()?.fields_dict?.project?.get_value?.() || null;
-
 	try {
 		const ops = [];
 		const usersForInfo = new Set();
@@ -173,13 +170,10 @@ async function saveAssignChanges(changes) {
 			ops.push({
 				taskId,
 				users: next,
-				project,
-				exp_start_date: change.row?.exp_start_date ?? null,
-				exp_end_date: change.row?.exp_end_date ?? null,
 			});
 			next.forEach((u) => usersForInfo.add(u));
 			if (change.row) {
-				change.row.assign = next;
+				stampAssignMetaAfterTodoSync(change.row, next);
 			}
 		}
 		if (!ops.length) {
@@ -209,7 +203,7 @@ async function saveAssignChanges(changes) {
 	}
 }
 
-export async function onSaveCells({ changes }) {
+export async function onSaveCells({ changes, table }) {
 	const taskPayload = (changes || [])
 		.filter((c) => TASK_FIELDS.has(c.field))
 		.map((c) => ({
@@ -222,6 +216,13 @@ export async function onSaveCells({ changes }) {
 	const assignOk = await saveAssignChanges(changes);
 	if (!assignOk) {
 		return false;
+	}
+	if ((changes || []).some((c) => c.field === "assign")) {
+		// Meta (pwa / todo-only) stamped in saveAssignChanges — redraw avatars.
+		table?.api?.refreshCells?.({
+			columns: ["assign"],
+			force: true,
+		});
 	}
 
 	if (!taskPayload.length) {

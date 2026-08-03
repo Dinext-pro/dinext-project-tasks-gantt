@@ -487,6 +487,22 @@ body.task-tree-gantt-resizing {
 	height: 22px;
 }
 
+/* PWA-backed vs ToDo-only assignees */
+.tree-gantt-assign-avatar {
+	display: inline-flex;
+	line-height: 0;
+	border-radius: 50%;
+}
+
+.tree-gantt-assign-avatar--todo {
+	outline: 2px dashed var(--orange-500, #ed8936);
+	outline-offset: 1px;
+}
+
+.tree-gantt-assign-avatar--pwa {
+	outline: 2px solid transparent;
+}
+
 /*
  * Tree: .progress-bar.progress-bar-success inside cell.
  * Bootstrap .progress-bar is float + height:100% — parent needs fixed height

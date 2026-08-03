@@ -3,6 +3,10 @@ export function toTableRow(row) {
 		id: row.id,
 		subject: row.subject || "",
 		assign: Array.isArray(row.assign) ? row.assign : [],
+		assign_pwa: Array.isArray(row.assign_pwa) ? row.assign_pwa : [],
+		assign_todo_only: Array.isArray(row.assign_todo_only)
+			? row.assign_todo_only
+			: [],
 		status: row.status || "",
 		priority: row.priority || "",
 		exp_start_date: row.exp_start_date || null,

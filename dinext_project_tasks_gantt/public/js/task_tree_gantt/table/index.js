@@ -2,6 +2,7 @@ import { getChildren } from "../api.js";
 import { HEADER_HEIGHT, ROW_HEIGHT } from "../constants.js";
 import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/check.js";
 import { refreshPlanFact } from "./columns/plan_fact/limits.js";
+import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
 import { getColumns } from "./columns/index.js";
 import { nestRows, toTableRows } from "./rows.js";
 import {
@@ -183,8 +184,10 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			// Fill-handle / paste: dates, assign, status, priority, ТШ (custom_include).
 			clipboard: { enabled: true },
 			fillHandle: { enabled: true },
+			rowCheck: { enabled: true },
 			toolbar: {
 				persistKey: `task-tree-gantt:${projectKey}${taskKey}`,
+				items: [bulkAssignToolbarItem()],
 			},
 			rowReorder: {
 				enabled: true,
