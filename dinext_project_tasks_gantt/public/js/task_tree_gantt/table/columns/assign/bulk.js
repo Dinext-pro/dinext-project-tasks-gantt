@@ -1,8 +1,9 @@
 /**
- * Toolbar bulk assign: checked rows → ToDo dialog → commitCellChanges.
+ * Toolbar bulk assign: checked rows → dialog → commitCellChanges → silent PWA.
  */
 import { ensureAssignUserInfo } from "../../../api.js";
-import { openBulkTodoAssignDialog } from "./bulk-dialog.js";
+import { getColumnsPage } from "../context.js";
+import { openBulkAssignDialog } from "./bulk-dialog.js";
 import { normalizeUsers, sameUsers } from "./persist.js";
 
 function editSource() {
@@ -16,7 +17,7 @@ function editSource() {
  * @param {object} table
  * @param {string[]} addUsers
  */
-export function commitBulkTodoAssign(table, addUsers) {
+export function commitBulkAssign(table, addUsers) {
 	const add = normalizeUsers(addUsers);
 	if (!add.length || typeof table?.commitCellChanges !== "function") {
 		return 0;
@@ -61,12 +62,15 @@ export function commitBulkTodoAssign(table, addUsers) {
 	return applied;
 }
 
+/** @deprecated alias */
+export const commitBulkTodoAssign = commitBulkAssign;
+
 /** Toolbar item for DinextTable. */
 export function bulkAssignToolbarItem() {
 	return {
 		id: "tree-gantt-bulk-assign",
 		label: __("Assign"),
-		title: __("Assign users to checked tasks (ToDo)"),
+		title: __("Assign users to checked tasks (workload)"),
 		iconSvg:
 			'<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M8 9.5a3 3 0 1 0-3-3 3 3 0 0 0 3 3z"/><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M2.5 13.5c.6-2 2.4-3 5.5-3s4.9 1 5.5 3"/><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M12.5 3.5v4M10.5 5.5h4"/></svg>',
 		disabled: ({ table }) => {
@@ -75,11 +79,14 @@ export function bulkAssignToolbarItem() {
 		},
 		onClick: ({ table }) => {
 			const rows = table?.getCheckedRows?.() || [];
-			openBulkTodoAssignDialog({
+			const project =
+				getColumnsPage()?.fields_dict?.project?.get_value?.() || null;
+			void openBulkAssignDialog({
 				rows,
+				project,
 				onConfirm: (users) => {
 					void ensureAssignUserInfo(users).then(() => {
-						commitBulkTodoAssign(table, users);
+						commitBulkAssign(table, users);
 					});
 				},
 			});

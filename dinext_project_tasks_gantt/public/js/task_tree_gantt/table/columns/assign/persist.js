@@ -1,7 +1,26 @@
 /**
- * Sync Task assignees via Open ToDo only (fill / paste / bulk toolbar).
- * Single-cell PWA dialog stays on start_pwa_dialog — not this module.
+ * Sync Task assignees for fill/paste/bulk via PWA (bulk_process_pwa)
+ * + Open ToDo. Same defaults as start_pwa_dialog → add_new_pwa.
+ * Mass path does not open the PWA dialog.
+ * Single-cell dblclick still uses start_pwa_dialog.
  */
+
+/** Canonical DB value — dialog.js / types.py (not translated). */
+const PWR_WORKLOAD_PERCENT_TASK = "В % от трудоемкости задачи";
+
+const PWA_FIELDS = [
+	"name",
+	"task",
+	"role",
+	"user",
+	"user_full_name",
+	"task_dates",
+	"date_from",
+	"date_to",
+	"workload",
+	"wl_value",
+	"acc_separately",
+];
 
 function normalizeUsers(value) {
 	if (Array.isArray(value)) {
@@ -32,10 +51,33 @@ function sameUsers(a, b) {
 	return left.every((u, i) => u === right[i]);
 }
 
+/** Match assignment/dialog.js getMaxToDate. */
+function maxToDate(date) {
+	const today = frappe.datetime.now_date();
+	if (!date) {
+		return today;
+	}
+	return frappe.datetime.get_day_diff(today, date) > 0 ? today : date;
+}
+
 /**
- * After ToDo sync: keep prior PWA users marked; new assignees → todo-only.
+ * After silent PWA sync / PWA dialog: all listed users are PWA-backed.
  * @param {object} row
  * @param {string[]} users
+ */
+export function stampAssignMetaAfterPwa(row, users) {
+	if (!row) {
+		return;
+	}
+	const next = normalizeUsers(users);
+	row.assign = next;
+	row.assign_pwa = [...next];
+	row.assign_todo_only = [];
+}
+
+/**
+ * @deprecated Prefer stampAssignMetaAfterPwa after mass PWA sync.
+ * Kept for callers that still sync ToDo-only orphans.
  */
 export function stampAssignMetaAfterTodoSync(row, users) {
 	if (!row) {
@@ -48,19 +90,166 @@ export function stampAssignMetaAfterTodoSync(row, users) {
 	row.assign_todo_only = next.filter((u) => !pwaPrev.has(u));
 }
 
+async function fetchProjectTeam(project, cache) {
+	if (!project) {
+		return [];
+	}
+	if (cache.team.has(project)) {
+		return cache.team.get(project);
+	}
+	const users = (await frappe.xcall("project_team_assign_filter", { project })) || [];
+	cache.team.set(project, users);
+	return users;
+}
+
+async function fetchUserRoles(project, user, cache) {
+	const key = `${project}\0${user}`;
+	if (cache.roles.has(key)) {
+		return cache.roles.get(key);
+	}
+	const roles =
+		(await frappe.xcall("get_project_user_roles", { project, user })) || [];
+	cache.roles.set(key, roles);
+	return roles;
+}
+
+async function resolveTaskMeta(taskId, hint = {}) {
+	let project = hint.project || null;
+	let expStart = hint.exp_start_date ?? null;
+	let expEnd = hint.exp_end_date ?? null;
+
+	if (!project || expStart == null || expEnd == null) {
+		const r = await frappe.db.get_value("Task", taskId, [
+			"project",
+			"exp_start_date",
+			"exp_end_date",
+		]);
+		const msg = r?.message || r || {};
+		project = project || msg.project || null;
+		if (expStart == null) {
+			expStart = msg.exp_start_date || null;
+		}
+		if (expEnd == null) {
+			expEnd = msg.exp_end_date || null;
+		}
+	}
+
+	return { project, exp_start_date: expStart, exp_end_date: expEnd };
+}
+
 /**
- * After PWA dialog: all listed users are PWA-backed.
- * @param {object} row
- * @param {string[]} users
+ * Build bulk_process_pwa rows for one task so sync_assignments sees full desired set.
+ * New users: dialog defaults; multi-role → first role.
+ * @returns {Promise<object[]>}
  */
-export function stampAssignMetaAfterPwa(row, users) {
-	if (!row) {
+async function buildPwaRowsForTask(taskId, desiredUsers, hint, cache) {
+	const desired = normalizeUsers(desiredUsers);
+	const desiredSet = new Set(desired);
+	const { project, exp_start_date, exp_end_date } = await resolveTaskMeta(
+		taskId,
+		hint
+	);
+
+	if (!project) {
+		throw new Error(__("Task {0}: project is required for assignment", [taskId]));
+	}
+
+	const team = await fetchProjectTeam(project, cache);
+	const teamSet = new Set(team);
+
+	const existing =
+		(await frappe.db.get_list("Project Workload Assignment", {
+			fields: PWA_FIELDS,
+			filters: { task: taskId },
+			limit: 0,
+		})) || [];
+
+	const byUser = new Map(existing.map((p) => [p.user, p]));
+	const rows = [];
+
+	for (const pwa of existing) {
+		if (desiredSet.has(pwa.user)) {
+			rows.push({
+				name: pwa.name,
+				task: taskId,
+				user: pwa.user,
+				role: pwa.role,
+				user_full_name: pwa.user_full_name,
+				task_dates: pwa.task_dates,
+				date_from: pwa.date_from,
+				date_to: pwa.date_to,
+				workload: pwa.workload,
+				wl_value: pwa.wl_value,
+				acc_separately: pwa.acc_separately,
+			});
+		} else {
+			rows.push({
+				name: pwa.name,
+				task: taskId,
+				user: pwa.user,
+				__isRemove: true,
+			});
+		}
+	}
+
+	for (const user of desired) {
+		if (byUser.has(user)) {
+			continue;
+		}
+		if (!teamSet.has(user)) {
+			throw new Error(
+				__("User {0} is not in the project team", [frappe.user?.full_name?.(user) || user])
+			);
+		}
+		const roles = await fetchUserRoles(project, user, cache);
+		if (!roles.length) {
+			throw new Error(
+				__(
+					"User {0} has no project role. Choose a role in the assignment dialog.",
+					[frappe.user?.full_name?.(user) || user]
+				)
+			);
+		}
+		// ISS-2026-02536: if several roles — pick first by default.
+		rows.push({
+			__islocal: true,
+			task: taskId,
+			user,
+			role: roles[0],
+			task_dates: 1,
+			date_from: maxToDate(exp_start_date),
+			date_to: maxToDate(exp_end_date),
+			workload: PWR_WORKLOAD_PERCENT_TASK,
+			wl_value: 100,
+			acc_separately: 1,
+		});
+	}
+
+	return rows;
+}
+
+async function callBulkProcessPwa(rows) {
+	if (!rows.length) {
 		return;
 	}
-	const next = normalizeUsers(users);
-	row.assign = next;
-	row.assign_pwa = [...next];
-	row.assign_todo_only = [];
+	await new Promise((resolve, reject) => {
+		frappe.call({
+			method: "bulk_process_pwa",
+			args: { rows },
+			freeze: true,
+			freeze_message: __("Updating assignments…"),
+			callback: (r) => {
+				if (r.exc) {
+					reject(new Error(r.message || __("Assign failed")));
+					return;
+				}
+				resolve(r);
+			},
+			error: (err) => {
+				reject(err instanceof Error ? err : new Error(__("Assign failed")));
+			},
+		});
+	});
 }
 
 async function listOpenAssignees(taskId) {
@@ -76,7 +265,7 @@ async function listOpenAssignees(taskId) {
 	return normalizeUsers((rows || []).map((r) => r.allocated_to));
 }
 
-/** Align Open ToDos to desired users. */
+/** Align Open ToDos to desired users (covers orphan ToDos without PWA). */
 export async function syncTodosToUsers(taskId, users) {
 	const desired = normalizeUsers(users);
 	const desiredSet = new Set(desired);
@@ -102,25 +291,79 @@ export async function syncTodosToUsers(taskId, users) {
 }
 
 /**
+ * Make PWA (+ synced ToDo) for Task match `users`.
  * @param {string} taskId
  * @param {string[] | string | null} users
+ * @param {{
+ *   project?: string | null,
+ *   exp_start_date?: string | null,
+ *   exp_end_date?: string | null,
+ * }} [hint]
  */
-export async function syncTaskAssign(taskId, users) {
+export async function syncTaskAssign(taskId, users, hint = {}) {
 	if (!taskId) {
 		return;
 	}
-	await syncTodosToUsers(taskId, users);
+	await syncTaskAssignMany([
+		{
+			taskId,
+			users,
+			project: hint.project,
+			exp_start_date: hint.exp_start_date,
+			exp_end_date: hint.exp_end_date,
+		},
+	]);
 }
 
 /**
- * Batch fill/paste/bulk — ToDo only.
- * @param {Array<{ taskId: string, users: string[] | string | null }>} ops
+ * Batch fill/paste/bulk: one bulk_process_pwa for many tasks.
+ * @param {Array<{
+ *   taskId: string,
+ *   users: string[] | string | null,
+ *   project?: string | null,
+ *   exp_start_date?: string | null,
+ *   exp_end_date?: string | null,
+ * }>} ops
  */
 export async function syncTaskAssignMany(ops) {
 	const list = (ops || []).filter((op) => op?.taskId);
+	if (!list.length) {
+		return;
+	}
+
+	const cache = { team: new Map(), roles: new Map() };
+	const allRows = [];
+	for (const op of list) {
+		const rows = await buildPwaRowsForTask(
+			op.taskId,
+			op.users,
+			{
+				project: op.project,
+				exp_start_date: op.exp_start_date,
+				exp_end_date: op.exp_end_date,
+			},
+			cache
+		);
+		allRows.push(...rows);
+	}
+
+	const hasPwaMutation = allRows.some((r) => r.__islocal || r.__isRemove);
+	if (hasPwaMutation) {
+		await callBulkProcessPwa(allRows);
+	}
+
+	// Safety net: orphan Open ToDos without PWA (e.g. clear assign).
 	for (const op of list) {
 		await syncTodosToUsers(op.taskId, op.users);
 	}
+}
+
+/** Project team for bulk dialog filter. */
+export async function fetchProjectTeamUsers(project) {
+	if (!project) {
+		return [];
+	}
+	return (await frappe.xcall("project_team_assign_filter", { project })) || [];
 }
 
 export { normalizeUsers, sameUsers };

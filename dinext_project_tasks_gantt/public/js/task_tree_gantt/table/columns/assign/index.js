@@ -2,7 +2,7 @@
  * Column «Ответств.»:
  * - single click → selection / fill-handle (no dialog)
  * - dblclick cell / avatar → PWA dialog
- * - fill / paste / bulk toolbar → ToDo sync only
+ * - fill / paste / bulk toolbar → silent PWA (dialog defaults) + ToDo
  * - avatars: PWA vs ToDo-only chrome
  */
 import { el } from "../../format.js";

@@ -3,9 +3,10 @@ import { ensureAssignUserInfo } from "../api.js";
 import {
 	normalizeUsers,
 	sameUsers,
-	stampAssignMetaAfterTodoSync,
+	stampAssignMetaAfterPwa,
 	syncTaskAssignMany,
 } from "./columns/assign/persist.js";
+import { getColumnsPage } from "./columns/context.js";
 import { isValidPriorityValue } from "./columns/priority/options.js";
 import { isValidStatusValue } from "./columns/status/options.js";
 
@@ -158,6 +159,8 @@ async function saveAssignChanges(changes) {
 	}
 
 	try {
+		const pageProject =
+			getColumnsPage()?.fields_dict?.project?.get_value?.() || null;
 		const ops = [];
 		const usersForInfo = new Set();
 		for (const change of assignChanges) {
@@ -170,16 +173,22 @@ async function saveAssignChanges(changes) {
 			ops.push({
 				taskId,
 				users: next,
+				project: change.row?.project || pageProject,
+				exp_start_date: change.row?.exp_start_date ?? null,
+				exp_end_date: change.row?.exp_end_date ?? null,
+				row: change.row || null,
 			});
 			next.forEach((u) => usersForInfo.add(u));
-			if (change.row) {
-				stampAssignMetaAfterTodoSync(change.row, next);
-			}
 		}
 		if (!ops.length) {
 			return true;
 		}
 		await syncTaskAssignMany(ops);
+		for (const op of ops) {
+			if (op.row) {
+				stampAssignMetaAfterPwa(op.row, op.users);
+			}
+		}
 		if (usersForInfo.size) {
 			await ensureAssignUserInfo([...usersForInfo]);
 		}
@@ -218,7 +227,7 @@ export async function onSaveCells({ changes, table }) {
 		return false;
 	}
 	if ((changes || []).some((c) => c.field === "assign")) {
-		// Meta (pwa / todo-only) stamped in saveAssignChanges — redraw avatars.
+		// Meta stamped in saveAssignChanges — redraw avatars.
 		table?.api?.refreshCells?.({
 			columns: ["assign"],
 			force: true,

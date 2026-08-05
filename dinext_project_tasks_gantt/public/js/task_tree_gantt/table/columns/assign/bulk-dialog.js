@@ -1,7 +1,9 @@
 /**
- * Bulk ToDo assign for rowCheck selection — MultiSelectPills, no PWA.
+ * Bulk assign for rowCheck selection — MultiSelectPills, project team filter.
+ * Persist creates PWA (silent defaults) + ToDo; no PWA dialog.
  */
-import { normalizeUsers } from "./persist.js";
+import { fetchProjectTeamUsers, normalizeUsers } from "./persist.js";
+import { getColumnsPage } from "../context.js";
 
 function parseDialogUsers(raw) {
 	if (Array.isArray(raw)) {
@@ -10,17 +12,22 @@ function parseDialogUsers(raw) {
 	if (raw == null || raw === "") {
 		return [];
 	}
-	// MultiSelectPills often returns comma / newline separated names.
 	return normalizeUsers(String(raw).split(/[,\n]/));
+}
+
+function projectFromPage() {
+	const page = getColumnsPage();
+	return page?.fields_dict?.project?.get_value?.() || null;
 }
 
 /**
  * @param {{
  *   rows: object[],
+ *   project?: string | null,
  *   onConfirm: (users: string[]) => void,
  * }} opts
  */
-export function openBulkTodoAssignDialog({ rows, onConfirm }) {
+export async function openBulkAssignDialog({ rows, project, onConfirm }) {
 	const writable = (rows || []).filter((r) => r?.id && r.can_write);
 	if (!writable.length) {
 		frappe.show_alert({
@@ -30,6 +37,36 @@ export function openBulkTodoAssignDialog({ rows, onConfirm }) {
 		return;
 	}
 
+	const projectName = project || projectFromPage();
+	if (!projectName) {
+		frappe.show_alert({
+			message: __("Select a project"),
+			indicator: "orange",
+		});
+		return;
+	}
+
+	let teamUsers = [];
+	try {
+		teamUsers = normalizeUsers(await fetchProjectTeamUsers(projectName));
+	} catch (e) {
+		frappe.show_alert({
+			message: e.message || __("Failed to load project team"),
+			indicator: "red",
+		});
+		return;
+	}
+
+	if (!teamUsers.length) {
+		frappe.show_alert({
+			message: __("No users in the project team"),
+			indicator: "orange",
+		});
+		return;
+	}
+
+	const teamSet = new Set(teamUsers);
+
 	const dialog = new frappe.ui.Dialog({
 		title: __("Assign users"),
 		fields: [
@@ -37,7 +74,7 @@ export function openBulkTodoAssignDialog({ rows, onConfirm }) {
 				fieldtype: "HTML",
 				fieldname: "hint",
 				options: `<p class="text-muted small">${__(
-					"Add users to {0} selected task(s). Assignments are saved as ToDo only (not workload).",
+					"Add users to {0} selected task(s). Creates workload (PWA) with default dates and first project role; no assignment dialog.",
 					[writable.length]
 				)}</p>`,
 			},
@@ -48,6 +85,7 @@ export function openBulkTodoAssignDialog({ rows, onConfirm }) {
 				reqd: 1,
 				get_data(txt) {
 					return frappe.db.get_link_options("User", txt, {
+						name: ["in", teamUsers],
 						user_type: "System User",
 						enabled: 1,
 					});
@@ -64,9 +102,22 @@ export function openBulkTodoAssignDialog({ rows, onConfirm }) {
 				});
 				return;
 			}
+			const outside = users.filter((u) => !teamSet.has(u));
+			if (outside.length) {
+				frappe.show_alert({
+					message: __("User {0} is not in the project team", [
+						frappe.user?.full_name?.(outside[0]) || outside[0],
+					]),
+					indicator: "orange",
+				});
+				return;
+			}
 			dialog.hide();
 			onConfirm?.(users);
 		},
 	});
 	dialog.show();
 }
+
+/** @deprecated alias */
+export const openBulkTodoAssignDialog = openBulkAssignDialog;
