@@ -8,6 +8,12 @@ import {
 } from "./columns/assign/persist.js";
 import { getColumnsPage } from "./columns/context.js";
 import { isValidPriorityValue } from "./columns/priority/options.js";
+import {
+	normalizeRelations,
+	sameRelations,
+	stampRelationsOnRow,
+	syncTaskRelationsMany,
+} from "./columns/relations/persist.js";
 import { isValidStatusValue } from "./columns/status/options.js";
 
 const TASK_FIELDS = new Set([
@@ -20,7 +26,7 @@ const TASK_FIELDS = new Set([
 	"custom_include",
 ]);
 
-const EDITABLE_FIELDS = new Set([...TASK_FIELDS, "assign"]);
+const EDITABLE_FIELDS = new Set([...TASK_FIELDS, "assign", "relations"]);
 
 export function rowCanWrite(row) {
 	if (!row?.id) return false;
@@ -78,6 +84,9 @@ function normalizeSaveValue(field, value) {
 	if (field === "assign") {
 		return normalizeUsers(value);
 	}
+	if (field === "relations") {
+		return normalizeRelations(value);
+	}
 	return value;
 }
 
@@ -122,6 +131,17 @@ export function onValidateCells({ changes }) {
 		if (change.field === "priority" && !isValidPriorityValue(change.newValue)) {
 			return rejectSelectValue(__("Priority"), change.newValue);
 		}
+		if (change.field === "relations") {
+			const next = normalizeRelations(change.newValue);
+			const taskId = taskIdFromChange(change);
+			if (next.some((r) => r.predecessor === taskId)) {
+				frappe.show_alert({
+					message: __("Predecessor can't be same as successor"),
+					indicator: "orange",
+				});
+				return false;
+			}
+		}
 	}
 	return true;
 }
@@ -144,6 +164,59 @@ export async function saveCells(payload) {
 		frappe.show_alert(
 			{
 				message: e.message || __("Save failed"),
+				indicator: "red",
+			},
+			7
+		);
+		return false;
+	}
+}
+
+async function saveRelationChanges(changes) {
+	const relChanges = (changes || []).filter((c) => c.field === "relations");
+	if (!relChanges.length) {
+		return true;
+	}
+
+	try {
+		const pageProject =
+			getColumnsPage()?.fields_dict?.project?.get_value?.() || null;
+		const ops = [];
+		for (const change of relChanges) {
+			const taskId = taskIdFromChange(change);
+			const next = normalizeRelations(change.newValue);
+			const prev = normalizeRelations(change.oldValue);
+			if (sameRelations(prev, next)) {
+				continue;
+			}
+			ops.push({
+				taskId,
+				relations: next,
+				project: change.row?.project || pageProject,
+				row: change.row || null,
+			});
+		}
+		if (!ops.length) {
+			return true;
+		}
+		await syncTaskRelationsMany(ops);
+		for (const op of ops) {
+			if (op.row) {
+				stampRelationsOnRow(op.row, op.relations);
+			}
+		}
+		frappe.show_alert(
+			{
+				message: __("Data updated successfully"),
+				indicator: "green",
+			},
+			5
+		);
+		return true;
+	} catch (e) {
+		frappe.show_alert(
+			{
+				message: e.message || __("Relations update failed"),
 				indicator: "red",
 			},
 			7
@@ -227,9 +300,19 @@ export async function onSaveCells({ changes, table }) {
 		return false;
 	}
 	if ((changes || []).some((c) => c.field === "assign")) {
-		// Meta stamped in saveAssignChanges — redraw avatars.
 		table?.api?.refreshCells?.({
 			columns: ["assign"],
+			force: true,
+		});
+	}
+
+	const relationsOk = await saveRelationChanges(changes);
+	if (!relationsOk) {
+		return false;
+	}
+	if ((changes || []).some((c) => c.field === "relations")) {
+		table?.api?.refreshCells?.({
+			columns: ["relations"],
 			force: true,
 		});
 	}
@@ -249,6 +332,7 @@ export function changesAffectGantt(changes) {
 			c.field === "priority" ||
 			c.field === "subject" ||
 			c.field === "progress" ||
-			c.field === "assign"
+			c.field === "assign" ||
+			c.field === "relations"
 	);
 }

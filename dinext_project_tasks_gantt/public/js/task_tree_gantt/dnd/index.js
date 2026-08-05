@@ -1,17 +1,21 @@
 /**
  * Task tree DnD domain — wire DinextTable onRowReorder.
  */
-import { getOnTreeMutate } from "../table/columns/context.js";
+import { getOnGanttRefresh } from "../table/columns/context.js";
 import { persistTaskRowReorder } from "./persist.js";
 
 /**
+ * Sibling reorder already updates the in-memory tree.
+ * Do NOT full-reload (onTreeMutate) — that collapses expanded branches.
+ * Only refresh gantt bars to match new row order.
+ *
  * @returns {(ctx: { move: object }) => Promise<boolean>}
  */
 export function createOnRowReorder() {
 	return async (ctx) => {
 		try {
 			await persistTaskRowReorder(ctx);
-			getOnTreeMutate()?.();
+			getOnGanttRefresh()?.();
 			return true;
 		} catch (err) {
 			const msg =

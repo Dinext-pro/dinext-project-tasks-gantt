@@ -46,7 +46,6 @@ fixtures = [
     #    ]
     #}    
 ]
-''''''
 
 # Apps
 # ------------------
@@ -203,7 +202,10 @@ doc_events = {
 		"before_save": "dinext_project_tasks_gantt.project_progress_audit.before_save_project",
 	},
 	"Task": {
-		"before_insert": "dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
+		"before_insert": [
+			"dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
+			"dinext_project_tasks_gantt.task_tree_order.before_insert_task",
+		],
 		"before_save": [
 			"dinext_project_tasks_gantt.task_progress_audit.before_save_task",
 			"dinext_project_tasks_gantt.project_progress_audit.before_save_task",

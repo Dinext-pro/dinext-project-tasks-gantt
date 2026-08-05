@@ -3,7 +3,10 @@
  * pin left, milestone, color, title=id, dep conflict, hover toolbar,
  * single-click → Control(Data), dblclick → Form.
  */
-import { subjectConflictClass } from "../../../dependencies/check.js";
+import {
+	subjectConflictClassRules,
+	subjectTreeContentKey,
+} from "../../../dependencies/check.js";
 import { el } from "../../format.js";
 import { openTaskForm } from "./actions.js";
 import { startSubjectInlineEdit } from "./edit.js";
@@ -120,7 +123,9 @@ export function subjectColumn() {
 		width: 360,
 		tree: true,
 		render: renderSubject,
-		cellClass: subjectConflictClass,
+		// Remount body when dep flags change (value/subject may stay same).
+		treeContentKey: subjectTreeContentKey,
+		cellClassRules: subjectConflictClassRules(),
 		tooltipValueGetter: subjectTooltip,
 		// Inline edit = Frappe Control on click (Tree), not AG editor.
 		edit: false,

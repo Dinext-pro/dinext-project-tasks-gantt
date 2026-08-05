@@ -468,6 +468,100 @@ body.task-tree-gantt-resizing {
 	cursor: pointer;
 }
 
+.tree-gantt-relations--editable {
+	cursor: pointer;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Relations cell popover (mini-table) */
+.tree-gantt-relations-popover {
+	position: fixed;
+	z-index: 1055;
+	min-width: 420px;
+	max-width: min(560px, calc(100vw - 16px));
+	overflow: visible;
+	padding: 12px 16px;
+	background: var(--fg-color, #fff);
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: var(--border-radius-md, 6px);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18));
+}
+
+/* Default: no scroll — Link list paints under input (Frappe awesomplete). */
+.tree-gantt-relations-popover__rows {
+	overflow: visible;
+}
+
+/* JS sets max-height when panel would exceed 500px */
+.tree-gantt-relations-popover__rows--scrollable {
+	overflow-x: hidden;
+	overflow-y: auto;
+}
+
+/* Solid list surface + above footer (desk theme --bg-color) */
+.tree-gantt-relations-popover .awesomplete {
+	position: relative;
+}
+
+.tree-gantt-relations-popover .awesomplete > ul,
+.tree-gantt-relations-popover .awesomplete > [role="listbox"] {
+	background-color: var(--fg-color, var(--bg-color, #fff));
+	color: var(--text-color);
+	border: 1px solid var(--border-color);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18));
+	z-index: 20;
+	left: 0;
+	right: auto;
+}
+
+.tree-gantt-relations-popover__table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 4px;
+}
+
+.tree-gantt-relations-popover__table th {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted, #8d99a6);
+	text-align: left;
+	padding: 2px 4px 6px;
+}
+
+.tree-gantt-relations-popover__table td {
+	padding: 3px 4px;
+	vertical-align: middle;
+}
+
+.tree-gantt-relations-popover__del {
+	width: 36px;
+	text-align: center;
+}
+
+.tree-gantt-relations-popover__ctrl .form-group {
+	margin-bottom: 0;
+}
+
+.tree-gantt-relations-popover-control .control-input-wrapper,
+.tree-gantt-relations-popover-control .form-control {
+	min-height: 28px;
+}
+
+.tree-gantt-relations-popover__footer {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+	/* Match table cell horizontal padding (th/td: 4px) */
+	padding: 0 4px;
+}
+
+.tree-gantt-relations-popover__spacer {
+	flex: 1;
+}
+
 .tree-gantt-assign-avatars--action,
 .tree-gantt-assign-avatars--action .avatar {
 	cursor: cell;

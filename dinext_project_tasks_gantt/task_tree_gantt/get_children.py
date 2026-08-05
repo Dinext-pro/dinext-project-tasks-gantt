@@ -24,6 +24,7 @@ ALLOWED_SORT_FIELDS = frozenset(
 		"modified",
 		"custom_planned_start_date",
 		"custom_planned_end_date",
+		"custom_tree_order",
 	}
 )
 
@@ -97,6 +98,26 @@ def _attach_relations(rows: list[dict]) -> None:
 			fields=["name", "parent", "predecessor", "type", "buffer_days", "project"],
 		):
 			by_parent.setdefault(rel["parent"], []).append(rel)
+
+	pred_ids = {
+		rel["predecessor"]
+		for rels in by_parent.values()
+		for rel in rels
+		if rel.get("predecessor")
+	}
+	subjects: dict[str, str] = {}
+	if pred_ids:
+		for task in frappe.get_all(
+			"Task",
+			filters={"name": ("in", list(pred_ids))},
+			fields=["name", "subject"],
+		):
+			subjects[task["name"]] = task.get("subject") or ""
+
+	for rels in by_parent.values():
+		for rel in rels:
+			rel["predecessor_subject"] = subjects.get(rel.get("predecessor"), "")
+
 	for row in rows:
 		row["relations"] = by_parent.get(row["id"], [])
 
@@ -164,6 +185,7 @@ def _to_canonical(row: dict) -> dict:
 		"duration": row.get("duration"),
 		"progress": row.get("progress") or 0,
 		"parent_task": row.get("parent_task") or None,
+		"custom_tree_order": cint(row.get("custom_tree_order")),
 		"custom_include": 1 if row.get("custom_include") else 0,
 		"custom_linked_issue": row.get("custom_linked_issue"),
 		"is_milestone": 1 if row.get("is_milestone") else 0,
@@ -209,35 +231,40 @@ def get_children(**kwargs) -> list[dict]:
 	Task = frappe.qb.DocType("Task")
 	assign_col = frappe.qb.Field("_assign")
 	tags_col = frappe.qb.Field("_user_tags")
+	has_tree_order = frappe.get_meta("Task").has_field("custom_tree_order")
+
+	select_cols = [
+		Task.name,
+		Task.subject,
+		Task.is_group,
+		Task.type,
+		Task.status,
+		Task.priority,
+		assign_col,
+		tags_col,
+		Task.custom_planned_start_date,
+		Task.custom_planned_end_date,
+		Task.exp_start_date,
+		Task.exp_end_date,
+		Task.act_start_date,
+		Task.act_end_date,
+		Task.expected_time,
+		Task.duration,
+		Task.progress,
+		Task.parent_task,
+		Task.custom_include,
+		Task.custom_linked_issue,
+		Task.is_milestone,
+		Task.color,
+		Task.owner,
+		Task.confirm,
+	]
+	if has_tree_order:
+		select_cols.append(Task.custom_tree_order)
 
 	query = (
 		frappe.qb.from_(Task)
-		.select(
-			Task.name,
-			Task.subject,
-			Task.is_group,
-			Task.type,
-			Task.status,
-			Task.priority,
-			assign_col,
-			tags_col,
-			Task.custom_planned_start_date,
-			Task.custom_planned_end_date,
-			Task.exp_start_date,
-			Task.exp_end_date,
-			Task.act_start_date,
-			Task.act_end_date,
-			Task.expected_time,
-			Task.duration,
-			Task.progress,
-			Task.parent_task,
-			Task.custom_include,
-			Task.custom_linked_issue,
-			Task.is_milestone,
-			Task.color,
-			Task.owner,
-			Task.confirm,
-		)
+		.select(*select_cols)
 		.where(Task.docstatus < 2)
 		.where(Task.project == project)
 	)
@@ -259,11 +286,16 @@ def get_children(**kwargs) -> list[dict]:
 	if tag:
 		query = query.where((tags_col.like(f"%{tag}%")) | (Task.is_group == 1))
 
-	if sort_field in ALLOWED_SORT_FIELDS:
+	if sort_field in ALLOWED_SORT_FIELDS and (
+		sort_field != "custom_tree_order" or has_tree_order
+	):
 		field = frappe.qb.Field(sort_field)
 		order = frappe.qb.desc if sort_order == "desc" else frappe.qb.asc
 		query = query.orderby(field, order=order)
 	else:
+		# Manual sibling order first (ISS-2026-02536 #5.1), then forecast dates.
+		if has_tree_order:
+			query = query.orderby(Task.custom_tree_order, order=frappe.qb.asc)
 		query = query.orderby(Task.exp_start_date, order=frappe.qb.asc)
 		query = query.orderby(Task.exp_end_date, order=frappe.qb.asc)
 

@@ -9,6 +9,7 @@ import { includeColumn } from "./include.js";
 import { planFactColumn } from "./plan_fact/index.js";
 import { priorityColumn } from "./priority/index.js";
 import { progressColumn } from "./progress.js";
+import { relationsColumn } from "./relations/index.js";
 import { statusColumn } from "./status/index.js";
 import { subjectColumn } from "./subject/index.js";
 import { tagsColumn } from "./tags.js";
@@ -23,6 +24,7 @@ export function getColumns() {
 	return [
 		subjectColumn(),
 		assignColumn(),
+		relationsColumn(),
 		planFactColumn(),
 		statusColumn(),
 		priorityColumn(),

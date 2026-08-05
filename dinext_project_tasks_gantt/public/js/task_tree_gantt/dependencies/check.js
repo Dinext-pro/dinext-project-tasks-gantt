@@ -28,6 +28,12 @@ function clearConflict(row) {
 	row.dep_conflict_end = "";
 }
 
+function applyConflictFields(row, src) {
+	row.dep_conflict = src?.dep_conflict || 0;
+	row.dep_conflict_start = src?.dep_conflict_start || "";
+	row.dep_conflict_end = src?.dep_conflict_end || "";
+}
+
 function applyResults(rowsById, results) {
 	for (const row of Object.values(rowsById)) {
 		clearConflict(row);
@@ -48,8 +54,26 @@ function applyResults(rowsById, results) {
 	}
 }
 
-function refreshCells(table) {
-	// Full column refresh — tree _rowId ≠ task id, getRowNode(id) misses nested.
+/**
+ * DinextTable tree uses makeVisibleRow({...row}) copies in AG Grid.
+ * Must stamp dep_conflict* onto source AND visible node.data (same as plan_fact).
+ */
+function stampVisibleConflicts(table, rowsById) {
+	const stamp = (data) => {
+		if (!data?.id || !rowsById[data.id]) {
+			return;
+		}
+		applyConflictFields(data, rowsById[data.id]);
+	};
+
+	if (typeof table.api?.forEachNode === "function") {
+		table.api.forEachNode((node) => stamp(node.data));
+	} else {
+		for (const row of table.rowData || []) {
+			stamp(row);
+		}
+	}
+
 	table?.api?.refreshCells?.({
 		columns: CONFLICT_COLUMNS,
 		force: true,
@@ -58,7 +82,10 @@ function refreshCells(table) {
 
 export function dateFieldsAffectConflicts(changes) {
 	return (changes || []).some(
-		(c) => c.field === "exp_start_date" || c.field === "exp_end_date"
+		(c) =>
+			c.field === "exp_start_date" ||
+			c.field === "exp_end_date" ||
+			c.field === "relations"
 	);
 }
 
@@ -101,7 +128,7 @@ export async function refreshConflicts(getArgs, table, rows) {
 	});
 
 	applyResults(rowsById, results);
-	refreshCells(table);
+	stampVisibleConflicts(table, rowsById);
 }
 
 export function dateConflictClass(params) {
@@ -119,8 +146,26 @@ export function dateConflictClass(params) {
 	return "";
 }
 
-export function subjectConflictClass(params) {
-	return params.data?.dep_conflict ? DEP_CONFLICT_CLASS : "";
+/** Reactive on refreshCells — plain cellClass does not re-apply. */
+export function subjectConflictClassRules() {
+	return {
+		[DEP_CONFLICT_CLASS]: (params) => !!params.data?.dep_conflict,
+	};
+}
+
+/** Reactive on refreshCells — plain cellClass does not re-apply. */
+export function dateConflictClassRules() {
+	return {
+		[DEP_CONFLICT_CLASS]: (params) => !!dateConflictClass(params),
+	};
+}
+
+/** Remount subject tree body when conflict chrome changes (same subject value). */
+export function subjectTreeContentKey(params) {
+	const row = params?.data || {};
+	return `${row.dep_conflict || 0}\0${row.dep_conflict_start || ""}\0${
+		row.dep_conflict_end || ""
+	}`;
 }
 
 export function startDateConflictTooltip(params) {

@@ -78,7 +78,8 @@ function scheduleSideDataRefresh(getArgs, table, rows) {
 	refreshPlanFact(ctx, rows).catch((e) => {
 		console.error("[task_tree_gantt] plan_fact refresh", e);
 	});
-	refreshConflicts(getArgs, table, rows).catch((e) => {
+	// Always full loaded set — successors outside `rows` may gain/lose flags.
+	refreshConflicts(getArgs, table).catch((e) => {
 		console.error("[task_tree_gantt] deps conflict refresh", e);
 	});
 }
@@ -91,6 +92,7 @@ function createExpandHandler(getArgs, onTreeChange) {
 		// Sort layer reorders children inside setRowChildren when sort active.
 		table.setRowChildren(rowId, children);
 		onTreeChange?.();
+		// plan_fact: new children only; conflicts: full tree (see scheduleSideDataRefresh).
 		scheduleSideDataRefresh(getArgs, table, children);
 	};
 }
@@ -191,7 +193,8 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			},
 			rowReorder: {
 				enabled: true,
-				allowTree: "reparent",
+				// ISS-2026-02536 #5.1: siblings only; reparent later.
+				allowTree: "siblings",
 			},
 			onRowReorder: createOnRowReorder(),
 			// Client source-tree sort (dinext_common sort layer) — not AG flat sort.

@@ -4,18 +4,13 @@
  * - domain `FrappeDateCellEditor` → Desk calendar
  */
 import {
-	dateConflictClass,
+	dateConflictClassRules,
 	endDateConflictTooltip,
 	startDateConflictTooltip,
 } from "../../../dependencies/check.js";
 import { fieldCanEdit } from "../../save.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { FrappeDateCellEditor } from "./frappe-date-editor.js";
-
-function dateCellClass(params) {
-	const conflict = dateConflictClass(params);
-	return ["dinext-table-cell--align-center", conflict].filter(Boolean).join(" ");
-}
 
 function dateColumnBase(field, headerName, tooltipValueGetter) {
 	return {
@@ -25,7 +20,8 @@ function dateColumnBase(field, headerName, tooltipValueGetter) {
 		type: "date",
 		edit: (row) => fieldCanEdit(row, field),
 		cellEditor: FrappeDateCellEditor,
-		cellClass: dateCellClass,
+		cellClass: "dinext-table-cell--align-center",
+		cellClassRules: dateConflictClassRules(),
 		tooltipValueGetter,
 		wrapHeaderText: true,
 		headerClass: "tree-gantt-header--wrap",

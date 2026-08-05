@@ -4,6 +4,8 @@
  */
 export const TREE_COL_WIDTH = {
 	assign: 100,
+	// «Связи»: subject[FS] +N
+	relations: 180,
 	plan_fact: 35,
 	// «В ожидании отзыва» (trimmed for density)
 	status: 130,

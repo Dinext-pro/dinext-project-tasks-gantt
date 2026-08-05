@@ -21,7 +21,11 @@ export function toTableRow(row) {
 		is_milestone: row.is_milestone ? 1 : 0,
 		color: row.color || null,
 		relations: Array.isArray(row.relations) ? row.relations : [],
+		predecessors: Array.isArray(row.relations)
+			? row.relations.map((r) => r.predecessor).filter(Boolean)
+			: [],
 		parent_task: row.parent_task || null,
+		custom_tree_order: row.custom_tree_order ?? 0,
 		can_write: row.can_write ? 1 : 0,
 		confirm: row.confirm ? 1 : 0,
 		owner: row.owner || null,
