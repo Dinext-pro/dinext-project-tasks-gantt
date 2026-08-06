@@ -41,7 +41,7 @@ export async function mount({ page }) {
 		}
 	};
 
-	state.getArgs = await setupFilters({
+	const filters = await setupFilters({
 		page,
 		onChange: () => {
 			if (state.tableHost) {
@@ -49,6 +49,8 @@ export async function mount({ page }) {
 			}
 		},
 	});
+	state.getArgs = filters.getArgs;
+	state.applyRouteProject = filters.applyRouteProject;
 
 	const refreshGantt = () => scheduleGanttRefresh(state);
 	setColumnContext({

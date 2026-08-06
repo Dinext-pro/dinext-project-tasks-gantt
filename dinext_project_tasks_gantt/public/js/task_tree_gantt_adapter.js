@@ -49,6 +49,9 @@
 			return;
 		}
 		if (page.__task_tree_gantt_mounted) {
+			// Re-visit Tree (Factory.on_show → make_tree → post_render): pick up
+			// frappe.route_options.project from Project Form navigation.
+			await page.__task_tree_gantt_apply_route?.();
 			return;
 		}
 		page.__task_tree_gantt_mounted = true;
@@ -69,6 +72,8 @@
 		}
 
 		const mounted = await api.mount({ page });
+		page.__task_tree_gantt_apply_route = () =>
+			mounted?.state?.applyRouteProject?.() || Promise.resolve(false);
 		setupBurndown(page, mounted?.state?.getArgs);
 	}
 
@@ -101,8 +106,11 @@
 			});
 		};
 
-		settings.post_render = function () {
-			/* classic tree unused */
+		settings.post_render = function (treeview) {
+			// Factory.on_show → make_tree builds classic .tree; strip it.
+			$(treeview?.parent).find(".tree").remove();
+			const page = treeview?.page;
+			void page?.__task_tree_gantt_apply_route?.();
 		};
 	}
 

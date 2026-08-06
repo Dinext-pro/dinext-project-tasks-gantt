@@ -86,7 +86,10 @@ export function bulkAssignToolbarItem() {
 				project,
 				onConfirm: (users) => {
 					void ensureAssignUserInfo(users).then(() => {
-						commitBulkAssign(table, users);
+						const applied = commitBulkAssign(table, users);
+						if (applied > 0) {
+							table.clearRowCheck?.();
+						}
 					});
 				},
 			});

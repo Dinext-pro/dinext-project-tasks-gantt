@@ -1,15 +1,27 @@
 import { projectStorageKey } from "../constants.js";
 import { setPageTitle } from "../shell/title.js";
 import { filterDefaults, taskSelectOptions } from "./defaults.js";
+import { applyRouteProject, takeRouteProject } from "./route-project.js";
 
+/**
+ * @returns {Promise<{
+ *   getArgs: () => object,
+ *   applyRouteProject: () => Promise<boolean>,
+ * }>}
+ */
 export async function setupFilters({ page, onChange }) {
 	await frappe.model.with_doctype("Task");
 
-	if (page.__task_tree_gantt_filters_getArgs) {
-		return page.__task_tree_gantt_filters_getArgs;
+	if (page.__task_tree_gantt_filters) {
+		return page.__task_tree_gantt_filters;
 	}
 
 	const args = filterDefaults();
+	// Route from Project Form wins over localStorage (first paint).
+	const routeProject = takeRouteProject();
+	if (routeProject) {
+		args.project = routeProject;
+	}
 	const emit = () => onChange?.();
 	let lastProject = args.project;
 
@@ -124,7 +136,15 @@ export async function setupFilters({ page, onChange }) {
 		void setPageTitle(page, args.project);
 	}
 
-	const getArgs = () => ({ ...args });
-	page.__task_tree_gantt_filters_getArgs = getArgs;
-	return getArgs;
+	const api = {
+		getArgs: () => ({ ...args }),
+		applyRouteProject: () =>
+			applyRouteProject(page, args, {
+				onProject: (project) => {
+					lastProject = project;
+				},
+			}),
+	};
+	page.__task_tree_gantt_filters = api;
+	return api;
 }
