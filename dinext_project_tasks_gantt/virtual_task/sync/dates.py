@@ -9,7 +9,7 @@ from frappe.utils import getdate, today
 
 
 def date_cmp_value(value) -> str:
-	"""Normalize date-like values for equality checks (TVTI)."""
+	"""Нормализовать дату к YYYY-MM-DD для сравнения в TVTI."""
 	if value in (None, ""):
 		return ""
 	try:
@@ -22,7 +22,7 @@ def date_cmp_value(value) -> str:
 
 
 def apply_task_actual_dates_logic(target_data, act_start_date, act_end_date, completed_on_date):
-	"""Prod ITVT helper: Completed completed_on/act_end; act expands exp (all statuses)."""
+	"""ITVT: для Completed выставить completed_on/act_end; act расширяет exp (все статусы)."""
 	gd = getdate
 
 	if target_data.get("status") == "Completed":
@@ -49,11 +49,13 @@ def apply_task_actual_dates_logic(target_data, act_start_date, act_end_date, com
 
 
 def resolution_date_from_issue(issue_doc):
+	"""Взять дату закрытия Issue: resolution_date или sla_resolution_date."""
 	raw = issue_doc.get("resolution_date") or issue_doc.get("sla_resolution_date")
 	return getdate(raw) if raw else None
 
 
 def issue_resolution_fieldname(issue_doc) -> str | None:
+	"""Имя поля даты закрытия на Issue (resolution_date / sla_resolution_date) или None."""
 	if issue_doc.meta.has_field("resolution_date"):
 		return "resolution_date"
 	if issue_doc.meta.has_field("sla_resolution_date"):

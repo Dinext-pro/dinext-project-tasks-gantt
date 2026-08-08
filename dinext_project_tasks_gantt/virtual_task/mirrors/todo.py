@@ -1,10 +1,10 @@
-"""ToDo To Issue Virtual Task_V2 — After Save mirror (prod parity)."""
+"""Зеркало ToDo Issue ↔ virtual Task (prod: ToDo To Issue Virtual Task_V2)."""
 
 from __future__ import annotations
 
 import frappe
 
-from .helpers import mirror_target_for_issue_or_task
+from dinext_project_tasks_gantt.virtual_task.helpers import mirror_target_for_issue_or_task
 
 _TODO_SYNC_FIELDS = (
 	"description",
@@ -18,6 +18,12 @@ _TODO_SYNC_FIELDS = (
 
 
 def sync_todo_mirror(doc) -> None:
+	"""После сохранения ToDo на Issue/Task — создать или обновить парный ToDo.
+
+	Ключ пары: тот же allocated_to на противоположной стороне.
+	Closed/Cancelled пишем через db.set_value (анти ping-pong close_all_assignments).
+	Открытые — save/insert с флагом todo_sync_in_progress.
+	"""
 	if doc.flags.get("todo_sync_in_progress"):
 		return
 	if doc.reference_type not in ("Issue", "Task"):
@@ -43,7 +49,7 @@ def sync_todo_mirror(doc) -> None:
 	data = {field: doc.get(field) for field in _TODO_SYNC_FIELDS}
 
 	if doc.status in ("Closed", "Cancelled"):
-		# Extreme: db.set_value — avoid close_all_assignments ping-pong (ISS-2025-02315)
+		# Extreme: db.set_value — без save, иначе 504 (ISS-2025-02315)
 		if not existing_todo:
 			return
 		todo_row = (

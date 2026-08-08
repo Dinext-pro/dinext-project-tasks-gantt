@@ -7,7 +7,10 @@ from frappe import _
 
 
 def wire_task_child_to_issue(doc) -> None:
-	"""Task on_update: virtual cannot have issue=; link children to virtual parent."""
+	"""Связать обычную Task с virtual: issue→parent_task=virtual; parent virtual→issue=.
+
+	Virtual с заполненным issue — ошибка (нельзя).
+	"""
 	if doc.get("type") == "Issue" and doc.get("issue"):
 		frappe.throw(_("Виртуальная задача не может быть привязана к Issue"))
 

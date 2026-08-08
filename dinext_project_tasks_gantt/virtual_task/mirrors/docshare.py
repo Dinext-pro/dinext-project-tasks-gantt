@@ -1,14 +1,17 @@
-"""DocShare To / Delete To Issue Virtual Task (prod parity)."""
+"""Зеркало DocShare Issue ↔ virtual Task (prod: DocShare To / Delete)."""
 
 from __future__ import annotations
 
 import frappe
 
-from .helpers import mirror_target_for_issue_or_task
+from dinext_project_tasks_gantt.virtual_task.helpers import mirror_target_for_issue_or_task
 
 
 def sync_docshare_mirror(doc) -> None:
-	"""DocShare after_insert / on_update → mirror share to opposite side."""
+	"""После insert/update DocShare на Issue/Task — зеркало прав тому же user на паре.
+
+	Уже есть → db.set_value полей прав; нет → insert. notify_by_email всегда False.
+	"""
 	if doc.share_doctype not in ("Issue", "Task"):
 		return
 
@@ -45,7 +48,7 @@ def sync_docshare_mirror(doc) -> None:
 
 
 def delete_docshare_mirror(doc) -> None:
-	"""DocShare after_delete → remove opposite-side share for same user."""
+	"""После удаления DocShare — снять такой же share у того же user на парной стороне."""
 	if doc.share_doctype == "Issue":
 		virtual_task = frappe.db.get_value(
 			"Task", {"custom_linked_issue": doc.share_name}, "name"

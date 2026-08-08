@@ -197,16 +197,18 @@ doctype_tree_js = {
 # ---------------
 # Hook on document methods and events
 
+vt_handlers = "dinext_project_tasks_gantt.virtual_task.handlers"
+
 doc_events = {
 	"Project": {
 		"before_save": "dinext_project_tasks_gantt.project_progress_audit.before_save_project",
 	},
 	"Issue": {
 		# SS Issue_To_Virtual_Task After Save → after_insert + on_update
-		"after_insert": "dinext_project_tasks_gantt.virtual_task.handlers.after_insert_issue",
-		"on_update": "dinext_project_tasks_gantt.virtual_task.handlers.on_update_issue",
+		"after_insert": f"{vt_handlers}.after_insert_issue",
+		"on_update": f"{vt_handlers}.on_update_issue",
 		# SS Issue_Delete_Virtual_Task Before Delete
-		"on_trash": "dinext_project_tasks_gantt.virtual_task.handlers.on_trash_issue",
+		"on_trash": f"{vt_handlers}.on_trash_issue",
 	},
 	"Task": {
 		"before_insert": [
@@ -217,34 +219,34 @@ doc_events = {
 			"dinext_project_tasks_gantt.task_progress_audit.before_save_task",
 			"dinext_project_tasks_gantt.project_progress_audit.before_save_task",
 			# SS Task_Virtual_To_Issue Before Save (after progress hooks)
-			"dinext_project_tasks_gantt.virtual_task.handlers.before_save_task",
+			f"{vt_handlers}.before_save_task",
 		],
 		"on_update": [
 			"dinext_project_tasks_gantt.project_progress_audit.on_update_task",
 			"dinext_project_tasks_gantt.task_parent_progress.on_update_task",
 			# SS Task_Child_To_Issue After Save
-			"dinext_project_tasks_gantt.virtual_task.handlers.on_update_task",
+			f"{vt_handlers}.on_update_task",
 		],
 		"on_trash": "dinext_project_tasks_gantt.project_progress_audit.on_trash_task",
 		"after_delete": [
 			"dinext_project_tasks_gantt.project_progress_audit.after_delete_task",
 			"dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
 			# SS Task_Virtual_Delete After Delete
-			"dinext_project_tasks_gantt.virtual_task.handlers.after_delete_task",
+			f"{vt_handlers}.after_delete_task",
 		],
 	},
-	# Layer 4b satellites (SS still enabled until cutover reload)
+	# Layer 4b mirrors (SS still enabled until cutover reload)
 	"ToDo": {
-		"after_insert": "dinext_project_tasks_gantt.virtual_task.handlers.after_insert_todo",
-		"on_update": "dinext_project_tasks_gantt.virtual_task.handlers.on_update_todo",
+		"after_insert": f"{vt_handlers}.after_insert_todo",
+		"on_update": f"{vt_handlers}.on_update_todo",
 	},
 	"DocShare": {
-		"after_insert": "dinext_project_tasks_gantt.virtual_task.handlers.after_insert_docshare",
-		"on_update": "dinext_project_tasks_gantt.virtual_task.handlers.on_update_docshare",
-		"after_delete": "dinext_project_tasks_gantt.virtual_task.handlers.after_delete_docshare",
+		"after_insert": f"{vt_handlers}.after_insert_docshare",
+		"on_update": f"{vt_handlers}.on_update_docshare",
+		"after_delete": f"{vt_handlers}.after_delete_docshare",
 	},
 	"Tag Link": {
-		"after_insert": "dinext_project_tasks_gantt.virtual_task.handlers.after_insert_tag_link",
+		"after_insert": f"{vt_handlers}.after_insert_tag_link",
 	},
 }
 

@@ -6,12 +6,17 @@ import frappe
 from frappe import _
 from frappe.utils import cstr, getdate
 
+from dinext_project_tasks_gantt.virtual_task.helpers import (
+	ISSUE_TO_TASK_PRIORITY,
+	ISSUE_TO_TASK_STATUS,
+	ITVT_DEPTH,
+)
+
 from .dates import apply_task_actual_dates_logic, resolution_date_from_issue
-from .helpers import ISSUE_TO_TASK_PRIORITY, ISSUE_TO_TASK_STATUS, ITVT_DEPTH
 
 
 def sync_issue_to_virtual_task(doc) -> None:
-	"""Create or update virtual Task when Project enables virtual task for issue_type."""
+	"""ITVT: создать или обновить virtual Task, если в Project включён virtual для issue_type."""
 	if not doc.project or not doc.get("issue_type"):
 		return
 
@@ -53,6 +58,7 @@ def sync_issue_to_virtual_task(doc) -> None:
 
 
 def _persist_virtual_task_or_throw(task_doc, is_new=False):
+	"""Сохранить virtual Task с инкрементом itvt_save_depth (чтобы TVTI не крутился)."""
 	cur = int(task_doc.flags.get(ITVT_DEPTH) or 0)
 	task_doc.flags.itvt_save_depth = cur + 1
 	try:
@@ -75,7 +81,7 @@ def _persist_virtual_task_or_throw(task_doc, is_new=False):
 
 
 def _ensure_parent_depends_on_link(child_name, parent_name, child_subject):
-	"""ISS-2026-02796: privileged parent.depends_on before setting child.parent_task."""
+	"""Перед parent_task: добавить child в parent.depends_on и выставить is_group (ISS-2026-02796)."""
 	if not parent_name or not child_name:
 		return
 	parent = frappe.get_doc("Task", parent_name, ignore_permissions=True)
@@ -98,6 +104,7 @@ def _ensure_parent_depends_on_link(child_name, parent_name, child_subject):
 
 
 def _update_existing_virtual_task(doc, task_name, data):
+	"""Обновить существующую virtual Task полями Issue + логика act/exp дат."""
 	current_act_start_date = frappe.db.get_value("Task", task_name, "act_start_date")
 	current_act_end_date = frappe.db.get_value("Task", task_name, "act_end_date")
 	current_completed_on_date = frappe.db.get_value("Task", task_name, "completed_on")
@@ -127,6 +134,7 @@ def _update_existing_virtual_task(doc, task_name, data):
 
 
 def _create_virtual_task(doc, data):
+	"""Создать virtual Task, привязать к parent, перевесить детей Issue, скопировать спутники."""
 	apply_task_actual_dates_logic(data, None, None, None)
 
 	intended_parent = data.get("parent_task")
@@ -169,6 +177,7 @@ def _create_virtual_task(doc, data):
 
 
 def _copy_docshares(issue_name, task_name):
+	"""Bootstrap при создании virtual: скопировать DocShare с Issue на Task."""
 	docshares = frappe.get_all(
 		"DocShare",
 		filters={"share_doctype": "Issue", "share_name": issue_name},
@@ -197,6 +206,7 @@ def _copy_docshares(issue_name, task_name):
 
 
 def _copy_open_todos(issue_name, task_name):
+	"""Bootstrap при создании virtual: скопировать открытые ToDo с Issue на Task."""
 	todos = frappe.get_all(
 		"ToDo",
 		filters={"reference_type": "Issue", "reference_name": issue_name, "status": "Open"},
@@ -226,6 +236,7 @@ def _copy_open_todos(issue_name, task_name):
 
 
 def _copy_tag_links(issue_name, task_name):
+	"""Bootstrap при создании virtual: скопировать Tag Link с Issue на Task."""
 	has_title = frappe.db.exists("DocField", {"parent": "Tag Link", "fieldname": "title"})
 	fields = ["tag", "title"] if has_title else ["tag"]
 	tag_links = frappe.get_all(

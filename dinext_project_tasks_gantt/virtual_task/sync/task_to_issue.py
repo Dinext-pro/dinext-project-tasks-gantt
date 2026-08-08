@@ -5,17 +5,21 @@ from __future__ import annotations
 import frappe
 from frappe.utils import now
 
-from .dates import date_cmp_value, issue_resolution_fieldname
-from .helpers import (
+from dinext_project_tasks_gantt.virtual_task.helpers import (
 	ITVT_DEPTH,
 	TASK_TO_ISSUE_PRIORITY,
 	TASK_TO_ISSUE_STATUS,
 	is_virtual_task,
 )
 
+from .dates import date_cmp_value, issue_resolution_fieldname
+
 
 def sync_virtual_task_to_issue(doc) -> None:
-	"""Mirror virtual Task fields onto linked Issue. Skip when ITVT nested save (depth>0)."""
+	"""TVTI: поля virtual Task → Issue через db.set_value.
+
+	Пропуск при вложенном ITVT (itvt_save_depth != 0) и для не-virtual Task.
+	"""
 	if int(doc.flags.get(ITVT_DEPTH) or 0) != 0 or not is_virtual_task(doc):
 		return
 

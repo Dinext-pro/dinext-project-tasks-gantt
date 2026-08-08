@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import frappe
 
-from .helpers import is_virtual_task
+from dinext_project_tasks_gantt.virtual_task.helpers import is_virtual_task
 
 
 def delete_virtual_task_for_issue(doc) -> None:
-	"""Issue on_trash / before delete: remove linked virtual Task and parent depends_on row."""
+	"""При удалении Issue — снять virtual Task из depends_on родителя и удалить Task."""
 	task_name = frappe.db.get_value("Task", {"custom_linked_issue": doc.name}, "name")
 	if not task_name:
 		return
@@ -28,7 +28,7 @@ def delete_virtual_task_for_issue(doc) -> None:
 
 
 def delete_issue_for_virtual_task(doc) -> None:
-	"""Task after_delete: if virtual, delete linked Issue."""
+	"""При удалении virtual Task — удалить связанный Issue."""
 	if not is_virtual_task(doc):
 		return
 	issue_name = doc.get("custom_linked_issue")

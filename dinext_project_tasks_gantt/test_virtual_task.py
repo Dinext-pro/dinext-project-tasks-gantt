@@ -12,10 +12,6 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from dinext_project_tasks_gantt.virtual_task.dates import (
-	apply_task_actual_dates_logic,
-	date_cmp_value,
-)
 from dinext_project_tasks_gantt.virtual_task.helpers import (
 	ISSUE_TO_TASK_PRIORITY,
 	ISSUE_TO_TASK_STATUS,
@@ -25,8 +21,12 @@ from dinext_project_tasks_gantt.virtual_task.helpers import (
 	is_virtual_task,
 	mirror_target_for_issue_or_task,
 )
-from dinext_project_tasks_gantt.virtual_task.task_to_issue import sync_virtual_task_to_issue
-from dinext_project_tasks_gantt.virtual_task.todo_mirror import sync_todo_mirror
+from dinext_project_tasks_gantt.virtual_task.mirrors.todo import sync_todo_mirror
+from dinext_project_tasks_gantt.virtual_task.sync.dates import (
+	apply_task_actual_dates_logic,
+	date_cmp_value,
+)
+from dinext_project_tasks_gantt.virtual_task.sync.task_to_issue import sync_virtual_task_to_issue
 
 
 class TestVirtualTaskMaps(unittest.TestCase):
@@ -75,7 +75,7 @@ class TestVirtualTaskDates(unittest.TestCase):
 	def test_completed_without_act_end_sets_act_end_from_completed_on(self):
 		data = {"status": "Completed"}
 		with patch(
-			"dinext_project_tasks_gantt.virtual_task.dates.today",
+			"dinext_project_tasks_gantt.virtual_task.sync.dates.today",
 			return_value="2026-08-07",
 		):
 			apply_task_actual_dates_logic(data, None, None, None)
@@ -95,7 +95,7 @@ class TestVirtualTaskToIssueGuard(unittest.TestCase):
 		)
 		doc.get = lambda k, d=None: getattr(doc, k, d)
 		with patch(
-			"dinext_project_tasks_gantt.virtual_task.task_to_issue.frappe.get_doc"
+			"dinext_project_tasks_gantt.virtual_task.sync.task_to_issue.frappe.get_doc"
 		) as get_doc:
 			sync_virtual_task_to_issue(doc)
 			get_doc.assert_not_called()
@@ -106,7 +106,7 @@ class TestVirtualTaskToIssueGuard(unittest.TestCase):
 		doc = SimpleNamespace(type="Task", custom_linked_issue=None, flags=flags)
 		doc.get = lambda k, d=None: getattr(doc, k, d)
 		with patch(
-			"dinext_project_tasks_gantt.virtual_task.task_to_issue.frappe.get_doc"
+			"dinext_project_tasks_gantt.virtual_task.sync.task_to_issue.frappe.get_doc"
 		) as get_doc:
 			sync_virtual_task_to_issue(doc)
 			get_doc.assert_not_called()
@@ -144,7 +144,7 @@ class TestTodoMirrorGuard(unittest.TestCase):
 			reference_name="ISS-1",
 		)
 		with patch(
-			"dinext_project_tasks_gantt.virtual_task.todo_mirror.mirror_target_for_issue_or_task"
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.mirror_target_for_issue_or_task"
 		) as resolve:
 			sync_todo_mirror(doc)
 			resolve.assert_not_called()

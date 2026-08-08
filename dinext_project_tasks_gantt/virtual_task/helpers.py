@@ -1,7 +1,8 @@
-"""Shared helpers for virtual Task ↔ Issue sync."""
+"""Общие хелперы sync Issue ↔ virtual Task."""
 
 import frappe
 
+# Флаг глубины вложенного save ITVT (TVTI пропускает при depth != 0).
 ITVT_DEPTH = "itvt_save_depth"
 
 ISSUE_TO_TASK_STATUS = {
@@ -36,13 +37,15 @@ TASK_TO_ISSUE_PRIORITY = {
 
 
 def is_virtual_task(doc) -> bool:
+	"""True, если Task — virtual (type=Issue и заполнен custom_linked_issue)."""
 	return bool(doc.get("type") == "Issue" and doc.get("custom_linked_issue"))
 
 
 def mirror_target_for_issue_or_task(doctype: str, name: str):
-	"""Resolve opposite side of Issue ↔ virtual Task pair.
+	"""Найти парный документ Issue ↔ virtual Task.
 
-	Returns (target_doctype, target_name) or (None, None).
+	Issue → Task с custom_linked_issue; Task → Issue из custom_linked_issue.
+	Возвращает (doctype, name) или (None, None), если пары нет.
 	"""
 	if doctype == "Issue":
 		virtual_task = frappe.db.get_value("Task", {"custom_linked_issue": name}, "name")
