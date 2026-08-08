@@ -198,19 +198,22 @@ doctype_tree_js = {
 # Hook on document methods and events
 
 vt_handlers = "dinext_project_tasks_gantt.virtual_task.handlers"
+td_handlers = "dinext_project_tasks_gantt.task_dates.handlers"
 
 doc_events = {
 	"Project": {
 		"before_save": "dinext_project_tasks_gantt.project_progress_audit.before_save_project",
 	},
 	"Issue": {
-		# SS Issue_To_Virtual_Task After Save → after_insert + on_update
+		# SS Issue_To_Virtual_Task After Save → after_insert + on_update (local SS disabled)
 		"after_insert": f"{vt_handlers}.after_insert_issue",
 		"on_update": f"{vt_handlers}.on_update_issue",
-		# SS Issue_Delete_Virtual_Task Before Delete
+		# SS Issue_Delete_Virtual_Task Before Delete (local SS disabled)
 		"on_trash": f"{vt_handlers}.on_trash_issue",
 	},
 	"Task": {
+		# SS Task_Actual_Dates_Sync Before Validate
+		"before_validate": f"{td_handlers}.before_validate_task",
 		"before_insert": [
 			"dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
 			"dinext_project_tasks_gantt.task_tree_order.before_insert_task",
@@ -218,24 +221,26 @@ doc_events = {
 		"before_save": [
 			"dinext_project_tasks_gantt.task_progress_audit.before_save_task",
 			"dinext_project_tasks_gantt.project_progress_audit.before_save_task",
-			# SS Task_Virtual_To_Issue Before Save (after progress hooks)
+			# SS Depend_Task_Date_Check Before Save (before TVTI)
+			f"{td_handlers}.before_save_task",
+			# SS Task_Virtual_To_Issue Before Save (local SS disabled)
 			f"{vt_handlers}.before_save_task",
 		],
 		"on_update": [
 			"dinext_project_tasks_gantt.project_progress_audit.on_update_task",
 			"dinext_project_tasks_gantt.task_parent_progress.on_update_task",
-			# SS Task_Child_To_Issue After Save
+			# SS Task_Child_To_Issue After Save (local SS disabled)
 			f"{vt_handlers}.on_update_task",
 		],
 		"on_trash": "dinext_project_tasks_gantt.project_progress_audit.on_trash_task",
 		"after_delete": [
 			"dinext_project_tasks_gantt.project_progress_audit.after_delete_task",
 			"dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
-			# SS Task_Virtual_Delete After Delete
+			# SS Task_Virtual_Delete After Delete (local SS disabled)
 			f"{vt_handlers}.after_delete_task",
 		],
 	},
-	# Layer 4b mirrors (SS still enabled until cutover reload)
+	# Layer 4b mirrors (local SS disabled; hooks own sync)
 	"ToDo": {
 		"after_insert": f"{vt_handlers}.after_insert_todo",
 		"on_update": f"{vt_handlers}.on_update_todo",
