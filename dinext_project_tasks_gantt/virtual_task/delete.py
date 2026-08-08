@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import frappe
 
-from .guards import is_virtual_task
+from .helpers import is_virtual_task
 
 
 def delete_virtual_task_for_issue(doc) -> None:

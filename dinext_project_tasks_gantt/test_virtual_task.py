@@ -10,61 +10,46 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from dinext_project_tasks_gantt.virtual_task.dates import (
 	apply_task_actual_dates_logic,
 	date_cmp_value,
 )
-from dinext_project_tasks_gantt.virtual_task.flags import ITVT_DEPTH
-from dinext_project_tasks_gantt.virtual_task.guards import (
-	bump_sync_depth,
+from dinext_project_tasks_gantt.virtual_task.helpers import (
+	ISSUE_TO_TASK_PRIORITY,
+	ISSUE_TO_TASK_STATUS,
+	ITVT_DEPTH,
+	TASK_TO_ISSUE_PRIORITY,
+	TASK_TO_ISSUE_STATUS,
 	is_virtual_task,
-	restore_sync_depth,
-	sync_depth,
-)
-from dinext_project_tasks_gantt.virtual_task.maps import (
-	issue_priority_to_task,
-	issue_status_to_task,
-	task_priority_to_issue,
-	task_status_to_issue,
 )
 from dinext_project_tasks_gantt.virtual_task.task_to_issue import sync_virtual_task_to_issue
 
 
 class TestVirtualTaskMaps(unittest.TestCase):
 	def test_issue_to_task_status(self):
-		self.assertEqual(issue_status_to_task("Closed"), "Completed")
-		self.assertEqual(issue_status_to_task("Replied"), "Working")
+		self.assertEqual(ISSUE_TO_TASK_STATUS.get("Closed", "Closed"), "Completed")
+		self.assertEqual(ISSUE_TO_TASK_STATUS.get("Replied", "Replied"), "Working")
 
 	def test_task_to_issue_status(self):
-		self.assertEqual(task_status_to_issue("Completed"), "Closed")
-		self.assertEqual(task_status_to_issue("Overdue"), "Open")
+		self.assertEqual(TASK_TO_ISSUE_STATUS.get("Completed", "Completed"), "Closed")
+		self.assertEqual(TASK_TO_ISSUE_STATUS.get("Overdue", "Overdue"), "Open")
 
 	def test_priority_roundtrip_high(self):
-		self.assertEqual(issue_priority_to_task("Высокий"), "High")
-		self.assertEqual(task_priority_to_issue("Urgent"), "Высокий")
+		self.assertEqual(ISSUE_TO_TASK_PRIORITY.get("Высокий", "Высокий"), "High")
+		self.assertEqual(TASK_TO_ISSUE_PRIORITY.get("Urgent", "Urgent"), "Высокий")
 
 
 class TestVirtualTaskGuards(unittest.TestCase):
 	def test_is_virtual_task(self):
 		doc = SimpleNamespace(type="Issue", custom_linked_issue="ISS-1", flags={})
-		# SimpleNamespace .get via dict-like helper
 		doc.get = lambda k, d=None: getattr(doc, k, d)
 		self.assertTrue(is_virtual_task(doc))
 		doc.type = "Task"
 		self.assertFalse(is_virtual_task(doc))
 
-	def test_depth_bump_restore(self):
-		flags = SimpleNamespace()
-		doc = SimpleNamespace(flags=flags)
-		flags.get = lambda k, d=None: getattr(flags, k, d)
-		self.assertEqual(sync_depth(doc), 0)
-		prev = bump_sync_depth(doc)
-		self.assertEqual(prev, 0)
-		self.assertEqual(sync_depth(doc), 1)
-		restore_sync_depth(doc, prev)
-		self.assertEqual(sync_depth(doc), 0)
+	def test_depth_flag_name(self):
 		self.assertEqual(ITVT_DEPTH, "itvt_save_depth")
 
 

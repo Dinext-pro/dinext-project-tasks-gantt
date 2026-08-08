@@ -7,8 +7,7 @@ from frappe import _
 from frappe.utils import cstr, getdate
 
 from .dates import apply_task_actual_dates_logic, resolution_date_from_issue
-from .guards import bump_sync_depth, restore_sync_depth
-from .maps import issue_priority_to_task, issue_status_to_task
+from .helpers import ISSUE_TO_TASK_PRIORITY, ISSUE_TO_TASK_STATUS, ITVT_DEPTH
 
 
 def sync_issue_to_virtual_task(doc) -> None:
@@ -31,13 +30,15 @@ def sync_issue_to_virtual_task(doc) -> None:
 
 	task_name = frappe.db.get_value("Task", {"custom_linked_issue": doc.name}, "name")
 
+	priority = doc.get("priority")
+	status = doc.get("status")
 	data = {
 		"subject": doc.get("subject"),
 		"owner": doc.get("owner"),
 		"description": doc.get("description"),
 		"project": doc.get("project"),
-		"priority": issue_priority_to_task(doc.get("priority")),
-		"status": issue_status_to_task(doc.get("status")),
+		"priority": ISSUE_TO_TASK_PRIORITY.get(priority, priority),
+		"status": ISSUE_TO_TASK_STATUS.get(status, status),
 		"exp_start_date": doc.get("opening_date"),
 		"exp_end_date": doc.get("custom_expected_resolution_date"),
 		# act_* not from opening_date / resolution (ISS-2025-02606)
@@ -52,7 +53,8 @@ def sync_issue_to_virtual_task(doc) -> None:
 
 
 def _persist_virtual_task_or_throw(task_doc, is_new=False):
-	cur = bump_sync_depth(task_doc)
+	cur = int(task_doc.flags.get(ITVT_DEPTH) or 0)
+	task_doc.flags.itvt_save_depth = cur + 1
 	try:
 		if is_new:
 			task_doc.insert(ignore_permissions=True)
@@ -68,7 +70,8 @@ def _persist_virtual_task_or_throw(task_doc, is_new=False):
 			exc=frappe.ValidationError,
 		)
 	finally:
-		restore_sync_depth(task_doc, cur)
+		task_doc.flags.itvt_save_depth = cur
+
 
 
 def _ensure_parent_depends_on_link(child_name, parent_name, child_subject):

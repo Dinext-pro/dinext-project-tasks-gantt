@@ -1,4 +1,6 @@
-"""Status / priority maps Issue ↔ Task (prod ITVT / TVTI)."""
+"""Shared helpers for virtual Task ↔ Issue sync."""
+
+ITVT_DEPTH = "itvt_save_depth"
 
 ISSUE_TO_TASK_STATUS = {
 	"Open": "Open",
@@ -31,17 +33,5 @@ TASK_TO_ISSUE_PRIORITY = {
 }
 
 
-def issue_status_to_task(status):
-	return ISSUE_TO_TASK_STATUS.get(status, status)
-
-
-def task_status_to_issue(status):
-	return TASK_TO_ISSUE_STATUS.get(status, status)
-
-
-def issue_priority_to_task(priority):
-	return ISSUE_TO_TASK_PRIORITY.get(priority, priority)
-
-
-def task_priority_to_issue(priority):
-	return TASK_TO_ISSUE_PRIORITY.get(priority, priority)
+def is_virtual_task(doc) -> bool:
+	return bool(doc.get("type") == "Issue" and doc.get("custom_linked_issue"))

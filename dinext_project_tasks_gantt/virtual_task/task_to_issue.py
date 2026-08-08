@@ -6,17 +6,23 @@ import frappe
 from frappe.utils import now
 
 from .dates import date_cmp_value, issue_resolution_fieldname
-from .guards import is_virtual_task, sync_depth
-from .maps import task_priority_to_issue, task_status_to_issue
+from .helpers import (
+	ITVT_DEPTH,
+	TASK_TO_ISSUE_PRIORITY,
+	TASK_TO_ISSUE_STATUS,
+	is_virtual_task,
+)
 
 
 def sync_virtual_task_to_issue(doc) -> None:
 	"""Mirror virtual Task fields onto linked Issue. Skip when ITVT nested save (depth>0)."""
-	if sync_depth(doc) != 0 or not is_virtual_task(doc):
+	if int(doc.flags.get(ITVT_DEPTH) or 0) != 0 or not is_virtual_task(doc):
 		return
 
-	new_status = task_status_to_issue(doc.get("status"))
-	new_priority = task_priority_to_issue(doc.get("priority"))
+	status = doc.get("status")
+	priority = doc.get("priority")
+	new_status = TASK_TO_ISSUE_STATUS.get(status, status)
+	new_priority = TASK_TO_ISSUE_PRIORITY.get(priority, priority)
 	act_end_date = doc.get("act_end_date")
 
 	issue = frappe.get_doc("Issue", doc.get("custom_linked_issue"), ignore_permissions=True)
