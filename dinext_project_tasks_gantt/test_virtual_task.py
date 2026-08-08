@@ -23,8 +23,10 @@ from dinext_project_tasks_gantt.virtual_task.helpers import (
 	TASK_TO_ISSUE_PRIORITY,
 	TASK_TO_ISSUE_STATUS,
 	is_virtual_task,
+	mirror_target_for_issue_or_task,
 )
 from dinext_project_tasks_gantt.virtual_task.task_to_issue import sync_virtual_task_to_issue
+from dinext_project_tasks_gantt.virtual_task.todo_mirror import sync_todo_mirror
 
 
 class TestVirtualTaskMaps(unittest.TestCase):
@@ -108,6 +110,44 @@ class TestVirtualTaskToIssueGuard(unittest.TestCase):
 		) as get_doc:
 			sync_virtual_task_to_issue(doc)
 			get_doc.assert_not_called()
+
+
+class TestMirrorTarget(unittest.TestCase):
+	def test_issue_to_virtual_task(self):
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.helpers.frappe.db.get_value",
+			return_value="TASK-V",
+		):
+			self.assertEqual(
+				mirror_target_for_issue_or_task("Issue", "ISS-1"),
+				("Task", "TASK-V"),
+			)
+
+	def test_task_to_issue(self):
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.helpers.frappe.db.get_value",
+			return_value="ISS-1",
+		):
+			self.assertEqual(
+				mirror_target_for_issue_or_task("Task", "TASK-V"),
+				("Issue", "ISS-1"),
+			)
+
+
+class TestTodoMirrorGuard(unittest.TestCase):
+	def test_skips_when_sync_in_progress(self):
+		flags = SimpleNamespace(todo_sync_in_progress=True)
+		flags.get = lambda k, d=None: getattr(flags, k, d)
+		doc = SimpleNamespace(
+			flags=flags,
+			reference_type="Issue",
+			reference_name="ISS-1",
+		)
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.todo_mirror.mirror_target_for_issue_or_task"
+		) as resolve:
+			sync_todo_mirror(doc)
+			resolve.assert_not_called()
 
 
 if __name__ == "__main__":

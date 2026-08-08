@@ -233,6 +233,19 @@ doc_events = {
 			"dinext_project_tasks_gantt.virtual_task.handlers.after_delete_task",
 		],
 	},
+	# Layer 4b satellites (SS still enabled until cutover reload)
+	"ToDo": {
+		"after_insert": "dinext_project_tasks_gantt.virtual_task.handlers.after_insert_todo",
+		"on_update": "dinext_project_tasks_gantt.virtual_task.handlers.on_update_todo",
+	},
+	"DocShare": {
+		"after_insert": "dinext_project_tasks_gantt.virtual_task.handlers.after_insert_docshare",
+		"on_update": "dinext_project_tasks_gantt.virtual_task.handlers.on_update_docshare",
+		"after_delete": "dinext_project_tasks_gantt.virtual_task.handlers.after_delete_docshare",
+	},
+	"Tag Link": {
+		"after_insert": "dinext_project_tasks_gantt.virtual_task.handlers.after_insert_tag_link",
+	},
 }
 
 # Scheduled Tasks
