@@ -234,7 +234,7 @@ async function callBulkProcessPwa(rows) {
 	}
 	await new Promise((resolve, reject) => {
 		frappe.call({
-			method: "bulk_process_pwa",
+			method: "project_workload_assignment.pwa_dates.bulk.bulk_process_pwa",
 			args: { rows },
 			freeze: true,
 			freeze_message: __("Updating assignments…"),
