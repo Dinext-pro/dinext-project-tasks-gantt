@@ -73,9 +73,7 @@ def validate_depend_task_dates(doc) -> None:
 	if not overlapping_tasks:
 		return
 
-	error_message = _(
-		"""Периоды дат дочерних задач должны входить в период родительской задачи."""
-	)
+	error_message = _("""Периоды дат дочерних задач должны входить в период родительской задачи.""")
 
 	task_details = "<br>".join(
 		[
