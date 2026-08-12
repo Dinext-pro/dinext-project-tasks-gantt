@@ -51,11 +51,7 @@ fixtures = [
 # Apps
 # ------------------
 
-required_apps = [
-    "frappe/erpnext",
-    "dinext/dinext_common",
-    "dinext/dinext_projects",
-]
+required_apps = ["dinext_common", "doctype_permission", "dinext_projects"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -143,7 +139,7 @@ doctype_tree_js = {
 # ------------
 
 # before_install = "dinext_project_tasks_gantt.install.before_install"
-# after_install = "dinext_project_tasks_gantt.install.after_install"
+after_install = "dinext_project_tasks_gantt.install.after_install"
 
 # Uninstallation
 # ------------
