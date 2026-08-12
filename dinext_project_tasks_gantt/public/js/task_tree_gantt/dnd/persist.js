@@ -1,10 +1,8 @@
 /**
  * Persist Task tree DnD:
- * - sibling reorder within same parent → custom_tree_order (no date changes)
- * - reparent blocked at this stage (ISS-2026-02536 #5.1 only)
- *
- * Relies on server for reparent later:
- * - Parent_Task_Is_Group_Check / Task_Actual_Dates_Sync / ERPNext validate
+ * - sibling reorder → custom_tree_order
+ * - reparent → Task.parent_task via Document.save + sibling orders
+ *   (destination + former parent lists from DinextTable move payload)
  */
 
 /** Path id → Task name (last segment). */
@@ -19,6 +17,12 @@ function fail(message) {
 	throw new Error(message);
 }
 
+function toTaskNames(ids) {
+	return (ids || [])
+		.map((id) => taskNameFromRowId(id) || String(id))
+		.filter(Boolean);
+}
+
 /**
  * @param {{ move: object }} ctx DinextTable onRowReorder payload
  * @returns {Promise<true>}
@@ -29,11 +33,12 @@ export async function persistTaskRowReorder({ move }) {
 	}
 
 	const {
-		fromParentRowId,
 		toParentRowId,
 		rowId,
 		blockSize = 1,
 		orderedLocalRowIds,
+		fromOrderedLocalRowIds,
+		fromParentRowId,
 	} = move;
 
 	if (cint(blockSize) > 1) {
@@ -49,33 +54,24 @@ export async function persistTaskRowReorder({ move }) {
 		fail(__("Not permitted"));
 	}
 
-	// Stage 1: only siblings under the same parent.
-	if (fromParentRowId !== toParentRowId) {
-		fail(
-			__(
-				"Moving a task to another parent is not enabled yet. Reorder within the same branch only."
-			)
-		);
-	}
-
-	const orderedIds = (orderedLocalRowIds || [])
-		.map((id) => taskNameFromRowId(id) || String(id))
-		.filter(Boolean);
-
+	const orderedIds = toTaskNames(orderedLocalRowIds);
 	if (!orderedIds.length || !orderedIds.includes(taskName)) {
 		fail(__("Task reorder: missing sibling order"));
 	}
 
-	const parentTask = taskNameFromRowId(toParentRowId) || null;
+	const parentTask = taskNameFromRowId(toParentRowId) || "";
+	const reparent = fromParentRowId !== toParentRowId;
+	const fromOrderedIds = reparent ? toTaskNames(fromOrderedLocalRowIds) : [];
 
 	frappe.dom.freeze(__("Updating {0}", [__("Task")]));
 	try {
 		await frappe.xcall(
-			"dinext_project_tasks_gantt.task_tree_order.reorder_siblings",
+			"dinext_project_tasks_gantt.api.reorder_siblings",
 			{
 				task: taskName,
-				parent_task: parentTask || "",
+				parent_task: parentTask,
 				ordered_ids: orderedIds,
+				from_ordered_ids: fromOrderedIds,
 			}
 		);
 	} finally {

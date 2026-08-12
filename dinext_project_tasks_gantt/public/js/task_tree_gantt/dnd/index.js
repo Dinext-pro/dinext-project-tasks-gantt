@@ -5,9 +5,9 @@ import { getOnGanttRefresh } from "../table/columns/context.js";
 import { persistTaskRowReorder } from "./persist.js";
 
 /**
- * Sibling reorder already updates the in-memory tree.
+ * Sibling reorder / reparent already updates the in-memory tree.
  * Do NOT full-reload (onTreeMutate) — that collapses expanded branches.
- * Only refresh gantt bars to match new row order.
+ * Only refresh gantt bars to match new row order / nesting.
  *
  * @returns {(ctx: { move: object }) => Promise<boolean>}
  */

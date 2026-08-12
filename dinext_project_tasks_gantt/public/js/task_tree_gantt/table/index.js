@@ -196,8 +196,8 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			},
 			rowReorder: {
 				enabled: true,
-				// ISS-2026-02536 #5.1: siblings only; reparent later.
-				allowTree: "siblings",
+				// Full tree DnD: sibling reorder + reparent / nest (DinextTable).
+				allowTree: "reparent",
 			},
 			onRowReorder: createOnRowReorder(),
 			// Client source-tree sort (dinext_common sort layer) — not AG flat sort.

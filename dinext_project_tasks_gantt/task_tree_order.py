@@ -1,9 +1,11 @@
 # Copyright (c) 2026, Dinext and contributors
 # For license information, please see license.txt
 
-"""ISS-2026-02536 #5.1: sibling order via Task.custom_tree_order."""
+"""Task tree order + move (sibling reorder and reparent)."""
 
 from __future__ import annotations
+
+import json
 
 import frappe
 from frappe.utils import cint
@@ -49,18 +51,96 @@ def before_insert_task(doc, method=None):
 	doc.set(ORDER_FIELD, next_tree_order(doc.project, doc.parent_task))
 
 
-@frappe.whitelist()
-def reorder_siblings(task: str, parent_task: str | None = None, ordered_ids: list | str | None = None):
-	"""Persist sibling order within one parent. Dates unchanged.
+def _parse_ids(raw) -> list[str]:
+	if raw is None or raw == "":
+		return []
+	if isinstance(raw, str):
+		raw = json.loads(raw)
+	return [str(x) for x in (raw or []) if x]
 
-	ordered_ids: full sibling list in desired order (Task names).
-	``task`` must be in ordered_ids; parent must match for all.
+
+def _norm_parent(value) -> str | None:
+	if value in (None, ""):
+		return None
+	return str(value)
+
+
+def _ensure_parent_is_group(parent_task: str) -> None:
+	"""ERPNext validate_parent_is_group requires destination parent.is_group."""
+	if frappe.db.get_value("Task", parent_task, "is_group"):
+		return
+	frappe.db.set_value("Task", parent_task, "is_group", 1, update_modified=False)
+
+
+def _assert_not_cycle(task: str, new_parent: str | None) -> None:
+	"""Reject parent_task = self or descendant (cycle)."""
+	if not new_parent:
+		return
+	if new_parent == task:
+		frappe.throw(frappe._("Cannot move a task under itself"))
+	current = new_parent
+	seen = set()
+	while current:
+		if current == task:
+			frappe.throw(frappe._("Cannot move a task under its descendant"))
+		if current in seen:
+			break
+		seen.add(current)
+		current = frappe.db.get_value("Task", current, "parent_task") or None
+
+
+def _apply_sibling_order(ordered_ids: list[str], expected_parent: str | None) -> None:
+	"""Write custom_tree_order for siblings under expected_parent."""
+	for name in ordered_ids:
+		if not frappe.has_permission("Task", "write", name):
+			frappe.throw(frappe._("Not permitted to write Task {0}").format(name))
+		row_parent = _norm_parent(frappe.db.get_value("Task", name, "parent_task"))
+		if row_parent != expected_parent:
+			frappe.throw(
+				frappe._("Task {0} is not a sibling under the same parent").format(name)
+			)
+
+	for idx, name in enumerate(ordered_ids):
+		frappe.db.set_value(
+			"Task",
+			name,
+			ORDER_FIELD,
+			(idx + 1) * 10,
+			update_modified=False,
+		)
+
+
+def _reparent_task(task: str, new_parent: str | None) -> None:
+	"""Persist parent_task via Document.save so ERPNext + app hooks run."""
+	_assert_not_cycle(task, new_parent)
+	if new_parent:
+		if not frappe.db.exists("Task", new_parent):
+			frappe.throw(frappe._("Parent Task {0} not found").format(new_parent))
+		_ensure_parent_is_group(new_parent)
+
+	doc = frappe.get_doc("Task", task)
+	current = _norm_parent(doc.parent_task)
+	if current == new_parent:
+		return
+	doc.parent_task = new_parent
+	doc.save()
+
+
+def reorder_siblings(
+	task: str,
+	parent_task: str | None = None,
+	ordered_ids: list | str | None = None,
+	from_ordered_ids: list | str | None = None,
+):
+	"""Move/reorder Task in tree.
+
+	- Same parent: only rewrite ``custom_tree_order`` for ``ordered_ids``.
+	- New parent: ``Document.save`` for ``parent_task``, then order destination
+	  siblings; optionally reindex former siblings via ``from_ordered_ids``.
 	"""
-	if isinstance(ordered_ids, str):
-		import json
+	ordered_ids = _parse_ids(ordered_ids)
+	from_ordered_ids = _parse_ids(from_ordered_ids)
 
-		ordered_ids = json.loads(ordered_ids)
-	ordered_ids = [str(x) for x in (ordered_ids or []) if x]
 	if not task or task not in ordered_ids:
 		frappe.throw(frappe._("Invalid reorder payload"))
 
@@ -71,29 +151,26 @@ def reorder_siblings(task: str, parent_task: str | None = None, ordered_ids: lis
 	if not meta.has_field(ORDER_FIELD):
 		frappe.throw(frappe._("Tree order field is not installed"))
 
-	task_parent = frappe.db.get_value("Task", task, "parent_task") or None
-	expected_parent = parent_task if parent_task not in (None, "") else task_parent
-	if (task_parent or None) != (expected_parent or None):
-		frappe.throw(frappe._("Reorder only allowed within the same parent"))
+	old_parent = _norm_parent(frappe.db.get_value("Task", task, "parent_task"))
+	# Explicit "" from client = project root; omit → keep current (legacy sibling call).
+	if parent_task is None:
+		new_parent = old_parent
+	else:
+		new_parent = _norm_parent(parent_task)
 
-	# Validate every id is a sibling under the same parent.
-	for name in ordered_ids:
-		if not frappe.has_permission("Task", "write", name):
-			frappe.throw(frappe._("Not permitted to write Task {0}").format(name))
-		row_parent = frappe.db.get_value("Task", name, "parent_task") or None
-		if (row_parent or None) != (expected_parent or None):
-			frappe.throw(
-				frappe._("Task {0} is not a sibling under the same parent").format(name)
-			)
+	reparented = old_parent != new_parent
+	if reparented:
+		_reparent_task(task, new_parent)
 
-	# Spacing of 10 leaves room for future inserts without full reindex.
-	for idx, name in enumerate(ordered_ids):
-		frappe.db.set_value(
-			"Task",
-			name,
-			ORDER_FIELD,
-			(idx + 1) * 10,
-			update_modified=False,
-		)
+	_apply_sibling_order(ordered_ids, new_parent)
 
-	return {"updated": len(ordered_ids)}
+	if reparented and from_ordered_ids:
+		if task in from_ordered_ids:
+			frappe.throw(frappe._("Moved task must not appear in source sibling order"))
+		_apply_sibling_order(from_ordered_ids, old_parent)
+
+	return {
+		"updated": len(ordered_ids) + (len(from_ordered_ids) if reparented else 0),
+		"reparented": 1 if reparented else 0,
+		"parent_task": new_parent,
+	}
