@@ -85,9 +85,12 @@ function scheduleSideDataRefresh(getArgs, table, rows) {
 }
 
 function createExpandHandler(getArgs, onTreeChange) {
-	return async ({ rowId, table }) => {
+	return async ({ rowId, row, table }) => {
+		// API parent_task = business Task name; rowId is tree path (`A:B`).
+		const parentTask =
+			row?.id || String(rowId || "").split(":").filter(Boolean).pop() || null;
 		const children = toTableRows(
-			await getChildren(childrenQuery(getArgs, rowId))
+			await getChildren(childrenQuery(getArgs, parentTask))
 		);
 		// Sort layer reorders children inside setRowChildren when sort active.
 		table.setRowChildren(rowId, children);

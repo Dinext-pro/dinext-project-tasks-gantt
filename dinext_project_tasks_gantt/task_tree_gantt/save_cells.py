@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.utils import cint
+from frappe.utils import cint, getdate
 
 
 ALLOWED_FIELDS = frozenset(
@@ -25,6 +25,9 @@ ALLOWED_FIELDS = frozenset(
 		"custom_planned_end_date",
 	}
 )
+
+DATE_FIELDS = frozenset({"exp_start_date", "exp_end_date"})
+MAX_ANCESTOR_DEPTH = 20
 
 
 def _parse_changes(raw) -> list[dict]:
@@ -45,6 +48,12 @@ def _normalize_value(field: str, value):
 	return value
 
 
+def _date_str(value):
+	if value is None or value == "":
+		return None
+	return str(getdate(value))
+
+
 def _persist_task(task_id: str, values: dict) -> None:
 	"""Persist via Document.save() so ERPNext validate + DocType events run.
 
@@ -56,11 +65,39 @@ def _persist_task(task_id: str, values: dict) -> None:
 	doc.save()
 
 
+def _collect_date_side_effect_rows(task_ids: list[str]) -> list[dict]:
+	"""Saved tasks + ancestors after Actual parent cascade may widen exp_*."""
+	out: dict[str, dict] = {}
+	for task_id in task_ids:
+		current = task_id
+		depth = 0
+		while current and current not in out and depth <= MAX_ANCESTOR_DEPTH:
+			data = frappe.db.get_value(
+				"Task",
+				current,
+				["name", "exp_start_date", "exp_end_date", "parent_task"],
+				as_dict=True,
+			)
+			if not data:
+				break
+			out[current] = {
+				"id": data.name,
+				"exp_start_date": _date_str(data.exp_start_date),
+				"exp_end_date": _date_str(data.exp_end_date),
+			}
+			current = data.get("parent_task")
+			depth += 1
+	return list(out.values())
+
+
 def save_cells(changes=None) -> dict:
 	"""
 	Persist Tree Gantt cell edits.
 
 	changes: list of {id, field, value}
+
+	When exp_* change, also returns `rows` — saved tasks + ancestors with
+	current forecast dates so the tree UI can patch parent bars without reload.
 	"""
 	if not frappe.has_permission("Task", "write"):
 		frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
@@ -84,8 +121,14 @@ def save_cells(changes=None) -> dict:
 		by_id.setdefault(task_id, {})[field] = _normalize_value(field, item.get("value"))
 
 	updated = 0
+	date_task_ids: list[str] = []
 	for task_id, values in by_id.items():
 		_persist_task(task_id, values)
 		updated += 1
+		if DATE_FIELDS.intersection(values):
+			date_task_ids.append(task_id)
 
-	return {"updated": updated}
+	result: dict = {"updated": updated}
+	if date_task_ids:
+		result["rows"] = _collect_date_side_effect_rows(date_task_ids)
+	return result

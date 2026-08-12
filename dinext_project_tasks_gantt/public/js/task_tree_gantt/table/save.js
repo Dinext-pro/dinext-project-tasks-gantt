@@ -146,12 +146,63 @@ export function onValidateCells({ changes }) {
 	return true;
 }
 
+function toIsoDate(value) {
+	if (value == null || value === "") {
+		return null;
+	}
+	if (value instanceof Date && !Number.isNaN(value.getTime())) {
+		return frappe.datetime.obj_to_str(value);
+	}
+	const s = String(value).trim();
+	if (!s) {
+		return null;
+	}
+	return s.slice(0, 10);
+}
+
+/**
+ * Apply save_cells side-effect `rows` (saved task + ancestors after parent
+ * exp_* cascade) through DinextTable.applyExternalCellValues — grid copy +
+ * sourceData, no second onSaveCells.
+ * @returns {boolean} true if any field write applied
+ */
+export function applySideEffectDateRows(table, rows) {
+	if (!table || !rows?.length) {
+		return false;
+	}
+	if (typeof table.applyExternalCellValues !== "function") {
+		console.error(
+			"[task_tree_gantt] DinextTable.applyExternalCellValues missing — rebuild dinext_common"
+		);
+		return false;
+	}
+
+	const changes = [];
+	for (const row of rows) {
+		if (!row?.id) {
+			continue;
+		}
+		for (const field of ["exp_start_date", "exp_end_date"]) {
+			changes.push({
+				id: String(row.id),
+				field,
+				value: toIsoDate(row[field]),
+			});
+		}
+	}
+	if (!changes.length) {
+		return false;
+	}
+	return table.applyExternalCellValues(changes) > 0;
+}
+
 /** Persist cell changes. Shared path for grid (and later gantt drag). */
-export async function saveCells(payload) {
+export async function saveCells(payload, { table } = {}) {
 	if (!payload?.length) return true;
 
 	try {
-		await apiSaveCells(payload);
+		const message = await apiSaveCells(payload);
+		applySideEffectDateRows(table, message?.rows);
 		frappe.show_alert(
 			{
 				message: __("Data updated successfully"),
@@ -320,7 +371,7 @@ export async function onSaveCells({ changes, table }) {
 	if (!taskPayload.length) {
 		return true;
 	}
-	return saveCells(taskPayload);
+	return saveCells(taskPayload, { table });
 }
 
 export function changesAffectGantt(changes) {
