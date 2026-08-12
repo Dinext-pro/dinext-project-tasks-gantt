@@ -1,5 +1,5 @@
-const GET_CHILDREN = "dinext_project_tasks_gantt.task_tree_gantt.api.get_children";
-const SAVE_CELLS = "dinext_project_tasks_gantt.task_tree_gantt.api.save_cells";
+const GET_CHILDREN = "dinext_project_tasks_gantt.api.get_children";
+const SAVE_CELLS = "dinext_project_tasks_gantt.api.save_cells";
 const TIMESHEET_LIMITS =
 	"project_workload_assignment.api.calculate_timesheet_limits";
 const CHECK_DEPENDENCIES = "check_dependencies_for_tasks";

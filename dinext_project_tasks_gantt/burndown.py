@@ -865,7 +865,6 @@ def _load_task_volume_rows(
 	return tasks
 
 
-@frappe.whitelist()
 def get_project_task_type_options(project: str | None = None) -> list[dict[str, str]]:
 	if not project:
 		return []
@@ -895,7 +894,6 @@ def get_project_task_type_options(project: str | None = None) -> list[dict[str, 
 	return out
 
 
-@frappe.whitelist()
 def get_project_x_axis_period_options(project: str | None = None) -> list[dict[str, str]]:
 	out = _calendar_group_by_options()
 	if not project:
@@ -922,7 +920,6 @@ def get_project_x_axis_period_options(project: str | None = None) -> list[dict[s
 	return out
 
 
-@frappe.whitelist()
 def get_project_role_options(project: str | None = None) -> list[dict[str, str]]:
 	if not project:
 		return []
@@ -938,7 +935,6 @@ def get_project_role_options(project: str | None = None) -> list[dict[str, str]]
 	return [{"label": value, "value": value, "description": ""} for value in values]
 
 
-@frappe.whitelist()
 def get_project_issue_type_options(project: str | None = None) -> list[dict[str, str]]:
 	if not project:
 		return []
@@ -2197,7 +2193,6 @@ def _trend_axis_end(
 	return min(base_end, max_forecast_date) if max_forecast_date else base_end
 
 
-@frappe.whitelist()
 def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> dict[str, Any]:
 	if not task:
 		frappe.throw(_("Task is required"))
@@ -2590,7 +2585,6 @@ def _as_bool(value: Any, default: bool = True) -> bool:
 	return bool(value)
 
 
-@frappe.whitelist()
 def get_burndown_series(
 	project: str | None = None,
 	from_date: str | None = None,

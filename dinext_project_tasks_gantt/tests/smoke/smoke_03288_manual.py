@@ -2,7 +2,7 @@
 
 Run:
   bench --site dev.dinext.localhost execute \\
-    dinext_project_tasks_gantt.smoke_03288_manual.run
+    dinext_project_tasks_gantt.tests.smoke.smoke_03288_manual.run
 
 Disposable prefix: TEST ISS-2026-03288 MANUAL*
 """

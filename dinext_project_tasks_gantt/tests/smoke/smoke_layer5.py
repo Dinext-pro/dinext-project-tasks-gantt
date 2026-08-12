@@ -3,7 +3,7 @@
 
 Run:
   bench --site dev.dinext.localhost execute \\
-    dinext_project_tasks_gantt.virtual_task._smoke_layer5.run
+    dinext_project_tasks_gantt.tests.smoke.smoke_layer5.run
 """
 
 from __future__ import annotations

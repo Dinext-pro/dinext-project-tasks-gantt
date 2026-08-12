@@ -487,7 +487,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				}
 				return frappe
 					.call({
-						method: "dinext_project_tasks_gantt.burndown.get_project_role_options",
+						method: "dinext_project_tasks_gantt.api.get_project_role_options",
 						args: { project },
 					})
 					.then((r) => {
@@ -515,7 +515,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				}
 				return frappe
 					.call({
-						method: "dinext_project_tasks_gantt.burndown.get_project_task_type_options",
+						method: "dinext_project_tasks_gantt.api.get_project_task_type_options",
 						args: { project },
 					})
 					.then((r) => {
@@ -549,7 +549,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				}
 				return frappe
 					.call({
-						method: "dinext_project_tasks_gantt.burndown.get_project_issue_type_options",
+						method: "dinext_project_tasks_gantt.api.get_project_issue_type_options",
 						args: { project },
 					})
 					.then((r) => {
@@ -945,7 +945,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 			}
 			return frappe
 				.call({
-					method: "dinext_project_tasks_gantt.burndown.get_project_x_axis_period_options",
+					method: "dinext_project_tasks_gantt.api.get_project_x_axis_period_options",
 					args: { project },
 				})
 				.then((r) => applyOptions(r.message || []))
@@ -1091,7 +1091,7 @@ frappe.query_reports["Task Epic Burndown"] = {
 				["/assets/dinext_common/js/echarts.min.js"],
 				function () {
 					frappe.call({
-						method: "dinext_project_tasks_gantt.burndown.get_burndown_series",
+						method: "dinext_project_tasks_gantt.api.get_burndown_series",
 						args: {
 							project: filters.project,
 							from_date: filters.from_date,

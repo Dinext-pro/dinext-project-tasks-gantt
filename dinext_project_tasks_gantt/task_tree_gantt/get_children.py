@@ -203,7 +203,7 @@ def get_children(**kwargs) -> list[dict]:
 	Args:
 	        project: Project name (required)
 	        parent_task: None → project roots; else children of this Task
-	        all_tasks: if true, all tasks in project (ignore parent_task null filter)
+	        all_tasks: if true, all tasks in project (ignore parent filter)
 	        status, priority, assign, tag: optional filters
 	        sort_field, sort_order, limit: optional
 	"""
@@ -215,11 +215,7 @@ def get_children(**kwargs) -> list[dict]:
 		frappe.throw(frappe._("Project is required"))
 
 	parent_task = _param(kwargs, "parent_task")
-	# Legacy alias during transition — prefer parent_task
-	if parent_task is None and "parent" in kwargs and not _truthy(_param(kwargs, "is_root")):
-		parent_task = _param(kwargs, "parent")
-
-	all_tasks = _truthy(_param(kwargs, "all_tasks")) or _truthy(_param(kwargs, "is_all"))
+	all_tasks = _truthy(_param(kwargs, "all_tasks"))
 	status = _param(kwargs, "status")
 	priority = _param(kwargs, "priority")
 	assign_filter = _param(kwargs, "assign")

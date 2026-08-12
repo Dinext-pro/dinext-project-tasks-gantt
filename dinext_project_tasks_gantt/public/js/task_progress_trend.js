@@ -112,7 +112,7 @@
 		set_state(wrapper, __("Loading chart..."));
 		frappe.require([ECHARTS_ASSET], () => {
 			frappe.call({
-				method: "dinext_project_tasks_gantt.burndown.get_task_progress_trend",
+				method: "dinext_project_tasks_gantt.api.get_task_progress_trend",
 				args: {
 					task: frm.doc.name,
 					group_by: period,
