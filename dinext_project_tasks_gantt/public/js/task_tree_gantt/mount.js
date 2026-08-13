@@ -23,7 +23,7 @@ export async function mount({ page }) {
 		fullscreenShell: null,
 	};
 
-	const reload = async () => {
+	const reload = async (opts = {}) => {
 		state.table = await loadTable(state.tableHost, state.getArgs, {
 			// Coalesced — avoid parallel ensureGantt with mount await below.
 			onTreeChange: () => scheduleGanttRefresh(state),
@@ -32,6 +32,7 @@ export async function mount({ page }) {
 			onSortChange: () => scheduleGanttRefresh(state),
 			// page.main = page-form filters + Tree Gantt shell (WR fullscreen pattern).
 			fullscreenShell: state.fullscreenShell,
+			expandRowIds: opts.expandRowIds,
 		});
 		if (state.table) {
 			wireTreeGanttHooks(state.table, state);
@@ -58,8 +59,8 @@ export async function mount({ page }) {
 		onAssignSaved: refreshGantt,
 		onGanttRefresh: refreshGantt,
 		// Subject toolbar Add/Delete/Multiple → full reload.
-		onTreeMutate: () => {
-			void reload();
+		onTreeMutate: (opts) => {
+			void reload(opts);
 		},
 	});
 

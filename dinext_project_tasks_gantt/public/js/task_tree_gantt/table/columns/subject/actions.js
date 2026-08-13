@@ -9,8 +9,17 @@ function projectFromPage() {
 	return page?.fields_dict?.project?.get_value?.() || null;
 }
 
-function mutateTree() {
-	getOnTreeMutate()?.();
+function mutateTree(opts) {
+	getOnTreeMutate()?.(opts);
+}
+
+function rowTreeId(row) {
+	return row?._rowId || row?.id || null;
+}
+
+function taskFilterFromPage() {
+	const page = getColumnsPage();
+	return page?.fields_dict?.task?.get_value?.() || null;
 }
 
 export function openTaskForm(taskId) {
@@ -26,6 +35,88 @@ export function renameTask(taskId) {
 export function deleteTask(taskId) {
 	if (!taskId) return;
 	frappe.model.delete_doc("Task", taskId, () => mutateTree());
+}
+
+/**
+ * V6 root Add Child: frappe.new_doc / quick entry (Type + Edit Full Form).
+ * after_insert: reload tree after Save; Edit Full Form still shown (no force).
+ */
+function openRootTaskQuickEntry({ project, parentTask }) {
+	frappe.model.with_doctype("Task", () => {
+		const doc = frappe.model.get_new_doc("Task");
+		doc.project = project;
+		doc.is_group = 0;
+		if (parentTask) {
+			doc.parent_task = parentTask;
+		}
+		frappe.ui.form.make_quick_entry("Task", () => mutateTree(), null, doc);
+	});
+}
+
+/** treeview.new_node → erpnext Task.add_node (row hover, under existing parent). */
+function openNewTaskDialog({ parentId, project, expandRowId }) {
+	const d = new frappe.ui.Dialog({
+		title: __("New {0}", [__("Task")]),
+		fields: [
+			{
+				fieldname: "subject",
+				fieldtype: "Data",
+				label: __("Subject"),
+				reqd: 1,
+			},
+			{
+				fieldname: "type",
+				fieldtype: "Link",
+				options: "Task Type",
+				label: __("Type"),
+				reqd: 1,
+				get_query: () => ({
+					filters: [["Task Type", "name", "!=", "Issue"]],
+				}),
+			},
+			{
+				fieldname: "is_group",
+				fieldtype: "Check",
+				label: __("Is Group"),
+				description: __(
+					"Further sub-groups can only be created under records marked as 'Group'"
+				),
+			},
+		],
+		primary_action_label: __("Create New"),
+		primary_action(values) {
+			if (!values?.subject || !values?.type) {
+				return;
+			}
+			d.hide();
+			frappe.dom.freeze(__("Creating {0}", [__("Task")]));
+			frappe.call({
+				method: "erpnext.projects.doctype.task.task.add_node",
+				args: {
+					doctype: "Task",
+					subject: values.subject,
+					type: values.type,
+					is_group: values.is_group ? 1 : 0,
+					parent: parentId,
+					parent_task: parentId,
+					project,
+					is_root: false,
+				},
+				callback(r) {
+					if (!r.exc) {
+						mutateTree({
+							expandRowIds: expandRowId ? [expandRowId] : undefined,
+						});
+					}
+				},
+				always() {
+					frappe.dom.unfreeze();
+				},
+			});
+		},
+	});
+	d.set_value("is_group", 0);
+	d.show();
 }
 
 /** Tree addNodeDecorator + treeview.new_node (dialog → add_node). */
@@ -48,56 +139,39 @@ export async function addChildTask(row) {
 		}
 	}
 
-	const d = new frappe.ui.Dialog({
-		title: __("New {0}", [__("Task")]),
-		fields: [
-			{
-				fieldname: "subject",
-				fieldtype: "Data",
-				label: __("Subject"),
-				reqd: 1,
-			},
-			{
-				fieldname: "is_group",
-				fieldtype: "Check",
-				label: __("Is Group"),
-				description: __(
-					"Further sub-groups can only be created under records marked as 'Group'"
-				),
-			},
-		],
-		primary_action_label: __("Create New"),
-		primary_action(values) {
-			if (!values?.subject) {
-				return;
-			}
-			d.hide();
-			frappe.dom.freeze(__("Creating {0}", [__("Task")]));
-			frappe.call({
-				method: "erpnext.projects.doctype.task.task.add_node",
-				args: {
-					doctype: "Task",
-					subject: values.subject,
-					is_group: values.is_group ? 1 : 0,
-					// treeview.new_node uses parent; make_tree_args → parent_task
-					parent: parentId,
-					parent_task: parentId,
-					project,
-					is_root: false,
-				},
-				callback(r) {
-					if (!r.exc) {
-						mutateTree();
-					}
-				},
-				always() {
-					frappe.dom.unfreeze();
-				},
-			});
-		},
+	openNewTaskDialog({
+		parentId,
+		project,
+		expandRowId: rowTreeId(row),
 	});
-	d.set_value("is_group", 0);
-	d.show();
+}
+
+/** Original tree root "Add Child" — project root, or Task filter group. */
+export function addRootTask() {
+	const project = projectFromPage();
+	if (!project) {
+		frappe.show_alert({ message: __("Select a project"), indicator: "orange" });
+		return;
+	}
+	if (!frappe.model.can_create("Task")) frappe.throw(__("Not permitted"));
+
+	openRootTaskQuickEntry({
+		project,
+		parentTask: taskFilterFromPage() || null,
+	});
+}
+
+/** Custom-zone toolbar item (treeview root Add Child). */
+export function addRootTaskToolbarItem() {
+	return {
+		id: "tree-gantt-add-root",
+		label: __("Add Child"),
+		title: __("Add Child"),
+		iconSvg:
+			'<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 3.2h8.5M2 6h8.5M2 9h4.2M2 12h4.2"/><path d="M11.2 9v5M8.7 11.5h5"/></g></svg>',
+		disabled: () => !frappe.model.can_create("Task") || !projectFromPage(),
+		onClick: () => addRootTask(),
+	};
 }
 
 /** Tree custom fa-tasks → add_multiple_tasks. */
@@ -145,7 +219,9 @@ export function addMultipleTasks(row) {
 				callback(r) {
 					if (!r.exc) {
 						frappe.show_alert(__("Tasks created"));
-						mutateTree();
+						mutateTree({
+							expandRowIds: [rowTreeId(row)].filter(Boolean),
+						});
 					}
 				},
 			});

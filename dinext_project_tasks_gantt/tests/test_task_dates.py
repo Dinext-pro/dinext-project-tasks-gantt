@@ -13,6 +13,7 @@ import frappe
 from frappe.utils import getdate
 
 from dinext_project_tasks_gantt.task_dates.actual import sync_task_actual_dates
+from dinext_project_tasks_gantt.task_dates.child_inherit import inherit_child_forecast_dates
 from dinext_project_tasks_gantt.task_dates.depend import validate_depend_task_dates
 
 
@@ -258,6 +259,41 @@ class TestDependTaskDates(unittest.TestCase):
 			captured["primary_action"]["client_action"],
 			"dinext_fit_depend_task_dates",
 		)
+
+
+class TestChildForecastInherit(unittest.TestCase):
+	TODAY = "2026-08-13"
+
+	def _pair(self, parent_start, parent_end):
+		start, end = inherit_child_forecast_dates(parent_start, parent_end, self.TODAY)
+		return str(start) if start else None, str(end) if end else None
+
+	def test_default_start_today_end_parent(self):
+		self.assertEqual(self._pair("2026-08-01", "2026-08-31"), ("2026-08-13", "2026-08-31"))
+
+	def test_parent_start_past_end_today(self):
+		self.assertEqual(self._pair("2026-08-01", "2026-08-13"), ("2026-08-13", "2026-08-13"))
+
+	def test_parent_both_in_past(self):
+		self.assertEqual(self._pair("2026-07-01", "2026-07-31"), ("2026-07-01", "2026-07-31"))
+
+	def test_parent_start_in_future(self):
+		self.assertEqual(self._pair("2026-09-01", "2026-09-30"), ("2026-09-01", "2026-09-30"))
+
+	def test_parent_start_today(self):
+		self.assertEqual(self._pair("2026-08-13", "2026-08-31"), ("2026-08-13", "2026-08-31"))
+
+	def test_parent_start_missing(self):
+		self.assertEqual(self._pair(None, "2026-08-31"), ("2026-08-13", "2026-08-31"))
+
+	def test_parent_end_missing_start_past(self):
+		self.assertEqual(self._pair("2026-08-01", None), ("2026-08-13", None))
+
+	def test_parent_end_missing_start_future(self):
+		self.assertEqual(self._pair("2026-09-01", None), ("2026-09-01", None))
+
+	def test_parent_dates_missing(self):
+		self.assertEqual(self._pair(None, None), ("2026-08-13", None))
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import { HEADER_HEIGHT, ROW_HEIGHT } from "../constants.js";
 import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/check.js";
 import { refreshPlanFact } from "./columns/plan_fact/limits.js";
 import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
+import { addRootTaskToolbarItem } from "./columns/subject/actions.js";
 import { getColumns } from "./columns/index.js";
 import { nestRows, toTableRows } from "./rows.js";
 import {
@@ -70,6 +71,48 @@ function sideDataCtx(getArgs, table) {
 	return { project: args.project || null, table };
 }
 
+function snapshotExpandedIds(table, extraIds) {
+	const ids = [];
+	if (table?.expandedIds) {
+		ids.push(...table.expandedIds);
+	}
+	if (extraIds?.length) {
+		ids.push(...extraIds);
+	}
+	return ids;
+}
+
+function sortExpandedIds(ids) {
+	return [...new Set((ids || []).map(String).filter(Boolean))].sort(
+		(a, b) => a.split(":").length - b.split(":").length || a.localeCompare(b)
+	);
+}
+
+/**
+ * refresh(roots) drops lazy children. expandRow no-ops if id still in expandedIds —
+ * clear, then re-expand shallow → deep so onExpandRow reloads each layer.
+ */
+async function restoreExpanded(table, ids, gen, state) {
+	if (!table?.expandRow) {
+		return;
+	}
+	const ordered = sortExpandedIds(ids);
+	if (!ordered.length) {
+		return;
+	}
+	table.expandedIds?.clear?.();
+	for (const id of ordered) {
+		if (gen != null && state?.loadGen !== gen) {
+			return;
+		}
+		try {
+			await table.expandRow(id);
+		} catch (e) {
+			console.error("[task_tree_gantt] restore expand", id, e);
+		}
+	}
+}
+
 function scheduleSideDataRefresh(getArgs, table, rows) {
 	const ctx = sideDataCtx(getArgs, table);
 	if (!ctx.project || !ctx.table) {
@@ -133,6 +176,7 @@ function resolveFullscreenOpts(container, shell) {
  *   onCellsSaved?: (changes) => void,
  *   onSortChange?: (payload: { sort: object[], table: object }) => void,
  *   fullscreenShell?: HTMLElement | null,
+ *   expandRowIds?: string[],
  * }} [hooks]
  */
 export async function loadTable(container, getArgs, hooks = {}) {
@@ -145,7 +189,8 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	const state = getState(container);
 	const gen = (state.loadGen = (state.loadGen || 0) + 1);
 	const args = readArgs(getArgs);
-	const { onTreeChange, onCellsSaved, onSortChange, fullscreenShell } = hooks;
+	const { onTreeChange, onCellsSaved, onSortChange, fullscreenShell, expandRowIds } =
+		hooks;
 	const fullscreen = resolveFullscreenOpts(container, fullscreenShell);
 
 	container.classList.remove("text-muted");
@@ -170,7 +215,12 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		state.rows = rows;
 
 		if (state.table) {
+			const expanded = snapshotExpandedIds(state.table, expandRowIds);
 			state.table.refresh?.(rows);
+			await restoreExpanded(state.table, expanded, gen, state);
+			if (gen !== state.loadGen) {
+				return null;
+			}
 			onTreeChange?.();
 			scheduleSideDataRefresh(getArgs, state.table);
 			return state.table;
@@ -192,7 +242,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			rowCheck: { enabled: true },
 			toolbar: {
 				persistKey: `task-tree-gantt:${projectKey}${taskKey}`,
-				items: [bulkAssignToolbarItem()],
+				items: [addRootTaskToolbarItem(), bulkAssignToolbarItem()],
 			},
 			rowReorder: {
 				enabled: true,

@@ -20,6 +20,12 @@
 		});
 	}
 
+	function hideClassicTreeChrome(page) {
+		page?.remove_inner_button?.(__("Expand All"));
+		page?.remove_inner_button?.(__("Collapse All"));
+		page?.clear_primary_action?.();
+	}
+
 	function setupBurndown(page, getArgs) {
 		if (page.__task_tree_gantt_burndown) {
 			return;
@@ -75,6 +81,7 @@
 		page.__task_tree_gantt_apply_route = () =>
 			mounted?.state?.applyRouteProject?.() || Promise.resolve(false);
 		setupBurndown(page, mounted?.state?.getArgs);
+		hideClassicTreeChrome(page);
 	}
 
 	function install() {
@@ -93,6 +100,8 @@
 		settings.toolbar = [];
 		settings.extend_toolbar = false;
 		settings.get_tree_root = false;
+		settings.show_expand_all = false;
+		settings.disable_add_node = true;
 		settings.root_label = __("Project Structure Plan");
 
 		settings.onload = function (treeview) {
