@@ -65,7 +65,7 @@ def _persist_task(task_id: str, values: dict) -> None:
 	doc.save()
 
 
-def _collect_date_side_effect_rows(task_ids: list[str]) -> list[dict]:
+def collect_date_side_effect_rows(task_ids: list[str]) -> list[dict]:
 	"""Saved tasks + ancestors after Actual parent cascade may widen exp_*."""
 	out: dict[str, dict] = {}
 	for task_id in task_ids:
@@ -130,5 +130,5 @@ def save_cells(changes=None) -> dict:
 
 	result: dict = {"updated": updated}
 	if date_task_ids:
-		result["rows"] = _collect_date_side_effect_rows(date_task_ids)
+		result["rows"] = collect_date_side_effect_rows(date_task_ids)
 	return result

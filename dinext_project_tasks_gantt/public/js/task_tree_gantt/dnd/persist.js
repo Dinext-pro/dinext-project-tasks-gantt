@@ -4,6 +4,7 @@
  * - reparent → Task.parent_task via Document.save + sibling orders
  *   (destination + former parent lists from DinextTable move payload)
  */
+import { applySideEffectDateRows } from "../table/save.js";
 
 /** Path id → Task name (last segment). */
 export function taskNameFromRowId(rowId) {
@@ -24,10 +25,10 @@ function toTaskNames(ids) {
 }
 
 /**
- * @param {{ move: object }} ctx DinextTable onRowReorder payload
+ * @param {{ move: object, table?: object }} ctx DinextTable onRowReorder payload
  * @returns {Promise<true>}
  */
-export async function persistTaskRowReorder({ move }) {
+export async function persistTaskRowReorder({ move, table }) {
 	if (!move) {
 		fail(__("Task reorder: missing move payload"));
 	}
@@ -65,7 +66,7 @@ export async function persistTaskRowReorder({ move }) {
 
 	frappe.dom.freeze(__("Updating {0}", [__("Task")]));
 	try {
-		await frappe.xcall(
+		const message = await frappe.xcall(
 			"dinext_project_tasks_gantt.api.reorder_siblings",
 			{
 				task: taskName,
@@ -74,6 +75,9 @@ export async function persistTaskRowReorder({ move }) {
 				from_ordered_ids: fromOrderedIds,
 			}
 		);
+		if (reparent) {
+			applySideEffectDateRows(table, message?.rows);
+		}
 	} finally {
 		frappe.dom.unfreeze();
 	}

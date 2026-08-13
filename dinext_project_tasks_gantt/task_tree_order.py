@@ -10,6 +10,8 @@ import json
 import frappe
 from frappe.utils import cint
 
+from dinext_project_tasks_gantt.task_tree_gantt.save_cells import collect_date_side_effect_rows
+
 
 ORDER_FIELD = "custom_tree_order"
 
@@ -169,8 +171,15 @@ def reorder_siblings(
 			frappe.throw(frappe._("Moved task must not appear in source sibling order"))
 		_apply_sibling_order(from_ordered_ids, old_parent)
 
-	return {
+	result = {
 		"updated": len(ordered_ids) + (len(from_ordered_ids) if reparented else 0),
 		"reparented": 1 if reparented else 0,
 		"parent_task": new_parent,
 	}
+	if reparented:
+		# Moved task walks new parent chain; old_parent covers former ancestors.
+		seeds = [task]
+		if old_parent:
+			seeds.append(old_parent)
+		result["rows"] = collect_date_side_effect_rows(seeds)
+	return result

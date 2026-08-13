@@ -89,3 +89,4 @@ class ReorderSiblingsResponse(TypedDict, total=False):
 	updated: int
 	reparented: int
 	parent_task: str | None
+	rows: list[SaveCellsSideEffectRow]
