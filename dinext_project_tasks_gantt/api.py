@@ -72,6 +72,23 @@ def reorder_siblings(**kwargs) -> ReorderSiblingsResponse:
 
 
 @frappe.whitelist()
+def fit_depend_task_dates(args=None, **kwargs) -> dict:
+	"""Подогнать прогноз depends_on под период текущей Task (кнопка в окне конфликта дат)."""
+	payload = args if isinstance(args, dict) else {}
+	if not payload:
+		payload = kwargs
+	from dinext_project_tasks_gantt.task_dates.depend import (
+		fit_depend_task_dates as run_fit,
+	)
+
+	return run_fit(
+		task=payload.get("task"),
+		exp_start_date=payload.get("exp_start_date"),
+		exp_end_date=payload.get("exp_end_date"),
+	)
+
+
+@frappe.whitelist()
 def get_project_task_type_options(**kwargs) -> list[LabelValueOption]:
 	"""Task.type options for burndown filters."""
 	form_input: ProjectOptionsFormInput = _merge_form_input(kwargs)

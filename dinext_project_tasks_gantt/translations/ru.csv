@@ -56,6 +56,7 @@
 "Feature","Функциональность",""
 "Field {0} is not editable","Поле {0} нельзя редактировать",""
 "Fix Dependencies","Исправить зависимости",""
+"Fit planned dates of dependent tasks","Подогнать прогнозные даты зависимых задач",""
 "Forecast Completion","Прогноз завершения",""
 "Forecast progress","Прогноз прогресса",""
 "Forecast Start","Прогноз начала",""

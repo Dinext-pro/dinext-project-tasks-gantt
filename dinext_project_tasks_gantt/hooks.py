@@ -92,6 +92,7 @@ doctype_js = {
 	"Task": [
 		"public/js/task_progress_trend_styles.js",
 		"public/js/task_progress_trend.js",
+		"public/js/task_depend_dates.js",
 	],
 	"Project": [
 		"public/js/burndown_navigation.js",

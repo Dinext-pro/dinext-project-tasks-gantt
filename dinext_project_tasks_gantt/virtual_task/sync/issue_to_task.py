@@ -111,10 +111,8 @@ def _update_existing_virtual_task(doc, task_name, data):
 	resolution_date = resolution_date_from_issue(doc)
 	effective_act_end_date = current_act_end_date
 
-	if (
-		resolution_date
-		and current_act_end_date
-		and getdate(resolution_date) > getdate(current_act_end_date)
+	if resolution_date and (
+		not current_act_end_date or getdate(resolution_date) > getdate(current_act_end_date)
 	):
 		effective_act_end_date = resolution_date
 		data["act_end_date"] = resolution_date
