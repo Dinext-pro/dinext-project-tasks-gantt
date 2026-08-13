@@ -1,3 +1,6 @@
+# Copyright (c) 2026, Dinext and contributors
+# For license information, please see license.txt
+
 """Install helpers for dinext_project_tasks_gantt."""
 
 from __future__ import annotations
@@ -23,3 +26,12 @@ def detach_owned_project_team_fields() -> None:
 
 def after_install() -> None:
 	detach_owned_project_team_fields()
+	from dinext_project_tasks_gantt.setup.dinext_hub import register_dinext_hub_items
+
+	register_dinext_hub_items()
+
+
+def after_migrate() -> None:
+	from dinext_project_tasks_gantt.setup.dinext_hub import register_dinext_hub_items
+
+	register_dinext_hub_items()

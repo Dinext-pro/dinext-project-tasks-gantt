@@ -140,6 +140,7 @@ doctype_tree_js = {
 
 # before_install = "dinext_project_tasks_gantt.install.before_install"
 after_install = "dinext_project_tasks_gantt.install.after_install"
+after_migrate = "dinext_project_tasks_gantt.install.after_migrate"
 
 # Uninstallation
 # ------------
