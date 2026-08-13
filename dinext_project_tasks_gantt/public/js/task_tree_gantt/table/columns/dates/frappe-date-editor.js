@@ -3,7 +3,9 @@
  * Core `type: "date"` supplies ISO contract + fill/paste; this is display/edit UX only.
  *
  * In-cell (not cellEditorPopup): editor fills the cell like other AG editors.
- * Datepicker stays on body. mousedown preventDefault keeps input focus so
+ * Datepicker stays on body unless native fullscreen is active — then core
+ * `DinextTable.adoptOverlay` moves it into `fullscreenElement`.
+ * mousedown preventDefault keeps input focus so
  * `stopEditingWhenCellsLoseFocus` does not commit before onSelect.
  */
 
@@ -78,6 +80,15 @@ export class FrappeDateCellEditor {
 			ev.preventDefault();
 			ev.stopPropagation();
 		});
+		this._adoptDatepicker();
+	}
+
+	_adoptDatepicker() {
+		const node = this.control?.datepicker?.$datepicker?.[0];
+		if (!node || typeof DinextTable?.adoptOverlay !== "function") {
+			return;
+		}
+		DinextTable.adoptOverlay(node, { anchor: this.control?.$input?.[0] });
 	}
 
 	getGui() {
@@ -88,6 +99,7 @@ export class FrappeDateCellEditor {
 		this.control?.$input?.trigger?.("focus");
 		this._bindDatepicker();
 		this.control?.datepicker?.show?.();
+		this._adoptDatepicker();
 	}
 
 	getValue() {

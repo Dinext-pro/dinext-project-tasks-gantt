@@ -721,7 +721,7 @@ body.task-tree-gantt-resizing {
 
 /*
  * Frappe ControlDate — in-cell AG editor (not popup).
- * Fill cell like .dinext-table-date-editor; calendar floats on body.
+ * Fill cell like .dinext-table-date-editor; calendar on body, or fullscreen host.
  */
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-editor,
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control,
