@@ -216,6 +216,12 @@ export async function loadTable(container, getArgs, hooks = {}) {
 
 		if (state.table) {
 			const expanded = snapshotExpandedIds(state.table, expandRowIds);
+			// refresh() reuses rowIndex; stale _lastClickedCell would start
+			// AG text edit on first click (Relations/Assign/Status popovers).
+			if (state.table._lastClickedCell !== undefined) {
+				state.table._lastClickedCell = null;
+			}
+			state.table.api?.stopEditing?.();
 			state.table.refresh?.(rows);
 			await restoreExpanded(state.table, expanded, gen, state);
 			if (gen !== state.loadGen) {
