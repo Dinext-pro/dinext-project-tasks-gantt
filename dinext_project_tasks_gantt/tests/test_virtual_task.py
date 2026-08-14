@@ -82,6 +82,43 @@ class TestVirtualTaskDates(unittest.TestCase):
 		self.assertEqual(data["completed_on"], "2026-08-07")
 		self.assertEqual(data["act_end_date"], "2026-08-07")
 
+	def test_completed_caps_completed_on_when_act_end_is_future(self):
+		data = {"status": "Completed"}
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.dates.today",
+			return_value="2026-08-14",
+		):
+			apply_task_actual_dates_logic(data, "2026-08-01", "2026-09-01", None)
+		self.assertEqual(data["completed_on"], "2026-08-14")
+		self.assertNotIn("act_end_date", data)
+		self.assertEqual(str(data["exp_end_date"]), "2026-09-01")
+
+	def test_completed_ignores_resolution_widen_when_fact_act_end_missing(self):
+		data = {"status": "Completed"}
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.dates.today",
+			return_value="2026-08-14",
+		):
+			apply_task_actual_dates_logic(
+				data,
+				None,
+				"2026-04-17",
+				None,
+				fact_act_end_date=None,
+			)
+		self.assertEqual(data["completed_on"], "2026-08-14")
+		self.assertNotIn("act_end_date", data)
+
+	def test_completed_keeps_past_act_end_as_completed_on(self):
+		data = {"status": "Completed"}
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.dates.today",
+			return_value="2026-08-14",
+		):
+			apply_task_actual_dates_logic(data, None, "2026-08-10", None)
+		self.assertEqual(data["completed_on"], "2026-08-10")
+		self.assertNotIn("act_end_date", data)
+
 
 class TestVirtualTaskToIssueGuard(unittest.TestCase):
 	def test_skips_when_depth_positive(self):

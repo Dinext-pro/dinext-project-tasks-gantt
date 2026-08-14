@@ -1,6 +1,6 @@
 # ISS-2026-03288 Task dates + virtual mirror (слои 1–2)
 
-Порт runnable-кейсов ISS-2025-02606 TC-06…07, TC-11…16, TC-19, TC-21…23, TC-26…28 и двух extra-методов (resolution widen, parent expand via Issue). Новые кейсы не добавлялись.
+Порт runnable-кейсов ISS-2025-02606 TC-06…07, TC-11…16, TC-19, TC-21…23, TC-26…28 и двух extra-методов (resolution widen, parent expand via Issue). ISS-2026-02662: TC-15b / TC-07b — кап `completed_on` при future `act_end`.
 
 - issue: `ISS-2026-03288` (источник кейсов: `ISS-2025-02606`)
 - site: `dev.dinext.localhost`
@@ -36,7 +36,7 @@
   - user `test.iss-2026-03288-g@example.com`
 - primary_test_artifacts:
   - `test_task_dates_virtual.py`
-- last_run: 2026-08-12 — `dev.dinext.localhost`, `dinext-frappe-local-backend-1`, модуль `test_task_dates_virtual` **17/17 OK**; unit `test_task_dates` 7 OK, `test_virtual_task` 14 OK; smoke `smoke_03288_manual` TC0–TC10 PASS, `smoke_layer5` PASS
+- last_run: 2026-08-14 — `dev.dinext.localhost`, `dinext-frappe-local-backend-1`, модуль `test_task_dates_virtual` **19/19 OK** (ISS-2026-02662 TC-15b/TC-07b); unit `test_task_dates` 22 OK, `test_virtual_task` 17 OK
 
 ## Status Legend
 
@@ -75,6 +75,16 @@
 - 🟢 TC-15: Закрытие Issue: `completed_on = act_end`, иначе `today`
   - surface: `Python`
   - artifacts: `test_closing_issue_sets_virtual_task_completed_on_from_act_end_or_today`
+
+- 🟢 TC-15b: Закрытие Issue с future `act_end`: `completed_on = today`, `act_end` не режем
+  - surface: `Python`
+  - issue: `ISS-2026-02662`
+  - artifacts: `test_closing_issue_caps_completed_on_when_act_end_is_future`
+
+- 🟢 TC-07b: Completed обычная Task с future `act_end`: `completed_on = today`
+  - surface: `Python`
+  - issue: `ISS-2026-02662`
+  - artifacts: `test_ordinary_completed_task_caps_future_act_end_on_completed_on`
 
 - 🟢 TC-16: After-save путь `Issue.save()` сохраняет факт и завершает virtual task по `act_end`
   - surface: `Python`
@@ -122,8 +132,8 @@
 
 ## Last run
 
-- date: `2026-08-12`
+- date: `2026-08-14`
 - site: `dev.dinext.localhost`
 - command: `docker exec dinext-frappe-local-backend-1 bench --site dev.dinext.localhost run-tests --module dinext_project_tasks_gantt.tests.scenarios.iss_2026_03288_task_dates_virtual.test_task_dates_virtual`
-- result: **17/17 OK**
-- notes: restored `ensure_issue` (db_insert, без ITVT на create). TC-13 ещё меняет `opening_date` — `act_start` не из opening. D1/D4 не чиним. Depend live — smoke TC9, не этот модуль.
+- result: **19/19 OK**
+- notes: ISS-2026-02662 `completed_on` cap. Units: `test_virtual_task` 17 OK, `test_task_dates` 22 OK.

@@ -4,7 +4,7 @@
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import getdate, today
+from frappe.utils import add_days, getdate, today
 
 from .data_setup import (
     COMPLETED_TASK_ACT_END,
@@ -192,6 +192,46 @@ class TestIss202603288TaskDatesVirtual(FrappeTestCase):
         virtual_task = frappe.get_doc("Task", bundle["virtual_task"])
         self.assertEqual("Completed", virtual_task.status)
         self.assertEqual(getdate(today()), virtual_task.completed_on)
+
+    def test_closing_issue_caps_completed_on_when_act_end_is_future(self):
+        future_act_end = add_days(today(), 14)
+        bundle = build_virtual_task_scenario()
+        frappe.db.set_value(
+            "Task",
+            bundle["virtual_task"],
+            {
+                "act_start_date": VIRTUAL_TASK_ACT_START,
+                "act_end_date": future_act_end,
+            },
+            update_modified=False,
+        )
+
+        run_issue_virtual_task_sync(
+            bundle["issue"],
+            status="Closed",
+            resolution_date=ISSUE_CLOSED_RESOLUTION_DATE,
+            custom_expected_resolution_date=ISSUE_CLOSED_RESOLUTION_DATE,
+        )
+
+        virtual_task = frappe.get_doc("Task", bundle["virtual_task"])
+        self.assertEqual("Completed", virtual_task.status)
+        self.assertEqual(getdate(today()), virtual_task.completed_on)
+        self.assertEqual(getdate(future_act_end), virtual_task.act_end_date)
+
+    def test_ordinary_completed_task_caps_future_act_end_on_completed_on(self):
+        future_act_end = add_days(today(), 14)
+        bundle = build_regular_task_scenario()
+
+        task = frappe.get_doc("Task", bundle["task"])
+        task.act_start_date = COMPLETED_TASK_ACT_START
+        task.act_end_date = future_act_end
+        task.completed_on = None
+        task.status = "Completed"
+        task.save(ignore_permissions=True)
+
+        task.reload()
+        self.assertEqual(getdate(today()), task.completed_on)
+        self.assertEqual(getdate(future_act_end), task.act_end_date)
 
     def test_issue_resolution_date_can_only_extend_virtual_task_act_end_date(self):
         bundle = build_virtual_task_scenario()

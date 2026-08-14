@@ -122,6 +122,7 @@ def _update_existing_virtual_task(doc, task_name, data):
 		current_act_start_date,
 		effective_act_end_date,
 		current_completed_on_date,
+		fact_act_end_date=current_act_end_date,
 	)
 
 	task_doc = frappe.get_doc("Task", task_name, ignore_permissions=True)

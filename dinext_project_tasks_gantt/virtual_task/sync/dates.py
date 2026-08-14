@@ -7,6 +7,8 @@ from dateutil.parser import parse as parse_date
 import frappe
 from frappe.utils import getdate, today
 
+_UNSET = object()
+
 
 def date_cmp_value(value) -> str:
 	"""Нормализовать дату к YYYY-MM-DD для сравнения в TVTI."""
@@ -21,16 +23,44 @@ def date_cmp_value(value) -> str:
 			return str(value)
 
 
-def apply_task_actual_dates_logic(target_data, act_start_date, act_end_date, completed_on_date):
-	"""ITVT: для Completed выставить completed_on/act_end; act расширяет exp (все статусы)."""
+def cap_completed_on(act_end_date, completed_on_date):
+	"""ISS-2026-02662: completed_on = min(today(), act_end) or today(); never future.
+
+	Без факта act_end: пустой → today(); уже валидный (не future) — оставить.
+	"""
+	today_d = getdate(today())
+	today_v = today()
+	if completed_on_date and getdate(completed_on_date) > today_d:
+		completed_on_date = today_v
+	if not act_end_date:
+		return completed_on_date or today_v
+	candidate_d = min(today_d, getdate(act_end_date))
+	candidate_v = today_v if candidate_d == today_d else act_end_date
+	if not completed_on_date:
+		return candidate_v
+	current = getdate(completed_on_date)
+	if current < candidate_d:
+		return candidate_v
+	return completed_on_date
+
+
+def apply_task_actual_dates_logic(
+	target_data,
+	act_start_date,
+	act_end_date,
+	completed_on_date,
+	fact_act_end_date=_UNSET,
+):
+	"""ITVT: для Completed выставить completed_on/act_end; act расширяет exp (все статусы).
+
+	`act_end_date` — эффективный конец (факт + resolution widen) для exp / 02315.
+	`fact_act_end_date` — только факт Task; от него считается completed_on (ISS-2026-02662).
+	"""
 	gd = getdate
+	completed_from = act_end_date if fact_act_end_date is _UNSET else fact_act_end_date
 
 	if target_data.get("status") == "Completed":
-		if act_end_date:
-			if not completed_on_date or gd(completed_on_date) < gd(act_end_date):
-				target_data["completed_on"] = act_end_date
-		elif not completed_on_date or gd(completed_on_date) < gd(today()):
-			target_data["completed_on"] = today()
+		target_data["completed_on"] = cap_completed_on(completed_from, completed_on_date)
 
 		# ISS-2025-02315: without act_end, completion fact = completed_on
 		if not act_end_date and target_data.get("completed_on"):

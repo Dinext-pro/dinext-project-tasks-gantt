@@ -54,6 +54,43 @@ class TestTaskActualDates(unittest.TestCase):
 		self.assertEqual(str(doc.exp_start_date), "2026-08-01")
 		self.assertEqual(str(doc.exp_end_date), "2026-08-30")
 
+	@patch("dinext_project_tasks_gantt.virtual_task.sync.dates.today", return_value="2026-08-14")
+	@patch("dinext_project_tasks_gantt.task_dates.actual._cascade_parent_exp_dates")
+	def test_completed_caps_future_act_end_on_completed_on(self, _cascade, _today):
+		doc = _task(
+			status="Completed",
+			type="Task",
+			custom_linked_issue=None,
+			act_start_date="2026-08-01",
+			act_end_date="2026-09-01",
+			completed_on=None,
+			exp_start_date="2026-08-01",
+			exp_end_date="2026-08-20",
+			parent_task=None,
+		)
+		sync_task_actual_dates(doc)
+		self.assertEqual(str(getdate(doc.completed_on)), "2026-08-14")
+		self.assertEqual(str(getdate(doc.act_end_date)), "2026-09-01")
+		self.assertEqual(str(getdate(doc.exp_end_date)), "2026-09-01")
+
+	@patch("dinext_project_tasks_gantt.virtual_task.sync.dates.today", return_value="2026-08-14")
+	@patch("dinext_project_tasks_gantt.task_dates.actual._cascade_parent_exp_dates")
+	def test_completed_lowers_already_future_completed_on(self, _cascade, _today):
+		doc = _task(
+			status="Completed",
+			type="Task",
+			custom_linked_issue=None,
+			act_start_date="2026-08-01",
+			act_end_date="2026-09-01",
+			completed_on="2026-09-01",
+			exp_start_date="2026-08-01",
+			exp_end_date="2026-08-20",
+			parent_task=None,
+		)
+		sync_task_actual_dates(doc)
+		self.assertEqual(str(getdate(doc.completed_on)), "2026-08-14")
+		self.assertEqual(str(getdate(doc.act_end_date)), "2026-09-01")
+
 	@patch("dinext_project_tasks_gantt.task_dates.actual._cascade_parent_exp_dates")
 	def test_virtual_completed_without_act_end(self, _cascade):
 		doc = _task(

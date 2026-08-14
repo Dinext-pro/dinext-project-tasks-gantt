@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
+from dinext_project_tasks_gantt.virtual_task.sync.dates import cap_completed_on
+
 
 PARENT_SYNC_FLAG = "task_actual_dates_parent_sync"
 FORCE_PWA_FLAG = "task_dates_force_pwa_sync"
@@ -27,6 +29,7 @@ def sync_task_actual_dates(doc) -> None:
 	sla_date = None if is_parent_sync else _issue_resolution_date(doc)
 
 	if doc.status == "Completed" and not is_parent_sync:
+		fact_act_end_date = act_end_date
 		if not act_end_date:
 			seed = _max_date(sla_date, doc.get("completed_on"))
 			if seed:
@@ -42,14 +45,8 @@ def sync_task_actual_dates(doc) -> None:
 			doc.act_end_date = doc.completed_on
 			act_end_date = doc.act_end_date
 
-		# ISS-2025-02606: серверный fallback completed_on из act_end_date
-		if act_end_date and not doc.completed_on:
-			doc.completed_on = act_end_date
-
-		if act_end_date and (
-			not doc.completed_on or getdate(doc.completed_on) < getdate(act_end_date)
-		):
-			doc.completed_on = act_end_date
+		# ISS-2025-02606 / ISS-2026-02662: completed_on из факта act_end, не из SLA, не позже today
+		doc.completed_on = cap_completed_on(fact_act_end_date, doc.completed_on)
 
 	if not is_parent_sync:
 		widened_end = _max_date(act_end_date, doc.get("completed_on"), sla_date)
