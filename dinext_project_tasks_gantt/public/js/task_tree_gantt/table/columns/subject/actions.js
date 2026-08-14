@@ -65,16 +65,6 @@ function openNewTaskDialog({ parentId, project, expandRowId }) {
 				reqd: 1,
 			},
 			{
-				fieldname: "type",
-				fieldtype: "Link",
-				options: "Task Type",
-				label: __("Type"),
-				reqd: 1,
-				get_query: () => ({
-					filters: [["Task Type", "name", "!=", "Issue"]],
-				}),
-			},
-			{
 				fieldname: "is_group",
 				fieldtype: "Check",
 				label: __("Is Group"),
@@ -85,7 +75,7 @@ function openNewTaskDialog({ parentId, project, expandRowId }) {
 		],
 		primary_action_label: __("Create New"),
 		primary_action(values) {
-			if (!values?.subject || !values?.type) {
+			if (!values?.subject) {
 				return;
 			}
 			d.hide();
@@ -95,7 +85,6 @@ function openNewTaskDialog({ parentId, project, expandRowId }) {
 				args: {
 					doctype: "Task",
 					subject: values.subject,
-					type: values.type,
 					is_group: values.is_group ? 1 : 0,
 					parent: parentId,
 					parent_task: parentId,
