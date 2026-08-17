@@ -546,7 +546,7 @@ def ensure_issue(project_name: str, issue_type_name: str) -> str:
 
 
 def change_position_status(position_name: str, status: str) -> str:
-    from dinext_projects.dinext_projects.user_timesheet.events.status_rollup import (
+    from dinext_timesheets.dinext_timesheets.user_timesheet.events.status_rollup import (
         rollup_ut_status_and_task_dates,
     )
 

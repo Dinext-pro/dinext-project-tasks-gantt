@@ -289,10 +289,10 @@ def _door_utp_approve_chain() -> None:
 	"""UTP door: SS off + on_update → rollup; live act_* best-effort."""
 	import inspect as _inspect
 
-	from dinext_projects.dinext_projects.user_timesheet.events import (
+	from dinext_timesheets.dinext_timesheets.user_timesheet.events import (
 		user_timesheet_position as utp_events,
 	)
-	from dinext_projects.dinext_projects.user_timesheet.events.status_rollup import (
+	from dinext_timesheets.dinext_timesheets.user_timesheet.events.status_rollup import (
 		rollup_ut_status_and_task_dates,
 	)
 
@@ -301,9 +301,9 @@ def _door_utp_approve_chain() -> None:
 	ss = frappe.db.get_value("Server Script", "UTP_UT_Status_V3", "disabled")
 	_ok("utp_ss_still_off", int(ss or 0) == 1, f"disabled={ss}")
 
-	# Live soft path (same shape as dinext_projects _smoke_status_rollup)
-	from dinext_projects.dinext_projects.user_timesheet.events import hours as hours_mod
-	from dinext_projects.dinext_projects.user_timesheet.events import journal
+	# Live soft path (same shape as dinext_timesheets _smoke_status_rollup)
+	from dinext_timesheets.dinext_timesheets.user_timesheet.events import hours as hours_mod
+	from dinext_timesheets.dinext_timesheets.user_timesheet.events import journal
 
 	orig_je = journal.maybe_create_or_cancel_journal_entries
 	orig_hours = hours_mod.calculate_ut_hours
