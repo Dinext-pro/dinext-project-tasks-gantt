@@ -195,11 +195,20 @@ after_migrate = "dinext_project_tasks_gantt.install.after_migrate"
 # ---------------
 # Hook on document methods and events
 
+vt_handlers = "dinext_project_tasks_gantt.virtual_task.handlers"
+td_handlers = "dinext_project_tasks_gantt.task_dates.handlers"
+
 doc_events = {
 	"Project": {
 		"before_save": "dinext_project_tasks_gantt.project_progress_audit.before_save_project",
 	},
+	"Issue": {
+		"after_insert": f"{vt_handlers}.after_insert_issue",
+		"on_update": f"{vt_handlers}.on_update_issue",
+		"on_trash": f"{vt_handlers}.on_trash_issue",
+	},
 	"Task": {
+		"before_validate": f"{td_handlers}.before_validate_task",
 		"before_insert": [
 			"dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
 			"dinext_project_tasks_gantt.task_tree_order.before_insert_task",
@@ -207,16 +216,32 @@ doc_events = {
 		"before_save": [
 			"dinext_project_tasks_gantt.task_progress_audit.before_save_task",
 			"dinext_project_tasks_gantt.project_progress_audit.before_save_task",
+			f"{td_handlers}.before_save_task",
+			f"{vt_handlers}.before_save_task",
 		],
 		"on_update": [
 			"dinext_project_tasks_gantt.project_progress_audit.on_update_task",
 			"dinext_project_tasks_gantt.task_parent_progress.on_update_task",
+			f"{vt_handlers}.on_update_task",
 		],
 		"on_trash": "dinext_project_tasks_gantt.project_progress_audit.on_trash_task",
 		"after_delete": [
 			"dinext_project_tasks_gantt.project_progress_audit.after_delete_task",
 			"dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
+			f"{vt_handlers}.after_delete_task",
 		],
+	},
+	"ToDo": {
+		"after_insert": f"{vt_handlers}.after_insert_todo",
+		"on_update": f"{vt_handlers}.on_update_todo",
+	},
+	"DocShare": {
+		"after_insert": f"{vt_handlers}.after_insert_docshare",
+		"on_update": f"{vt_handlers}.on_update_docshare",
+		"after_delete": f"{vt_handlers}.after_delete_docshare",
+	},
+	"Tag Link": {
+		"after_insert": f"{vt_handlers}.after_insert_tag_link",
 	},
 }
 
