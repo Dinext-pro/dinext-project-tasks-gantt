@@ -8,7 +8,8 @@ import {
 import { expandAllRows } from "../table/index.js";
 import { collectVisibleRows, rowsToGanttTasks } from "./tasks.js";
 import { setupScrollSync, setupToolbarOffsetSync } from "./sync.js";
-import { setupHoverSync } from "./hover.js";
+import { clearGanttDateTimers, createGanttDateChangeHandler } from "./dates.js";
+import { setupHoverSync, taskIdFromAgRow } from "./hover.js";
 
 async function ensureAssets() {
 	await frappe.require([...GANTT_ASSETS]);
@@ -74,7 +75,7 @@ function showPopup(ctx) {
 	}
 }
 
-function buildOptions(holidays) {
+function buildOptions(holidays, state) {
 	const weekend = holidays.filter((d) => d.weekly_off);
 	const fest = holidays.filter((d) => !d.weekly_off);
 
@@ -106,13 +107,20 @@ function buildOptions(holidays) {
 			"var(--g-weekend-highlight-color)": weekend,
 			"var(--g-holiday-highlight-color)": fest,
 		},
-		readonly: true,
+		readonly: !frappe.model.can_write("Task"),
 		readonly_progress: true,
-		readonly_dates: true,
+		readonly_dates: false,
+		on_date_change: createGanttDateChangeHandler(state, () =>
+			scheduleGanttRefresh(state)
+		),
 	};
 }
 
 function bindSync(state) {
+	const selectedRow = state.tableHost?.querySelector?.(
+		".ag-row.tree-gantt-row--select"
+	);
+	const selectedId = taskIdFromAgRow(state.table, selectedRow);
 	if (typeof state.ganttSyncCleanup === "function") {
 		state.ganttSyncCleanup();
 		state.ganttSyncCleanup = null;
@@ -125,17 +133,23 @@ function bindSync(state) {
 		state.ganttToolbarSyncCleanup();
 		state.ganttToolbarSyncCleanup = null;
 	}
+	state.applyGanttOffset = null;
 	if (state.tableHost && state.ganttEl) {
 		state.ganttSyncCleanup = setupScrollSync(state.tableHost, state.ganttEl);
 		state.ganttHoverCleanup = setupHoverSync(
 			state.tableHost,
 			state.ganttEl,
-			state.table
+			state.table,
+			state.gantt,
+			selectedId
 		);
-		state.ganttToolbarSyncCleanup = setupToolbarOffsetSync(
+		const offsetSync = setupToolbarOffsetSync(
 			state.tableHost,
-			state.ganttEl
+			state.ganttEl,
+			state.ganttHScroll
 		);
+		state.ganttToolbarSyncCleanup = offsetSync;
+		state.applyGanttOffset = offsetSync.apply;
 	}
 }
 
@@ -184,7 +198,11 @@ async function runGanttUpdate(state) {
 
 	state.gantt = null;
 	state.ganttEl.innerHTML = "";
-	state.gantt = new Gantt(state.ganttEl, tasks, buildOptions(state.holidays || []));
+	state.gantt = new Gantt(
+		state.ganttEl,
+		tasks,
+		buildOptions(state.holidays || [], state)
+	);
 	bindSync(state);
 	return state.gantt;
 }
@@ -239,6 +257,8 @@ export function destroyGantt(state) {
 		state.ganttToolbarSyncCleanup();
 		state.ganttToolbarSyncCleanup = null;
 	}
+	state.applyGanttOffset = null;
+	clearGanttDateTimers(state);
 	state.gantt = null;
 	state.holidays = null;
 	state.holidaysProject = null;

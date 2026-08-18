@@ -50,7 +50,11 @@ export function taskIdFromChange(change) {
 	return parts[parts.length - 1] || raw;
 }
 
-function toFrappeDate(value) {
+/** ISO YYYY-MM-DD or null. Never pass through unparseable input. */
+export function toFrappeDate(value) {
+	if (typeof DinextTable?.toIsoDateString === "function") {
+		return DinextTable.toIsoDateString(value);
+	}
 	if (value == null || value === "") {
 		return null;
 	}
@@ -61,10 +65,25 @@ function toFrappeDate(value) {
 	if (!s) {
 		return null;
 	}
-	if (s.includes("T")) {
+	if (s.includes("T") && /^\d{4}-\d{2}-\d{2}/.test(s)) {
 		return s.slice(0, 10);
 	}
-	return s;
+	const dmy = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+	if (dmy) {
+		return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+	}
+	if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+		return s;
+	}
+	return null;
+}
+
+function clearTaskDocs(ids) {
+	for (const id of ids) {
+		if (id) {
+			frappe.model.clear_doc?.("Task", id);
+		}
+	}
 }
 
 function normalizeSaveValue(field, value) {
@@ -130,6 +149,16 @@ export function onValidateCells({ changes }) {
 		}
 		if (change.field === "priority" && !isValidPriorityValue(change.newValue)) {
 			return rejectSelectValue(__("Priority"), change.newValue);
+		}
+		if (change.field === "exp_start_date" || change.field === "exp_end_date") {
+			const raw = change.newValue;
+			if (raw != null && raw !== "" && !toFrappeDate(raw)) {
+				frappe.show_alert({
+					message: __("Invalid date"),
+					indicator: "orange",
+				});
+				return false;
+			}
 		}
 		if (change.field === "relations") {
 			const next = normalizeRelations(change.newValue);
@@ -203,6 +232,15 @@ export async function saveCells(payload, { table } = {}) {
 	try {
 		const message = await apiSaveCells(payload);
 		applySideEffectDateRows(table, message?.rows);
+		const savedIds = new Set(
+			payload.map((p) => p.id).filter(Boolean).map(String)
+		);
+		for (const row of message?.rows || []) {
+			if (row?.id) {
+				savedIds.add(String(row.id));
+			}
+		}
+		clearTaskDocs(savedIds);
 		frappe.show_alert(
 			{
 				message: __("Data updated successfully"),
@@ -256,6 +294,7 @@ async function saveRelationChanges(changes) {
 				stampRelationsOnRow(op.row, op.relations);
 			}
 		}
+		clearTaskDocs(ops.map((op) => op.taskId));
 		frappe.show_alert(
 			{
 				message: __("Data updated successfully"),
@@ -313,6 +352,7 @@ async function saveAssignChanges(changes) {
 				stampAssignMetaAfterPwa(op.row, op.users);
 			}
 		}
+		clearTaskDocs(ops.map((op) => op.taskId));
 		if (usersForInfo.size) {
 			await ensureAssignUserInfo([...usersForInfo]);
 		}

@@ -150,7 +150,7 @@ export function addRootTask() {
 	});
 }
 
-/** Custom-zone toolbar item (treeview root Add Child). */
+/** Toolbar Add Child: 0 check → root; 1 check → child of that task; multi → disabled. */
 export function addRootTaskToolbarItem() {
 	return {
 		id: "tree-gantt-add-root",
@@ -158,8 +158,27 @@ export function addRootTaskToolbarItem() {
 		title: __("Add Child"),
 		iconSvg:
 			'<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 3.2h8.5M2 6h8.5M2 9h4.2M2 12h4.2"/><path d="M11.2 9v5M8.7 11.5h5"/></g></svg>',
-		disabled: () => !frappe.model.can_create("Task") || !projectFromPage(),
-		onClick: () => addRootTask(),
+		disabled: ({ table }) => {
+			if (!frappe.model.can_create("Task") || !projectFromPage()) {
+				return true;
+			}
+			const rows = table?.getCheckedRows?.() || [];
+			if (rows.length > 1) {
+				return true;
+			}
+			if (rows.length === 1 && !rows[0]?.can_write) {
+				return true;
+			}
+			return false;
+		},
+		onClick: ({ table }) => {
+			const rows = table?.getCheckedRows?.() || [];
+			if (rows.length === 1) {
+				void addChildTask(rows[0]);
+				return;
+			}
+			addRootTask();
+		},
 	};
 }
 
