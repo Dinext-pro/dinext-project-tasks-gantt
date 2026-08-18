@@ -51,14 +51,26 @@ export function buildShell(parent) {
 	gantt.id = "task-gantt";
 	gantt.className = "task-tree-gantt-chart";
 	gantt.dataset.role = "gantt";
-	right.appendChild(gantt);
+
+	/* Parked on the panel; sync.js moves it after .grid-header so stacks match. */
+	const ganttHScroll = document.createElement("div");
+	ganttHScroll.className = "task-tree-gantt-hscroll-top is-idle";
+	ganttHScroll.dataset.role = "gantt-hscroll-top";
+	ganttHScroll.setAttribute("aria-hidden", "true");
+	ganttHScroll.innerHTML = [
+		'<div class="task-tree-gantt-hscroll-top-viewport">',
+		'<div class="task-tree-gantt-hscroll-top-content"></div>',
+		"</div>",
+	].join("");
+
+	right.append(gantt, ganttHScroll);
 
 	shell.append(left, border, right);
 	parent.appendChild(shell);
 
 	applyWidths(left, right, readStoredLeftPct());
 
-	return { shell, left, border, right, tableHost, gantt };
+	return { shell, left, border, right, tableHost, gantt, ganttHScroll };
 }
 
 export function setupResize({ shell, left, right, border }) {
