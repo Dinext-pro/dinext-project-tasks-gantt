@@ -84,7 +84,7 @@ export function openRelationsPopover({
 	const table = document.createElement("table");
 	table.className = "tree-gantt-relations-popover__table";
 	table.innerHTML = `<thead><tr>
-		<th>${__("Predecessor")}</th>
+		<th>${__("Related Task")}</th>
 		<th>${__("Link type")}</th>
 		<th></th>
 	</tr></thead>`;
