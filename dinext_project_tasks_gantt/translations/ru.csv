@@ -106,6 +106,7 @@
 "Propagation started in background (job {0})","Распространение запущено в фоне (задача {0})",""
 "Reasons","Причины",""
 "Refresh the task tree after applying changes","Обновите дерево задач после выполнения изменений",""
+"Related Task","Связанная задача",""
 "Related Tasks","Связанные задачи",""
 "Relation removed — preview changes","Связь удалена — предварительный просмотр изменений",""
 "Relation validated","Связь проверена",""

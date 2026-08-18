@@ -3,6 +3,7 @@
  * Persist via commitCellChanges (fill/paste/undo share the same path).
  */
 import { fieldCanEdit } from "../../save.js";
+import { cachedTaskDoc, openNativeSelect } from "../select-edit.js";
 import { getPriorityOptions } from "./options.js";
 
 function evaluateReadOnlyDependsOn(expression, doc) {
@@ -81,14 +82,10 @@ export async function startPriorityInlineEdit({ wrap, row, params }) {
 	if (wrap.querySelector(".tree-gantt-priority-edit")) return;
 
 	const taskId = row.id;
-	let doc;
-	try {
-		doc = await frappe.model.with_doc("Task", taskId);
-	} catch (e) {
-		console.error("[task_tree_gantt] priority with_doc", e);
+	let doc = cachedTaskDoc(taskId);
+	if (doc && !fieldIsWritable(doc, taskId)) {
 		return;
 	}
-	if (!fieldIsWritable(doc, taskId)) return;
 
 	const options = getPriorityOptions();
 	const oldValue = row.priority || "";
@@ -138,7 +135,18 @@ export async function startPriorityInlineEdit({ wrap, row, params }) {
 	host._control = control;
 	control.$wrapper?.addClass?.("tree-gantt-priority-control");
 	control.$wrapper?.find?.(".control-label, .help-box, .clearfix")?.hide?.();
-	control.$input?.trigger?.("focus");
+	openNativeSelect(control.$input);
+
+	if (!doc) {
+		try {
+			doc = await frappe.model.with_doc("Task", taskId);
+			if (doc && !fieldIsWritable(doc, taskId)) {
+				finish(false);
+			}
+		} catch (e) {
+			console.error("[task_tree_gantt] priority with_doc", e);
+		}
+	}
 
 	control.$input?.on?.("change", () => {
 		finish(true);

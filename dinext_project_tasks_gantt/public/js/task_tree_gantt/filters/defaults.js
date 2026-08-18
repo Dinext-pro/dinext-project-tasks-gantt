@@ -15,5 +15,5 @@ export function filterDefaults() {
 export function taskSelectOptions(fieldname) {
 	const field = frappe.meta.get_docfield("Task", fieldname);
 	const values = String(field?.options || "").split("\n").filter(Boolean);
-	return [...values, ""].join("\n");
+	return ["", ...values].join("\n");
 }

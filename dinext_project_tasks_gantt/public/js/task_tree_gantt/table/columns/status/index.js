@@ -57,6 +57,20 @@ function wireEdit(wrap, params, row) {
 	});
 }
 
+function startStatusFromEvent(event) {
+	const wrap = event?.event?.target
+		?.closest?.(".ag-cell")
+		?.querySelector?.(".tree-gantt-status-cell");
+	if (!wrap) {
+		return;
+	}
+	void startStatusInlineEdit({
+		wrap,
+		row: event.data || event.node?.data || {},
+		params: event,
+	});
+}
+
 export function renderStatus(params) {
 	const row = params.data || {};
 	const value = row.status || params.value || "";
@@ -76,6 +90,7 @@ export function statusColumn() {
 		...fixedCol(TREE_COL_WIDTH.status),
 		edit: (row) => fieldCanEdit(row, "status"),
 		suppressClickEdit: true,
+		onActiveClickEdit: startStatusFromEvent,
 		cellRenderer: renderStatus,
 		valueFormatter: (params) => statusLabel(params.value),
 		valueParser: parseStatusValue,
