@@ -50,6 +50,20 @@ function wireEdit(wrap, params, row) {
 	});
 }
 
+function startPriorityFromEvent(event) {
+	const wrap = event?.event?.target
+		?.closest?.(".ag-cell")
+		?.querySelector?.(".tree-gantt-priority-cell");
+	if (!wrap) {
+		return;
+	}
+	void startPriorityInlineEdit({
+		wrap,
+		row: event.data || event.node?.data || {},
+		params: event,
+	});
+}
+
 export function renderPriority(params) {
 	const row = params.data || {};
 	const value = row.priority || params.value || "";
@@ -69,6 +83,7 @@ export function priorityColumn() {
 		...fixedCol(TREE_COL_WIDTH.priority),
 		edit: (row) => fieldCanEdit(row, "priority"),
 		suppressClickEdit: true,
+		onActiveClickEdit: startPriorityFromEvent,
 		cellRenderer: renderPriority,
 		valueFormatter: (params) => priorityLabel(params.value),
 		valueParser: parsePriorityValue,
