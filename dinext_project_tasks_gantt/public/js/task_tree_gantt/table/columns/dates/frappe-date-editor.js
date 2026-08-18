@@ -23,13 +23,24 @@ function toIso(value) {
 	if (!s) {
 		return null;
 	}
-	return s.includes("T") ? s.slice(0, 10) : s;
+	if (s.includes("T") && /^\d{4}-\d{2}-\d{2}/.test(s)) {
+		return s.slice(0, 10);
+	}
+	const dmy = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+	if (dmy) {
+		return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+	}
+	if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+		return s;
+	}
+	return null;
 }
 
 export class FrappeDateCellEditor {
 	init(params) {
 		this.params = params;
 		this._stopped = false;
+		this._parsed = null;
 		this._value = toIso(params.value);
 
 		this.host = document.createElement("div");
@@ -52,11 +63,20 @@ export class FrappeDateCellEditor {
 
 		this.control.$wrapper?.addClass?.("tree-gantt-frappe-date-control");
 		this.control.$wrapper?.find?.(".control-label, .help-box, .clearfix")?.hide?.();
+		this.control.$input?.addClass?.(
+			"dinext-table-date-editor tree-gantt-frappe-date-input"
+		);
 
 		this._bindDatepicker();
 
 		this.control.$input?.on?.("change", () => {
-			this._value = toIso(this.control.get_value());
+			this._parsed = null;
+			const parsed = this._readValidated();
+			if (parsed.invalid) {
+				this.stopEditing(true);
+				return;
+			}
+			this._value = parsed.iso;
 			this.stopEditing(false);
 		});
 		this.control.$input?.on?.("keydown", (ev) => {
@@ -102,7 +122,33 @@ export class FrappeDateCellEditor {
 		this._adoptDatepicker();
 	}
 
+	_readValidated() {
+		if (this._parsed) {
+			return this._parsed;
+		}
+		const raw = this.control?.get_value?.();
+		if (raw == null || raw === "") {
+			this._parsed = { iso: null, invalid: false };
+			return this._parsed;
+		}
+		const validated = this.control.validate?.(raw);
+		if (validated === "" || validated == null) {
+			this._parsed = { iso: null, invalid: true };
+			return this._parsed;
+		}
+		const iso = toIso(validated);
+		this._parsed = { iso, invalid: !iso };
+		return this._parsed;
+	}
+
 	getValue() {
+		const parsed = this._readValidated();
+		if (parsed.invalid) {
+			return this.params?.value ?? null;
+		}
+		if (parsed.iso !== undefined) {
+			return parsed.iso;
+		}
 		if (this._value !== undefined) {
 			return this._value;
 		}
@@ -110,7 +156,7 @@ export class FrappeDateCellEditor {
 	}
 
 	isCancelAfterEnd() {
-		return false;
+		return this._readValidated().invalid;
 	}
 
 	stopEditing(cancel = false) {
@@ -119,7 +165,11 @@ export class FrappeDateCellEditor {
 		}
 		this._stopped = true;
 		if (!cancel) {
-			this._value = toIso(this.control?.get_value?.()) ?? this._value;
+			this._parsed = null;
+			const parsed = this._readValidated();
+			if (!parsed.invalid) {
+				this._value = parsed.iso;
+			}
 		}
 		this.params?.stopEditing?.(cancel);
 	}

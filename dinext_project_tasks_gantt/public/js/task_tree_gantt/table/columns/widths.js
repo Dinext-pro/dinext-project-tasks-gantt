@@ -23,12 +23,10 @@ export const TREE_COL_WIDTH = {
 	user_tags: 120,
 };
 
-/** Fixed non-resizable column sizing (all except subject). */
+/** Default column sizing — resizable (grow/shrink from Tree widths). */
 export function fixedCol(width) {
 	return {
 		width,
-		minWidth: width,
-		maxWidth: width,
-		resizable: false,
+		minWidth: 32,
 	};
 }
