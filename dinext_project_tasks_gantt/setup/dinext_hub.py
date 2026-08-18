@@ -14,8 +14,8 @@ HUB_ITEMS = (
 		"section": "Project Management",
 		"element_type": "Report",
 		"target": "Task Epic Burndown",
-		"label": "Task Epic Burndown",
-		"description": "Burndown chart for epic and project task progress.",
+		"label": "Task Burndown",
+		"description": "Burndown chart for project task progress.",
 		"icon": "chart",
 	},
 )
