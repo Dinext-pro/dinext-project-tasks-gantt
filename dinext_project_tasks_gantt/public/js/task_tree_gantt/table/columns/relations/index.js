@@ -1,5 +1,5 @@
 /**
- * Column «Связи»:
+ * Column «Связанные задачи»:
  * - display: subject[FS] (+N−1)
  * - dblclick → popover mini-table (predecessor, type, delete)
  * - single click → selection / fill-handle
@@ -165,7 +165,7 @@ export function renderRelations(params) {
 export function relationsColumn() {
 	return {
 		field: "relations",
-		headerName: __("Relations"),
+		headerName: __("Related Tasks"),
 		...fixedCol(TREE_COL_WIDTH.relations),
 		edit: (row) => fieldCanEdit(row, "relations"),
 		suppressClickEdit: true,

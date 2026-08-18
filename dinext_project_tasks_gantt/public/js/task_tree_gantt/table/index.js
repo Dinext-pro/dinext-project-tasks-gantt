@@ -175,6 +175,7 @@ function resolveFullscreenOpts(container, shell) {
  *   onTreeChange?: () => void,
  *   onCellsSaved?: (changes) => void,
  *   onSortChange?: (payload: { sort: object[], table: object }) => void,
+ *   onFilterChange?: () => void,
  *   fullscreenShell?: HTMLElement | null,
  *   expandRowIds?: string[],
  * }} [hooks]
@@ -189,8 +190,14 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	const state = getState(container);
 	const gen = (state.loadGen = (state.loadGen || 0) + 1);
 	const args = readArgs(getArgs);
-	const { onTreeChange, onCellsSaved, onSortChange, fullscreenShell, expandRowIds } =
-		hooks;
+	const {
+		onTreeChange,
+		onCellsSaved,
+		onSortChange,
+		onFilterChange,
+		fullscreenShell,
+		expandRowIds,
+	} = hooks;
 	const fullscreen = resolveFullscreenOpts(container, fullscreenShell);
 
 	container.classList.remove("text-muted");
@@ -266,6 +273,9 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			onSortChange: (payload) => {
 				onSortChange?.(payload);
 			},
+			onFilterChange: (ctx) => {
+				onFilterChange?.(ctx);
+			},
 			// Tree: no vertical rules; horizontal = 1px dashed gray.
 			theme: {
 				cellHorizontalPadding: 4,
@@ -279,13 +289,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 					color: "gray",
 				},
 			},
-			// Resize only subject — others fixed (Tree parity).
-			defaultColDef: {
-				resizable: false,
-			},
 			gridOptions: {
 				rowHeight: ROW_HEIGHT,
 				headerHeight: HEADER_HEIGHT,
+				// Core FilterMixin also sets 28; keep explicit so search ≠ 76px header.
+				floatingFiltersHeight: 28,
 				tooltipShowDelay: 0,
 			},
 			...(fullscreen ? { fullscreen } : {}),
