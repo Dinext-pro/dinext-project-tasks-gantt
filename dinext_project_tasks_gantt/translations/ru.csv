@@ -171,6 +171,8 @@
 "{0} {1} remaining","Осталось {0} {1}",""
 "Task Epic Burndown","Сгорание эпика задач",""
 "Burndown chart for epic and project task progress.","Диаграмма сгорания прогресса эпика и проектных задач.",""
+"Task Burndown","Диаграмма сгорания задач",""
+"Burndown chart for project task progress.","Диаграмма сгорания прогресса проектных задач.",""
 "Project Management","Управление проектами",""
 "(empty)","(пусто)",""
 "Add at least one subject","Укажите хотя бы одно наименование",""
