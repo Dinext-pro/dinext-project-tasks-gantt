@@ -61,6 +61,8 @@
 			return;
 		}
 		page.__task_tree_gantt_mounted = true;
+		// First make_tree/post_render races mount — skip that reload.
+		page.__task_tree_gantt_skip_show_refresh = true;
 
 		page.wrapper?.addClass?.("task-tree-gantt-page");
 		clearMainExceptPageForm(page);
@@ -80,6 +82,8 @@
 		const mounted = await api.mount({ page });
 		page.__task_tree_gantt_apply_route = () =>
 			mounted?.state?.applyRouteProject?.() || Promise.resolve(false);
+		page.__task_tree_gantt_on_show = () =>
+			mounted?.onShow?.() || Promise.resolve();
 		setupBurndown(page, mounted?.state?.getArgs);
 		hideClassicTreeChrome(page);
 	}
@@ -119,7 +123,17 @@
 			// Factory.on_show → make_tree builds classic .tree; strip it.
 			$(treeview?.parent).find(".tree").remove();
 			const page = treeview?.page;
-			void page?.__task_tree_gantt_apply_route?.();
+			void (async () => {
+				await page?.__task_tree_gantt_apply_route?.();
+				if (page?.__task_tree_gantt_skip_show_refresh) {
+					page.__task_tree_gantt_skip_show_refresh = false;
+					return;
+				}
+				// Form → Tree: reload so tree picks up Form edits (expand kept).
+				if (page?.__task_tree_gantt_mounted) {
+					await page?.__task_tree_gantt_on_show?.();
+				}
+			})();
 		};
 	}
 

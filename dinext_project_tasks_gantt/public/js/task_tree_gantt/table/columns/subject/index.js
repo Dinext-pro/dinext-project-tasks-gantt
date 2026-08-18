@@ -115,7 +115,6 @@ export function subjectColumn() {
 		pinned: "left",
 		suppressMovable: true,
 		lockPinned: true,
-		// Only resizable column (defaultColDef.resizable = false).
 		resizable: true,
 		flex: 1,
 		minWidth: 280,
