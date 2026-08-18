@@ -345,7 +345,7 @@
 	--g-text-light: #f7f7f7;
 	--g-text-color: #f7f7f7;
 	--g-progress-color: #173b2c;
-	--g-weekend-highlight-color: color-mix(in srgb, #5e5e5e 25%, transparent);
+	--g-weekend-highlight-color: color-mix(in srgb, #5e5e5e 12%, transparent);
 	--g-holiday-highlight-color: color-mix(in srgb, #082a08 25%, transparent);
 	--g-tick-color: #272727;
 	--g-tick-color-thick: #212121;
