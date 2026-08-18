@@ -159,17 +159,20 @@
 	width: 100%;
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell .dinext-table-header-sort-text {
 	text-align: center;
 }
 
 /* Subject header slightly larger; other headers smaller than Quartz default */
-.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .dinext-table-header-sort-text {
 	font-size: var(--text-base, 14px);
 	font-weight: 600;
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .dinext-table-header-sort-text {
 	font-size: var(--text-xs, 11px);
 	font-weight: 500;
 	line-height: 1.2;
@@ -177,7 +180,8 @@
 
 /* Date headers: wrap «Прогноз …» in narrow cols */
 .task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-label,
-.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .dinext-table-header-sort-text {
 	white-space: normal;
 	overflow: visible;
 	text-overflow: unset;
