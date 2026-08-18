@@ -1,5 +1,5 @@
 /**
- * Column «Связи»:
+ * Column «Связи» / Relations:
  * - display: subject[FS] (+N−1)
  * - dblclick → popover mini-table (predecessor, type, delete)
  * - single click → selection / fill-handle
@@ -162,6 +162,20 @@ export function renderRelations(params) {
 	return wrap;
 }
 
+function startRelationsFromEvent(event) {
+	const wrap = event?.event?.target
+		?.closest?.(".ag-cell")
+		?.querySelector?.(".tree-gantt-relations");
+	if (!wrap) {
+		return;
+	}
+	const row = event.data || event.node?.data || {};
+	if (!fieldCanEdit(row, "relations")) {
+		return;
+	}
+	openEditor(row, event, wrap);
+}
+
 export function relationsColumn() {
 	return {
 		field: "relations",
@@ -169,6 +183,7 @@ export function relationsColumn() {
 		...fixedCol(TREE_COL_WIDTH.relations),
 		edit: (row) => fieldCanEdit(row, "relations"),
 		suppressClickEdit: true,
+		onActiveClickEdit: startRelationsFromEvent,
 		sortable: false,
 		cellDataType: false,
 		cellRenderer: renderRelations,

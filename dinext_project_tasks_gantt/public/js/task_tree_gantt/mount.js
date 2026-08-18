@@ -30,6 +30,14 @@ export async function mount({ page }) {
 			onCellsSaved: () => scheduleGanttRefresh(state),
 			// Client sort reorders source — gantt bars must follow row order.
 			onSortChange: () => scheduleGanttRefresh(state),
+			onFilterChange: (ctx) => {
+				state.applyGanttOffset?.();
+				const json = JSON.stringify(ctx?.filter || {});
+				if (json !== state._ganttFilterJson) {
+					state._ganttFilterJson = json;
+					scheduleGanttRefresh(state);
+				}
+			},
 			// page.main = page-form filters + Tree Gantt shell (WR fullscreen pattern).
 			fullscreenShell: state.fullscreenShell,
 			expandRowIds: opts.expandRowIds,
@@ -69,9 +77,12 @@ export async function mount({ page }) {
 	const zones = buildShell(main);
 	state.tableHost = zones.tableHost;
 	state.ganttEl = zones.gantt;
+	state.ganttHScroll = zones.ganttHScroll;
 	const disposeResize = setupResize(zones);
 
 	await reload();
 
-	return { ...zones, state, disposeResize };
+	const onShow = () => reload();
+
+	return { ...zones, state, disposeResize, onShow };
 }

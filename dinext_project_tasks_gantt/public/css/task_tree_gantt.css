@@ -1,3 +1,47 @@
+.task-tree-gantt-page .title-text.tree-gantt-title--link {
+	cursor: pointer;
+}
+
+.task-tree-gantt-page .title-text.tree-gantt-title--link:hover {
+	text-decoration: underline;
+}
+
+/*
+ * Desk default: .page-title is col-md-4 (~33%) and .title-text is max-width:25vw
+ * (~298px). On this page the right toolbar is often empty — grow title into
+ * leftover .page-head-content space. Scoped: do not change other doctypes.
+ */
+.task-tree-gantt-page .page-head-content > .page-title {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: auto;
+	max-width: none;
+}
+
+.task-tree-gantt-page .page-head-content > .page-actions {
+	flex: 0 0 auto;
+	width: auto;
+	max-width: none;
+}
+
+.task-tree-gantt-page .page-title .title-area,
+.task-tree-gantt-page .page-title .title-area > div,
+.task-tree-gantt-page .page-title .title-area .flex {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+}
+
+.task-tree-gantt-page .page-title .title-area .title-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+}
+
 /* Same as Task Tree Style V4: tag + limit are col-md-1. */
 @media (min-width: 768px) {
 .task-tree-gantt-page .page-form > div:nth-child(6),
@@ -115,17 +159,20 @@
 	width: 100%;
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell .dinext-table-header-sort-text {
 	text-align: center;
 }
 
 /* Subject header slightly larger; other headers smaller than Quartz default */
-.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .dinext-table-header-sort-text {
 	font-size: var(--text-base, 14px);
 	font-weight: 600;
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .dinext-table-header-sort-text {
 	font-size: var(--text-xs, 11px);
 	font-weight: 500;
 	line-height: 1.2;
@@ -133,7 +180,8 @@
 
 /* Date headers: wrap «Прогноз …» in narrow cols */
 .task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-label,
-.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-text {
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .dinext-table-header-sort-text {
 	white-space: normal;
 	overflow: visible;
 	text-overflow: unset;
@@ -159,7 +207,7 @@
 	padding-top: 2.5px;
 	transition: padding-top 0.22s ease;
 	/* Light tweaks (scoped — survive frappe-gantt.css :root load order). */
-	--g-holiday-highlight-color: #e6fae6;
+	--g-holiday-highlight-color: color-mix(in srgb, #e6fae6 25%, transparent);
 	--g-progress-color: #e4f5e9;
 	--g-arrow-color: #a4a4a4;
 }
@@ -173,6 +221,7 @@
 .task-tree-gantt-chart .gantt-container {
 	height: 100% !important;
 	min-height: 100%;
+	padding-bottom: var(--gantt-top-scroll-h, 0px);
 }
 
 .task-tree-gantt-chart .gantt-container .grid-header {
@@ -180,8 +229,44 @@
 	overflow: clip;
 }
 
+/* Match table `.dinext-table-hscroll-top` so header+scroll+rows stacks align.
+ * SVG is position:absolute — in-flow spacer alone cannot push bars. */
+.task-tree-gantt-hscroll-top {
+	position: sticky;
+	top: var(--gantt-header-h, 76px);
+	left: 0;
+	z-index: 9;
+	display: flex;
+	flex: 0 0 auto;
+	width: 100%;
+	height: var(--gantt-top-scroll-h, 0px);
+	overflow: hidden;
+	background: var(--g-header-background);
+}
+
+.task-tree-gantt-hscroll-top.is-idle,
+.task-tree-gantt-panel--right > .task-tree-gantt-hscroll-top {
+	display: none;
+}
+
+.task-tree-gantt-hscroll-top-viewport {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-x: scroll;
+	overflow-y: hidden;
+}
+
+.task-tree-gantt-hscroll-top-content {
+	height: 1px;
+}
+
+.task-tree-gantt-chart .gantt-container > svg.gantt {
+	top: var(--gantt-top-scroll-h, 0px) !important;
+}
+
 .task-tree-gantt-chart .gantt-container .current-highlight {
 	z-index: 8;
+	margin-top: var(--gantt-top-scroll-h, 0px);
 }
 
 .task-tree-gantt-chart .gantt-container .holiday-label {
@@ -228,8 +313,17 @@
 	stroke-width: 0.5;
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover {
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover,
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select {
 	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select {
+	background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--select .bar {
+	outline: 2px solid var(--border-primary, var(--primary)) !important;
 }
 
 /*
@@ -255,8 +349,8 @@
 	--g-text-light: #f7f7f7;
 	--g-text-color: #f7f7f7;
 	--g-progress-color: #173b2c;
-	--g-weekend-highlight-color: #5e5e5e;
-	--g-holiday-highlight-color: #082a08;
+	--g-weekend-highlight-color: color-mix(in srgb, #5e5e5e 12%, transparent);
+	--g-holiday-highlight-color: color-mix(in srgb, #082a08 25%, transparent);
 	--g-tick-color: #272727;
 	--g-tick-color-thick: #212121;
 	--g-today-highlight: #be8f8f;
@@ -430,16 +524,19 @@ body.task-tree-gantt-resizing {
 }
 
 .task-tree-gantt-table-host .ag-pinned-left-cols-container .ag-cell[col-id="subject"] {
-	background: var(--bg-color, var(--card-bg, #fff));
+	background: transparent;
 }
 
 [data-theme="dark"] .task-tree-gantt-table-host .ag-pinned-left-cols-container,
-[data-theme="dark"] .task-tree-gantt-table-host .ag-pinned-left-header,
+[data-theme="dark"] .task-tree-gantt-table-host .ag-pinned-left-header {
+	background: var(--bg-color, #242424);
+}
+
 [data-theme="dark"]
 	.task-tree-gantt-table-host
 	.ag-pinned-left-cols-container
 	.ag-cell[col-id="subject"] {
-	background: var(--bg-color, #242424);
+	background: transparent;
 }
 
 .tree-gantt-subject-toolbar .btn {
@@ -660,27 +757,27 @@ body.task-tree-gantt-resizing {
 /* DinextTable: fill on `.ag-cell` (cellClassRules), not child renderer */
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--completed {
 	color: var(--text-on-green);
-	background-color: var(--bg-green);
+	background-color: color-mix(in srgb, var(--bg-green) 25%, transparent);
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--overdue {
 	color: var(--alert-text-danger);
-	background-color: var(--alert-bg-danger);
+	background-color: color-mix(in srgb, var(--alert-bg-danger) 25%, transparent);
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--cancelled {
 	color: var(--text-on-light-gray);
-	background-color: var(--bg-light-gray);
+	background-color: color-mix(in srgb, var(--bg-light-gray) 25%, transparent);
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--working {
 	color: var(--text-on-blue);
-	background-color: var(--bg-blue);
+	background-color: color-mix(in srgb, var(--bg-blue) 25%, transparent);
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--pending_review {
 	color: var(--text-on-dark-blue);
-	background-color: var(--bg-dark-blue);
+	background-color: color-mix(in srgb, var(--bg-dark-blue) 25%, transparent);
 }
 
 /* Tree: Open/Template без спец-цвета */
@@ -721,38 +818,69 @@ body.task-tree-gantt-resizing {
 
 /*
  * Frappe ControlDate — in-cell AG editor (not popup).
- * Fill cell like .dinext-table-date-editor; calendar on body, or fullscreen host.
+ * dinext-table.css loads after this file and used to force --ag-font-size 14px.
+ * Pin 11px on cell + wrappers + input (high specificity + !important) so Desk
+ * .form-control / .input-with-feedback / .bold cannot enlarge or bold the text.
  */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell.ag-cell-inline-editing:has(.tree-gantt-frappe-date-editor) {
+	padding: 0;
+	font-size: var(--text-xs, 11px) !important;
+	font-weight: 400 !important;
+	line-height: 1.15 !important;
+}
+
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-editor,
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control,
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .form-group,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .frappe-control,
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .control-input-wrapper,
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .control-input {
 	width: 100%;
 	height: 100%;
 	min-width: 0;
 	margin: 0 !important;
-	padding: 0;
+	padding: 0 !important;
 	display: flex;
 	align-items: stretch;
 	box-sizing: border-box;
 	background: transparent;
+	font-family: var(--font-stack, inherit);
+	font-size: var(--text-xs, 11px) !important;
+	font-weight: 400 !important;
+	line-height: 1.2 !important;
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .form-control,
-.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.input-with-feedback,
-.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input {
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.form-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.tree-gantt-frappe-date-input,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor.form-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold {
 	width: 100%;
-	height: 100%;
+	height: 100% !important;
 	min-width: 0;
+	min-height: 0 !important;
+	max-height: 100%;
 	margin: 0;
-	padding: 0 4px;
+	padding: 0 var(--ag-cell-horizontal-padding, 4px) !important;
 	border: none !important;
 	border-radius: 0;
 	box-shadow: none !important;
 	outline: none !important;
 	background: transparent !important;
-	font-size: inherit;
+	font-family: inherit !important;
+	font-size: var(--text-xs, 11px) !important;
+	font-weight: 400 !important;
+	line-height: inherit !important;
 	text-align: center;
 	box-sizing: border-box;
 }
@@ -779,24 +907,28 @@ body.task-tree-gantt-resizing {
 .tree-gantt-priority-control select {
 	min-height: 22px;
 	height: 22px;
-	padding: 0 4px;
+	width: 100%;
+	padding: 0 12px 0 2px;
 	font-size: var(--text-xs, 11px);
 	border-radius: 0;
+	text-align: center;
+	text-align-last: center;
+	background-position: right 2px center;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--urgent {
 	color: var(--text-on-red);
-	background-color: var(--bg-red);
+	background-color: color-mix(in srgb, var(--bg-red) 25%, transparent);
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--high {
 	color: var(--text-orange);
-	background-color: var(--bg-orange);
+	background-color: color-mix(in srgb, var(--bg-orange) 25%, transparent);
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--medium {
 	color: var(--text-on-yellow);
-	background-color: var(--bg-yellow);
+	background-color: color-mix(in srgb, var(--bg-yellow) 25%, transparent);
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--low {

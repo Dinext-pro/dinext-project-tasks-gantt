@@ -26,6 +26,35 @@
 		page?.clear_primary_action?.();
 	}
 
+	/**
+	 * Cached Tree/Task: Factory.show → container.change_to → $(page).trigger("show").
+	 * post_render / router.change can miss if make_tree throws after change_to.
+	 * Bind after first mount so the initial show (already painted) is not a second reload.
+	 */
+	async function refreshOnShow(page) {
+		const applied = await page.__task_tree_gantt_apply_route?.();
+		if (!applied) {
+			await page.__task_tree_gantt_on_show?.();
+		}
+	}
+
+	function bindPageShow(page) {
+		if (page.__task_tree_gantt_show_bound) {
+			return;
+		}
+		const $wrap = page.wrapper;
+		if (!$wrap?.on) {
+			return;
+		}
+		page.__task_tree_gantt_show_bound = true;
+		$wrap.on("show", function (evt) {
+			if (evt.target !== this) {
+				return;
+			}
+			void refreshOnShow(page);
+		});
+	}
+
 	function setupBurndown(page, getArgs) {
 		if (page.__task_tree_gantt_burndown) {
 			return;
@@ -55,8 +84,6 @@
 			return;
 		}
 		if (page.__task_tree_gantt_mounted) {
-			// Re-visit Tree (Factory.on_show → make_tree → post_render): pick up
-			// frappe.route_options.project from Project Form navigation.
 			await page.__task_tree_gantt_apply_route?.();
 			return;
 		}
@@ -80,8 +107,11 @@
 		const mounted = await api.mount({ page });
 		page.__task_tree_gantt_apply_route = () =>
 			mounted?.state?.applyRouteProject?.() || Promise.resolve(false);
+		page.__task_tree_gantt_on_show = () =>
+			mounted?.onShow?.() || Promise.resolve();
 		setupBurndown(page, mounted?.state?.getArgs);
 		hideClassicTreeChrome(page);
+		bindPageShow(page);
 	}
 
 	function install() {
@@ -118,8 +148,6 @@
 		settings.post_render = function (treeview) {
 			// Factory.on_show → make_tree builds classic .tree; strip it.
 			$(treeview?.parent).find(".tree").remove();
-			const page = treeview?.page;
-			void page?.__task_tree_gantt_apply_route?.();
 		};
 	}
 
