@@ -1,19 +1,19 @@
 /**
  * Column «Задача» — Tree onrender parity:
- * pin left, milestone, color, title=id, dep conflict, hover toolbar,
- * single-click → Control(Data), dblclick → Form.
+ * pin left, milestone, color, title=id, dep conflict, hover toolbar.
+ * Click-when-active / dblclick → Control(Data). Form — toolbar pencil.
+ * Text click must bubble: hover.js capture scrolls gantt.
  */
 import {
 	subjectConflictClassRules,
 	subjectTreeContentKey,
 } from "../../../dependencies/check.js";
 import { el } from "../../format.js";
-import { openTaskForm } from "./actions.js";
+import { fieldCanEdit } from "../../save.js";
 import { startSubjectInlineEdit } from "./edit.js";
 import { buildSubjectToolbar } from "./toolbar.js";
 
 const MILESTONE_SRC = "/files/rhombus.png";
-const CLICK_EDIT_DELAY_MS = 280;
 
 function subjectTitle(row) {
 	if (row?.dep_conflict) {
@@ -26,36 +26,56 @@ function subjectTitle(row) {
 	return row?.id || "";
 }
 
-function wireSubjectTextInteractions(text, main, row, params) {
-	let clickTimer = null;
+function subjectEditEls(event) {
+	const target = event?.event?.target;
+	if (target?.closest?.(".tree-gantt-subject-toolbar, .dinext-table-tree-toggle")) {
+		return null;
+	}
+	const cell = target?.closest?.(".ag-cell");
+	const main = cell?.querySelector?.(".tree-gantt-subject-main");
+	const text = cell?.querySelector?.(".tree-gantt-subject-text");
+	if (!main || !text) {
+		return null;
+	}
+	return { main, text };
+}
 
-	text.addEventListener("click", (ev) => {
+function startSubjectFromEvent(event) {
+	const els = subjectEditEls(event);
+	if (!els) {
+		return;
+	}
+	const row = event.data || event.node?.data || {};
+	if (!fieldCanEdit(row, "subject")) {
+		return;
+	}
+	void startSubjectInlineEdit({
+		mainEl: els.main,
+		textEl: els.text,
+		row,
+		params: event,
+	});
+}
+
+function wireEdit(wrap, main, text, row, params) {
+	if (!fieldCanEdit(row, "subject")) {
+		return;
+	}
+	wrap.classList.add("tree-gantt-subject--editable");
+	wrap.title = [wrap.title, __("Double-click to edit")].filter(Boolean).join(" — ");
+	// Single click → selection / gantt scroll; active click / dblclick → edit.
+	wrap.addEventListener("dblclick", (ev) => {
 		if (ev.target.closest?.(".tree-gantt-subject-toolbar")) {
 			return;
 		}
-		ev.stopPropagation();
-		if (!row.can_write) {
-			return;
-		}
-		// Wait — dblclick cancels and opens Form (Tree parity).
-		clearTimeout(clickTimer);
-		clickTimer = setTimeout(() => {
-			clickTimer = null;
-			void startSubjectInlineEdit({
-				mainEl: main,
-				textEl: text,
-				row,
-				params,
-			});
-		}, CLICK_EDIT_DELAY_MS);
-	});
-
-	text.addEventListener("dblclick", (ev) => {
 		ev.preventDefault();
 		ev.stopPropagation();
-		clearTimeout(clickTimer);
-		clickTimer = null;
-		openTaskForm(row.id);
+		void startSubjectInlineEdit({
+			mainEl: main,
+			textEl: text,
+			row,
+			params,
+		});
 	});
 }
 
@@ -66,9 +86,6 @@ export function renderSubject(params) {
 
 	if (row.dep_conflict) {
 		wrap.classList.add("tree-gantt-dep-conflict");
-	}
-	if (row.can_write) {
-		wrap.classList.add("tree-gantt-subject--editable");
 	}
 	if (row.color) {
 		wrap.style.boxShadow = `inset 3px 0 0 ${row.color}`;
@@ -91,7 +108,6 @@ export function renderSubject(params) {
 		"tree-gantt-subject-text",
 		row.subject || params.value || ""
 	);
-	wireSubjectTextInteractions(text, main, row, params);
 	main.appendChild(text);
 	wrap.appendChild(main);
 
@@ -100,6 +116,7 @@ export function renderSubject(params) {
 		wrap.appendChild(toolbar);
 	}
 
+	wireEdit(wrap, main, text, row, params);
 	return wrap;
 }
 
@@ -126,8 +143,9 @@ export function subjectColumn() {
 		treeContentKey: subjectTreeContentKey,
 		cellClassRules: subjectConflictClassRules(),
 		tooltipValueGetter: subjectTooltip,
-		// Inline edit = Frappe Control on click (Tree), not AG editor.
-		edit: false,
+		edit: (row) => fieldCanEdit(row, "subject"),
+		suppressClickEdit: true,
+		onActiveClickEdit: startSubjectFromEvent,
 		sortable: false,
 	};
 }

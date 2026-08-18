@@ -1,6 +1,6 @@
 /**
- * Tree parity: single-click subject → frappe Control(Data), save via save_cells.
- * dblclick → Form (handled in index.js with click delay).
+ * Subject inline edit: Frappe Control(Data), save via save_cells.
+ * Started from onActiveClickEdit / dblclick (same as status).
  */
 import { fieldCanEdit, saveCells } from "../../save.js";
 import { getOnGanttRefresh } from "../context.js";
@@ -46,17 +46,24 @@ function fieldIsWritable(doc, taskId) {
  */
 export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 	if (!fieldCanEdit(row, "subject")) return;
-	if (mainEl.querySelector(".tree-gantt-subject-edit")) return;
+	if (mainEl.dataset.subjectEditing === "1" || mainEl.querySelector(".tree-gantt-subject-edit")) {
+		return;
+	}
+	mainEl.dataset.subjectEditing = "1";
 
 	const taskId = row.id;
 	let doc;
 	try {
 		doc = await frappe.model.with_doc("Task", taskId);
 	} catch (e) {
+		delete mainEl.dataset.subjectEditing;
 		console.error("[task_tree_gantt] subject with_doc", e);
 		return;
 	}
-	if (!fieldIsWritable(doc, taskId)) return;
+	if (!fieldIsWritable(doc, taskId)) {
+		delete mainEl.dataset.subjectEditing;
+		return;
+	}
 
 	const oldValue = row.subject || "";
 	textEl.style.display = "none";
@@ -94,6 +101,7 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 		}
 
 		host._control = null;
+		delete mainEl.dataset.subjectEditing;
 		params.api?.refreshCells?.({
 			rowNodes: params.node ? [params.node] : undefined,
 			columns: ["subject"],
@@ -119,8 +127,17 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 	control.$wrapper?.addClass?.("tree-gantt-subject-control");
 	control.$wrapper?.find?.(".control-label, .help-box, .clearfix")?.hide?.();
 	control.$input?.attr?.("autocomplete", "off");
-	control.$input?.trigger?.("focus");
-	control.$input?.trigger?.("select");
+
+	const inputEl = control.$input?.get?.(0);
+	const focusInput = () => {
+		if (!inputEl || mainEl.dataset.subjectEditing !== "1") {
+			return;
+		}
+		inputEl.focus();
+		inputEl.select();
+	};
+	// Native focus after AG Grid finishes the click (jQuery trigger does not keep it).
+	requestAnimationFrame(focusInput);
 
 	control.$input?.on?.("keydown", (ev) => {
 		if (ev.key === "Enter") {

@@ -25,6 +25,14 @@ export async function setupFilters({ page, onChange }) {
 	const emit = () => onChange?.();
 	let lastProject = args.project;
 
+	function setArg(fieldname, value) {
+		if (args[fieldname] === value) {
+			return false;
+		}
+		args[fieldname] = value;
+		return true;
+	}
+
 	const addIfMissing = (df) => {
 		if (page.fields_dict?.[df.fieldname]) {
 			return page.fields_dict[df.fieldname];
@@ -45,13 +53,18 @@ export async function setupFilters({ page, onChange }) {
 					this.set_value(lastProject);
 					return;
 				}
-				args.project = "";
+				if (!setArg("project", "")) {
+					return;
+				}
 				void setPageTitle(page, null);
 				emit();
 				return;
 			}
+			if (!setArg("project", value)) {
+				lastProject = value;
+				return;
+			}
 			lastProject = value;
-			args.project = value;
 			localStorage.setItem(projectStorageKey(), value);
 			void setPageTitle(page, value);
 			emit();
@@ -71,8 +84,9 @@ export async function setupFilters({ page, onChange }) {
 			return { filters };
 		},
 		change() {
-			args.task = this.get_value() || "";
-			emit();
+			if (setArg("task", this.get_value() || "")) {
+				emit();
+			}
 		},
 	});
 
@@ -82,8 +96,9 @@ export async function setupFilters({ page, onChange }) {
 		label: __("Status"),
 		options: taskSelectOptions("status"),
 		change() {
-			args.status = this.get_value() || "";
-			emit();
+			if (setArg("status", this.get_value() || "")) {
+				emit();
+			}
 		},
 	});
 
@@ -93,8 +108,9 @@ export async function setupFilters({ page, onChange }) {
 		label: __("Priority"),
 		options: taskSelectOptions("priority"),
 		change() {
-			args.priority = this.get_value() || "";
-			emit();
+			if (setArg("priority", this.get_value() || "")) {
+				emit();
+			}
 		},
 	});
 
@@ -104,8 +120,9 @@ export async function setupFilters({ page, onChange }) {
 		options: "User",
 		label: __("Assigned To"),
 		change() {
-			args.assign = this.get_value() || "";
-			emit();
+			if (setArg("assign", this.get_value() || "")) {
+				emit();
+			}
 		},
 	});
 
@@ -115,8 +132,9 @@ export async function setupFilters({ page, onChange }) {
 		options: "Tag",
 		label: __("User Tags"),
 		change() {
-			args.tag = this.get_value() || "";
-			emit();
+			if (setArg("tag", this.get_value() || "")) {
+				emit();
+			}
 		},
 	});
 
@@ -126,8 +144,11 @@ export async function setupFilters({ page, onChange }) {
 		label: __("Limit"),
 		change() {
 			const raw = this.get_value();
-			args.limit = raw === null || raw === undefined || raw === "" ? null : cint(raw);
-			emit();
+			const next =
+				raw === null || raw === undefined || raw === "" ? null : cint(raw);
+			if (setArg("limit", next)) {
+				emit();
+			}
 		},
 	});
 
