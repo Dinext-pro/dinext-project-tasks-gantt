@@ -75,11 +75,14 @@ function renderAvatars(users, row) {
 
 /**
  * Route assign mutation through DinextTable pipeline (validate/save/undo).
+ * @param {object} [oldUsers] capture before stampAssignMetaAfterPwa mutates row.assign
  * @returns {boolean}
  */
-function commitAssignChange(params, row, nextUsers) {
+function commitAssignChange(params, row, nextUsers, oldUsers) {
 	const table = params.context?.dinextTable;
-	const oldValue = normalizeUsers(row?.assign);
+	const oldValue = normalizeUsers(
+		oldUsers !== undefined ? oldUsers : row?.assign
+	);
 	const newValue = normalizeUsers(nextUsers);
 	if (sameUsers(oldValue, newValue)) {
 		return false;
@@ -113,12 +116,22 @@ function commitAssignChange(params, row, nextUsers) {
 async function applyAssignFromDialog(row, params, users) {
 	const newValue = normalizeUsers(users);
 	await ensureAssignUserInfo(newValue);
+	// Capture before stamp — stamp writes row.assign and would make sameUsers no-op.
+	const oldValue = normalizeUsers(row?.assign);
 	// Mark as PWA before save so ToDo-sync stamp keeps them in assign_pwa.
 	stampAssignMetaAfterPwa(row, newValue);
 	if (params.node?.data && params.node.data !== row) {
 		stampAssignMetaAfterPwa(params.node.data, newValue);
 	}
-	const ok = commitAssignChange(params, row, newValue);
+	const ok = commitAssignChange(params, row, newValue, oldValue);
+	if (!ok) {
+		// Meta-only change or commit skipped — still remount avatars.
+		params.api?.refreshCells?.({
+			rowNodes: params.node ? [params.node] : undefined,
+			columns: ["assign"],
+			force: true,
+		});
+	}
 	if (ok) {
 		getOnAssignSaved?.(row.id, newValue);
 	}
