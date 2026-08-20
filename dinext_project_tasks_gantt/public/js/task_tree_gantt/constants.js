@@ -13,9 +13,9 @@ export const MIN_RIGHT_PCT = 2;
 export const DEFAULT_LEFT_PCT = 55;
 
 /** Match legacy tree/gantt pitch: bar_height + padding. */
-export const ROW_HEIGHT = 27;
+export const ROW_HEIGHT = 32;
 export const GANTT_BAR_HEIGHT = 19;
-export const GANTT_PADDING = 8;
+export const GANTT_PADDING = 13;
 
 /** frappe-gantt grid-header = upper + lower + chrome (keep table/gantt sync). */
 export const GANTT_UPPER_HEADER = 40;

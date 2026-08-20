@@ -478,8 +478,14 @@ body.task-tree-gantt-resizing {
 	padding: 0 !important;
 	height: 22px !important;
 	min-height: 22px !important;
-	font-size: inherit;
+	font-size: inherit !important;
+	font-weight: 400 !important;
 	line-height: 1.2;
+}
+
+.tree-gantt-subject-edit .form-control.bold,
+.tree-gantt-subject-edit input.form-control.bold {
+	font-weight: 400 !important;
 }
 
 .tree-gantt-subject:has(.tree-gantt-subject-edit) .tree-gantt-subject-toolbar {

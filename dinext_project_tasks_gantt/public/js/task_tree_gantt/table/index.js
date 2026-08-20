@@ -66,6 +66,54 @@ async function fetchRootRows(getArgs) {
 	);
 }
 
+function findNestedRow(nodes, id) {
+	for (const node of nodes || []) {
+		if (node.id === id) {
+			return node;
+		}
+		const hit = findNestedRow(node.children, id);
+		if (hit) {
+			return hit;
+		}
+	}
+	return null;
+}
+
+/** One request: full project (or Task-filter subtree), nested. */
+async function fetchFullTreeRows(getArgs) {
+	const args = readArgs(getArgs);
+	if (!args.project) {
+		return [];
+	}
+	const flat = toTableRows(
+		await getChildren(
+			childrenQuery(getArgs, null, {
+				all_tasks: 1,
+				limit: null,
+			})
+		)
+	);
+	const nested = nestRows(flat);
+	if (!args.task) {
+		return nested;
+	}
+	const node = findNestedRow(nested, args.task);
+	if (node?.children?.length) {
+		return node.children;
+	}
+	if (node) {
+		return [node];
+	}
+	return nested;
+}
+
+function shouldFetchFullTree(state, expandedIds) {
+	if (state?.treeFullyLoaded && expandedIds.length) {
+		return true;
+	}
+	return expandedIds.length > 1;
+}
+
 function sideDataCtx(getArgs, table) {
 	const args = readArgs(getArgs);
 	return { project: args.project || null, table };
@@ -86,6 +134,33 @@ function sortExpandedIds(ids) {
 	return [...new Set((ids || []).map(String).filter(Boolean))].sort(
 		(a, b) => a.split(":").length - b.split(":").length || a.localeCompare(b)
 	);
+}
+
+function seedExpandedIds(table, ids) {
+	if (!table?.expandedIds) {
+		return;
+	}
+	table.expandedIds.clear();
+	for (const id of sortExpandedIds(ids)) {
+		table.expandedIds.add(id);
+	}
+}
+
+/** Path ids for every expandable node in a nested source tree (parents before children). */
+function collectExpandablePathIds(rows, parentPath = null, out = []) {
+	for (const row of rows || []) {
+		const id = parentPath ? `${parentPath}:${row.id}` : String(row.id);
+		const kids = row.children;
+		const expandable =
+			row.hasChildren === true || (Array.isArray(kids) && kids.length > 0);
+		if (expandable) {
+			out.push(id);
+			if (Array.isArray(kids) && kids.length) {
+				collectExpandablePathIds(kids, id, out);
+			}
+		}
+	}
+	return out;
 }
 
 /**
@@ -214,23 +289,35 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	}
 
 	try {
-		const rows = await fetchRootRows(getArgs);
+		const expanded = state.table
+			? snapshotExpandedIds(state.table, expandRowIds)
+			: [...(expandRowIds || [])];
+		const wantFull = Boolean(state.table) && shouldFetchFullTree(state, expanded);
+		const rows = wantFull
+			? await fetchFullTreeRows(getArgs)
+			: await fetchRootRows(getArgs);
 		if (gen !== state.loadGen) {
 			return null;
 		}
 
 		state.rows = rows;
+		state.treeFullyLoaded = wantFull;
 
 		if (state.table) {
-			const expanded = snapshotExpandedIds(state.table, expandRowIds);
 			// refresh() reuses rowIndex; stale _lastClickedCell would start
 			// AG text edit on first click (Relations/Assign/Status popovers).
 			if (state.table._lastClickedCell !== undefined) {
 				state.table._lastClickedCell = null;
 			}
 			state.table.api?.stopEditing?.();
-			state.table.refresh?.(rows);
-			await restoreExpanded(state.table, expanded, gen, state);
+			if (wantFull) {
+				// Nested source + expanded set → one paint. No per-node getChildren.
+				seedExpandedIds(state.table, expanded);
+				state.table.refresh?.(rows);
+			} else {
+				state.table.refresh?.(rows);
+				await restoreExpanded(state.table, expanded, gen, state);
+			}
 			if (gen !== state.loadGen) {
 				return null;
 			}
@@ -334,37 +421,28 @@ export async function loadTable(container, getArgs, hooks = {}) {
 
 /**
  * Full project tree nested + expand UI (table toolbar Expand all).
+ * One `all_tasks` request, then seed expandedIds + refresh (no per-node getChildren).
  * @param {HTMLElement} [container] table host — used for loadGen abort
- * @param {() => void | Promise<void>} [expandUi] native table.expandAll (avoid recurse)
+ * @param {() => void | Promise<void>} [_expandUi] unused — kept for call-site compat
  */
-export async function expandAllRows(table, getArgs, container, expandUi) {
+export async function expandAllRows(table, getArgs, container, _expandUi) {
 	const args = readArgs(getArgs);
 	if (!args.project || !table) return;
 	const hostState = container?._treeGanttTable;
 	const gen = hostState?.loadGen;
 	frappe.dom.freeze(__("Loading…"));
 	try {
-		const flat = toTableRows(
-			await getChildren(
-				childrenQuery(getArgs, null, {
-					all_tasks: 1,
-					limit: null,
-				})
-			)
-		);
+		const nested = await fetchFullTreeRows(getArgs);
 		if (gen != null && hostState?.loadGen !== gen) {
 			return;
 		}
-		const nested = nestRows(flat);
-		// refresh() re-applies active client sort to new source.
-		table.refresh?.(nested);
-		const expand =
-			typeof expandUi === "function"
-				? expandUi
-				: table.expandAll?.bind(table);
-		if (expand) {
-			await expand();
+		if (hostState) {
+			hostState.treeFullyLoaded = true;
 		}
+		// Nested source + full expanded set → one paint. No N+1 onExpandRow.
+		seedExpandedIds(table, collectExpandablePathIds(nested));
+		table.refresh?.(nested);
+		table.refreshAllTreeToggles?.();
 		if (gen != null && hostState?.loadGen !== gen) {
 			return;
 		}
