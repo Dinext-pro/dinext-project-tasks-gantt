@@ -276,7 +276,8 @@
 
 /* Library hardcodes #fff — break sticky label blob. */
 .task-tree-gantt-chart .gantt-container .current-upper {
-	background: transparent;
+	background: var(--g-header-background);
+	z-index: 1;
 }
 
 .task-tree-gantt-chart .popup-wrapper:empty {
@@ -359,8 +360,10 @@
 	--g-handle-color: #c6ccd2;
 }
 
+/* Opaque so sticky month labels do not bleed through each other on scroll. */
 [data-theme="dark"] .task-tree-gantt-chart .gantt-container .current-upper {
-	background: transparent;
+	background: var(--g-header-background);
+	z-index: 1;
 }
 
 [data-theme="dark"] .task-tree-gantt-chart .gantt-container .popup-wrapper {
