@@ -5,6 +5,10 @@ import { refreshPlanFact } from "./columns/plan_fact/limits.js";
 import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
 import { addRootTaskToolbarItem } from "./columns/subject/actions.js";
 import { getColumns } from "./columns/index.js";
+import {
+	createOnBeforeDeleteRows,
+	createOnDeleteRows,
+} from "./delete.js";
 import { nestRows, toTableRows } from "./rows.js";
 import {
 	changesAffectGantt,
@@ -342,12 +346,18 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			rowCheck: { enabled: true },
 			toolbar: {
 				persistKey: `task-tree-gantt:${projectKey}${taskKey}`,
+				// "rows" → delete (+ move when rowReorder on). Add Child stays domain item.
+				presets: ["history", "tree", "rows", "fullscreen"],
 				items: [addRootTaskToolbarItem(), bulkAssignToolbarItem()],
 			},
+			onBeforeDeleteRows: createOnBeforeDeleteRows(),
+			onDeleteRows: createOnDeleteRows(),
 			rowReorder: {
 				enabled: true,
 				// Full tree DnD: sibling reorder + reparent / nest (DinextTable).
 				allowTree: "reparent",
+				// Tree: gutter DnD only — toolbar ↑↓ nudge is sibling-flat and wrong here.
+				toolbarMove: false,
 			},
 			onRowReorder: createOnRowReorder(),
 			// Client source-tree sort (dinext_common sort layer) — not AG flat sort.
