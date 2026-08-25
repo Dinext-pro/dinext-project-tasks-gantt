@@ -9,7 +9,11 @@ import { expandAllRows } from "../table/index.js";
 import { collectVisibleRows, rowsToGanttTasks } from "./tasks.js";
 import { setupScrollSync, setupToolbarOffsetSync } from "./sync.js";
 import { clearGanttDateTimers, createGanttDateChangeHandler } from "./dates.js";
-import { setupHoverSync, taskIdFromAgRow } from "./hover.js";
+import { applyRelatedGanttPaint, setupHoverSync, taskIdFromAgRow } from "./hover.js";
+import {
+	applyRelationArrowGeometry,
+	bindRelationArrowGeometry,
+} from "./arrows.js";
 
 async function ensureAssets() {
 	await frappe.require([...GANTT_ASSETS]);
@@ -113,7 +117,24 @@ function buildOptions(holidays, state) {
 		on_date_change: createGanttDateChangeHandler(state, () =>
 			scheduleGanttRefresh(state)
 		),
+		on_view_change: () => reapplyGanttArrows(state),
 	};
+}
+
+function reapplyGanttArrows(state) {
+	if (!state?.ganttEl) {
+		return;
+	}
+	const run = () => {
+		applyRelationArrowGeometry(state.ganttEl, state.table);
+		applyRelatedGanttPaint(
+			state.ganttEl,
+			state.relatedTaskIds || [],
+			state.relatedOriginId
+		);
+	};
+	run();
+	requestAnimationFrame(run);
 }
 
 function bindSync(state) {
@@ -133,6 +154,10 @@ function bindSync(state) {
 		state.ganttToolbarSyncCleanup();
 		state.ganttToolbarSyncCleanup = null;
 	}
+	if (typeof state.ganttArrowGeomCleanup === "function") {
+		state.ganttArrowGeomCleanup();
+		state.ganttArrowGeomCleanup = null;
+	}
 	state.applyGanttOffset = null;
 	if (state.tableHost && state.ganttEl) {
 		state.ganttSyncCleanup = setupScrollSync(state.tableHost, state.ganttEl);
@@ -141,7 +166,8 @@ function bindSync(state) {
 			state.ganttEl,
 			state.table,
 			state.gantt,
-			selectedId
+			selectedId,
+			state
 		);
 		const offsetSync = setupToolbarOffsetSync(
 			state.tableHost,
@@ -150,6 +176,10 @@ function bindSync(state) {
 		);
 		state.ganttToolbarSyncCleanup = offsetSync;
 		state.applyGanttOffset = offsetSync.apply;
+		state.ganttArrowGeomCleanup = bindRelationArrowGeometry(
+			state.ganttEl,
+			() => reapplyGanttArrows(state)
+		);
 	}
 }
 
@@ -256,6 +286,10 @@ export function destroyGantt(state) {
 	if (typeof state.ganttToolbarSyncCleanup === "function") {
 		state.ganttToolbarSyncCleanup();
 		state.ganttToolbarSyncCleanup = null;
+	}
+	if (typeof state.ganttArrowGeomCleanup === "function") {
+		state.ganttArrowGeomCleanup();
+		state.ganttArrowGeomCleanup = null;
 	}
 	state.applyGanttOffset = null;
 	clearGanttDateTimers(state);

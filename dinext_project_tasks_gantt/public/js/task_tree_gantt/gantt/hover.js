@@ -2,9 +2,11 @@ const ROW_HOVER = "tree-gantt-row--hover";
 const BAR_HOVER = "tree-gantt-bar--hover";
 const ROW_SELECT = "tree-gantt-row--select";
 const BAR_SELECT = "tree-gantt-bar--select";
+const BAR_RELATED = "tree-gantt-bar--related";
+const ARROW_RELATED = "tree-gantt-arrow--related";
 
 const INTERACTIVE =
-	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize";
+	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .tree-gantt-relations";
 
 function clearTableClass(tableHost, className) {
 	tableHost
@@ -63,18 +65,71 @@ function highlightTableRow(tableHost, table, taskId, on, className) {
 	});
 }
 
-function highlightGanttBar(ganttEl, taskId, on, className) {
-	if (!ganttEl || !taskId) {
-		return;
-	}
+function highlightGanttBars(ganttEl, taskIds, className) {
 	clearGanttClass(ganttEl, className);
-	if (!on) {
+	if (!ganttEl || !taskIds?.length) {
 		return;
 	}
-	const bar = ganttEl.querySelector(
-		`.bar-wrapper[data-id="${CSS.escape(String(taskId))}"]`
-	);
-	bar?.classList.add(className);
+	for (const taskId of taskIds) {
+		const bar = ganttEl.querySelector(
+			`.bar-wrapper[data-id="${CSS.escape(String(taskId))}"]`
+		);
+		bar?.classList.add(className);
+	}
+}
+
+function stripRelatedGanttPaint(ganttEl) {
+	if (!ganttEl) {
+		return;
+	}
+	ganttEl.querySelectorAll(`.bar-wrapper.${BAR_RELATED}`).forEach((el) => {
+		el.classList.remove(BAR_RELATED);
+	});
+	ganttEl
+		.querySelectorAll(`path.${ARROW_RELATED}, g.arrow.${ARROW_RELATED}`)
+		.forEach((el) => {
+			el.classList.remove(ARROW_RELATED);
+		});
+}
+
+function paintRelatedArrows(ganttEl, taskIds, originId) {
+	if (!ganttEl) {
+		return;
+	}
+	ganttEl
+		.querySelectorAll(`path.${ARROW_RELATED}, g.arrow.${ARROW_RELATED}`)
+		.forEach((el) => {
+			el.classList.remove(ARROW_RELATED);
+		});
+	const ids = new Set((taskIds || []).map(String).filter(Boolean));
+	const origin = originId ? String(originId) : "";
+	if (!ids.size && !origin) {
+		return;
+	}
+	ganttEl.querySelectorAll("path[data-from][data-to]").forEach((path) => {
+		const from = path.getAttribute("data-from");
+		const to = path.getAttribute("data-to");
+		if (!from || !to) {
+			return;
+		}
+		const both = ids.has(from) && ids.has(to);
+		const originHop = origin && (from === origin || to === origin);
+		if (!both && !originHop) {
+			return;
+		}
+		path.classList.add(ARROW_RELATED);
+		path.closest("g.arrow")?.classList.add(ARROW_RELATED);
+	});
+}
+
+export function applyRelatedGanttPaint(ganttEl, taskIds, originId) {
+	stripRelatedGanttPaint(ganttEl);
+	highlightGanttBars(ganttEl, taskIds, BAR_RELATED);
+	paintRelatedArrows(ganttEl, taskIds, originId);
+}
+
+function highlightGanttBar(ganttEl, taskId, on, className) {
+	highlightGanttBars(ganttEl, on && taskId ? [taskId] : [], className);
 }
 
 const GANTT_COL_W = 25;
@@ -111,14 +166,37 @@ function syncGanttHScroll(ganttEl) {
 	}
 }
 
-function firstTimelineDate(ganttEl) {
-	const el = ganttEl?.querySelector?.(".lower-text[class*='date_']");
-	const cls = el && [...el.classList].find((c) => c.startsWith("date_"));
-	if (!cls) {
-		return "";
+function ganttColumnWidth(gantt, ganttEl) {
+	const fromCfg = Number(gantt?.config?.column_width);
+	if (fromCfg > 0) {
+		return fromCfg;
 	}
-	const raw = cls.slice(5).replace(/_/g, "-");
-	return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : "";
+	const box = ganttViewportEl(ganttEl);
+	const raw = box && getComputedStyle(box).getPropertyValue("--gv-column-width");
+	const css = parseFloat(raw);
+	return css > 0 ? css : GANTT_COL_W;
+}
+
+function ganttDateScrollLeft(gantt, ganttEl, day) {
+	if (typeof gantt?.set_scroll_position === "function") {
+		gantt.set_scroll_position(day);
+		return true;
+	}
+	const col = ganttColumnWidth(gantt, ganttEl);
+	const step = Number(gantt?.config?.step) || 1;
+	const start = gantt?.gantt_start;
+	if (start instanceof Date && col > 0 && step > 0) {
+		const days =
+			(Date.parse(`${day}T00:00:00`) - start.getTime()) / 86400000;
+		if (Number.isFinite(days)) {
+			ganttViewportEl(ganttEl)?.scrollTo?.({
+				left: Math.max(0, (days / step) * col - col / 6),
+				behavior: "smooth",
+			});
+			return true;
+		}
+	}
+	return false;
 }
 
 function scrollGanttToDate(gantt, ganttEl, date) {
@@ -127,23 +205,13 @@ function scrollGanttToDate(gantt, ganttEl, date) {
 	if (!box || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
 		return;
 	}
-	const origin = firstTimelineDate(ganttEl);
-	if (origin) {
-		const days = Math.round(
-			(Date.parse(`${day}T00:00:00`) - Date.parse(`${origin}T00:00:00`)) /
-				86400000
-		);
-		if (Number.isFinite(days)) {
-			lockGanttHProg(box);
-			box.scrollTo({
-				left: Math.max(0, days * GANTT_COL_W - GANTT_COL_W / 6),
-				behavior: "smooth",
-			});
-			return;
-		}
-	}
 	lockGanttHProg(box);
-	gantt?.set_scroll_position?.(day);
+	if (!ganttDateScrollLeft(gantt, ganttEl, day)) {
+		box.scrollTo({
+			left: 0,
+			behavior: "smooth",
+		});
+	}
 	requestAnimationFrame(() => syncGanttHScroll(ganttEl));
 }
 
@@ -161,9 +229,28 @@ function taskRowData(table, taskId) {
 	return data;
 }
 
-function scrollGanttToTask(gantt, ganttEl, table, taskId, dateHint) {
+export function scrollGanttToTask(gantt, ganttEl, table, taskId, dateHint) {
 	if (dateHint) {
 		scrollGanttToDate(gantt, ganttEl, dateHint);
+		return;
+	}
+	const box = ganttViewportEl(ganttEl);
+	const esc =
+		typeof CSS !== "undefined" && CSS.escape
+			? CSS.escape(String(taskId || ""))
+			: String(taskId || "").replace(/"/g, '\\"');
+	const bar = ganttEl?.querySelector?.(
+		`.bar-wrapper[data-id="${esc}"] rect.bar`
+	);
+	const x = Number(bar?.getAttribute?.("x"));
+	if (box && Number.isFinite(x) && x >= 0) {
+		const col = ganttColumnWidth(gantt, ganttEl);
+		lockGanttHProg(box);
+		box.scrollTo({
+			left: Math.max(0, x - col / 6),
+			behavior: "smooth",
+		});
+		requestAnimationFrame(() => syncGanttHScroll(ganttEl));
 		return;
 	}
 	const start = taskRowData(table, taskId)?.exp_start_date;
@@ -195,7 +282,7 @@ function dateFromTableCell(target) {
 	return row ? col : "";
 }
 
-export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) {
+export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, state) {
 	if (!tableHost || !ganttEl) {
 		return () => {};
 	}
@@ -222,6 +309,30 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		}
 		highlightTableRow(tableHost, table, taskId, true, ROW_SELECT);
 		highlightGanttBar(ganttEl, taskId, true, BAR_SELECT);
+	}
+
+	function paintRelatedBars() {
+		applyRelatedGanttPaint(
+			ganttEl,
+			state?.relatedTaskIds || [],
+			state?.relatedOriginId
+		);
+	}
+
+	function clearRelated() {
+		if (state) {
+			state.relatedTaskIds = [];
+			state.relatedOriginId = "";
+		}
+		const host = tableHost._treeGanttTable;
+		if (host) {
+			host.relatedTaskIds = new Set();
+		}
+		tableHost
+			.querySelectorAll?.(".ag-row.tree-gantt-row--related")
+			.forEach((el) => el.classList.remove("tree-gantt-row--related"));
+		table?.api?.redrawRows?.();
+		applyRelatedGanttPaint(ganttEl, [], "");
 	}
 
 	function setHover(taskId) {
@@ -276,6 +387,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		if (!id) {
 			return;
 		}
+		clearRelated();
 		setSelect(id);
 		const dateCol = dateFromTableCell(e.target);
 		const rowData = taskRowData(table, id);
@@ -294,6 +406,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		if (!id) {
 			return;
 		}
+		clearRelated();
 		setSelect(id);
 	}
 
@@ -307,6 +420,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 	if (initialSelect) {
 		setSelect(initialSelect);
 	}
+	paintRelatedBars();
 
 	return function cleanup() {
 		if (leaveTimer) {
@@ -322,5 +436,11 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		clearTableClass(tableHost, ROW_SELECT);
 		clearGanttClass(ganttEl, BAR_HOVER);
 		clearGanttClass(ganttEl, BAR_SELECT);
+		clearGanttClass(ganttEl, BAR_RELATED);
+		ganttEl
+			.querySelectorAll(`path.${ARROW_RELATED}, g.arrow.${ARROW_RELATED}`)
+			.forEach((el) => {
+				el.classList.remove(ARROW_RELATED);
+			});
 	};
 }

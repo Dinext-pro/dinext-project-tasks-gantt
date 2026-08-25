@@ -6,9 +6,73 @@ import {
 	scheduleGanttRefresh,
 	wireTreeGanttHooks,
 } from "./gantt/index.js";
+import { applyRelatedGanttPaint, scrollGanttToTask } from "./gantt/hover.js";
 import { buildShell, setupResize } from "./shell/layout.js";
 import { setColumnContext } from "./table/columns/context.js";
-import { loadTable } from "./table/index.js";
+import { loadTable, revealRelatedTasks } from "./table/index.js";
+
+function stripRelatedRowClass(state) {
+	state.tableHost
+		?.querySelectorAll?.(".ag-row.tree-gantt-row--related")
+		.forEach((el) => el.classList.remove("tree-gantt-row--related"));
+}
+
+function clearRelatedIds(state) {
+	state.relatedTaskIds = [];
+	state.relatedOriginId = "";
+	const host = state.tableHost?._treeGanttTable;
+	if (host) {
+		host.relatedTaskIds = new Set();
+	}
+	stripRelatedRowClass(state);
+	state.table?.api?.redrawRows?.();
+	applyRelatedGanttPaint(state.ganttEl, [], "");
+}
+
+function setRelatedIds(state, ids, originId) {
+	stripRelatedRowClass(state);
+	const next = [...new Set((ids || []).map(String).filter(Boolean))];
+	state.relatedTaskIds = next;
+	state.relatedOriginId = originId ? String(originId) : "";
+	const host = state.tableHost?._treeGanttTable;
+	if (host) {
+		host.relatedTaskIds = new Set(next);
+	}
+	state.table?.api?.redrawRows?.();
+	applyRelatedGanttPaint(state.ganttEl, next, state.relatedOriginId);
+}
+
+async function focusRelated(state, row) {
+	if (!row?.id || !state.table) {
+		return;
+	}
+	try {
+		clearRelatedIds(state);
+		const result = await revealRelatedTasks(
+			state.table,
+			state.getArgs,
+			state.tableHost,
+			row.id
+		);
+		if (!result) {
+			return;
+		}
+		setRelatedIds(state, result.related, row.id);
+		if (result.treeChanged) {
+			await ensureGantt(state);
+		} else {
+			applyRelatedGanttPaint(
+				state.ganttEl,
+				result.related,
+				row.id
+			);
+		}
+		scrollGanttToTask(state.gantt, state.ganttEl, state.table, row.id);
+	} catch (e) {
+		console.error("[task_tree_gantt] relations focus", e);
+		frappe.msgprint(e.message || String(e));
+	}
+}
 
 export async function mount({ page }) {
 	page.set_title(DEFAULT_TITLE);
@@ -21,9 +85,12 @@ export async function mount({ page }) {
 		table: null,
 		gantt: null,
 		fullscreenShell: null,
+		relatedTaskIds: [],
+		relatedOriginId: "",
 	};
 
 	const reload = async (opts = {}) => {
+		clearRelatedIds(state);
 		state.table = await loadTable(state.tableHost, state.getArgs, {
 			// Coalesced — avoid parallel ensureGantt with mount await below.
 			onTreeChange: () => scheduleGanttRefresh(state),
@@ -31,6 +98,7 @@ export async function mount({ page }) {
 			// Client sort reorders source — gantt bars must follow row order.
 			onSortChange: () => scheduleGanttRefresh(state),
 			onFilterChange: (ctx) => {
+				clearRelatedIds(state);
 				state.applyGanttOffset?.();
 				const json = JSON.stringify(ctx?.filter || {});
 				if (json !== state._ganttFilterJson) {
@@ -66,6 +134,9 @@ export async function mount({ page }) {
 		page,
 		onAssignSaved: refreshGantt,
 		onGanttRefresh: refreshGantt,
+		onRelationsFocus: ({ row }) => {
+			void focusRelated(state, row);
+		},
 		// Subject toolbar Add/Delete/Multiple → full reload.
 		onTreeMutate: (opts) => {
 			void reload(opts);
