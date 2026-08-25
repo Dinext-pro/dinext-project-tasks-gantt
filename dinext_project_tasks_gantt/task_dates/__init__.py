@@ -1,1 +1,1 @@
-"""Слой 2: Task act_* → exp_* + parent cascade + Depend_Task_Date_Check."""
+"""Слой 2: child inherit + act/exp + preventive (ISS-2024-02939) + Depend."""

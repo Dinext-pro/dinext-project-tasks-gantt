@@ -1,12 +1,12 @@
 /**
  * Column «Связи» / Relations:
  * - display: subject[FS] (+N−1)
+ * - click → expand ancestors + highlight related rows/bars
  * - dblclick → popover mini-table (predecessor, type, delete)
- * - single click → selection / fill-handle
  */
 import { el } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
-import { getColumnsPage } from "../context.js";
+import { getColumnsPage, getOnRelationsFocus } from "../context.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { shortRelationType } from "./options.js";
 import {
@@ -93,7 +93,15 @@ function commitRelationsChange(params, row, nextRelations) {
 	return applied > 0;
 }
 
+function cancelRelationsFocus(wrap) {
+	if (wrap?._relFocusTimer) {
+		window.clearTimeout(wrap._relFocusTimer);
+		wrap._relFocusTimer = 0;
+	}
+}
+
 function openEditor(row, params, wrap) {
+	cancelRelationsFocus(wrap);
 	const page = getColumnsPage();
 	const project = page?.fields_dict?.project?.get_value?.() || null;
 	openRelationsPopover({
@@ -133,9 +141,12 @@ export function renderRelations(params) {
 			return line;
 		})
 		.filter(Boolean);
+	const tipHint = fieldCanEdit(row, "relations")
+		? `${__("Click to highlight related tasks")}\n${__("Double-click to edit")}`
+		: __("Click to highlight related tasks");
 	wrap.title = tipLines.length
-		? `${tipLines.join("\n\n")}\n${__("Double-click to edit")}`
-		: __("Double-click to edit");
+		? `${tipLines.join("\n\n")}\n${tipHint}`
+		: tipHint;
 
 	if (!rels.length) {
 		wrap.classList.add("text-muted");
@@ -149,9 +160,25 @@ export function renderRelations(params) {
 		stampRelationsOnRow(row, rels);
 	}
 
+	wrap.classList.add("tree-gantt-relations--clickable");
+	wrap.addEventListener("click", (ev) => {
+		if (ev.target?.closest?.(".dinext-table-fill-handle")) {
+			return;
+		}
+		ev.stopPropagation();
+		cancelRelationsFocus(wrap);
+		// Wait past dblclick so edit does not also fetch/expand the tree.
+		wrap._relFocusTimer = window.setTimeout(() => {
+			wrap._relFocusTimer = 0;
+			if (!wrap.isConnected) {
+				return;
+			}
+			getOnRelationsFocus()?.({ row, params });
+		}, 220);
+	});
+
 	if (fieldCanEdit(row, "relations")) {
 		wrap.classList.add("tree-gantt-relations--editable");
-		// Single click → selection / fill-handle; dblclick → popover.
 		wrap.addEventListener("dblclick", (ev) => {
 			ev.preventDefault();
 			ev.stopPropagation();
