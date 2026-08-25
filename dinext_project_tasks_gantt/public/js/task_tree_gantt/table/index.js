@@ -9,6 +9,11 @@ import {
 	createOnBeforeDeleteRows,
 	createOnDeleteRows,
 } from "./delete.js";
+import {
+	ancestorExpandIds,
+	collectPathById,
+	collectRelatedTaskIds,
+} from "./related.js";
 import { nestRows, toTableRows } from "./rows.js";
 import {
 	changesAffectGantt,
@@ -392,6 +397,16 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				// Core FilterMixin also sets 28; keep explicit so search ≠ 76px header.
 				floatingFiltersHeight: 28,
 				tooltipShowDelay: 0,
+				getRowClass: (params) => {
+					const ids = getState(container).relatedTaskIds;
+					if (
+						ids?.has?.(String(params.data?.id || "")) &&
+						params.data?.id
+					) {
+						return "tree-gantt-row--related";
+					}
+					return undefined;
+				},
 			},
 			...(fullscreen ? { fullscreen } : {}),
 			onExpandRow: createExpandHandler(getArgs, onTreeChange),
@@ -460,4 +475,77 @@ export async function expandAllRows(table, getArgs, container, _expandUi) {
 	} finally {
 		frappe.dom.unfreeze();
 	}
+}
+
+/**
+ * Reveal related tasks: one `all_tasks=1` the first time, then local expand only.
+ * @returns {{ related: string[], treeChanged: boolean } | null}
+ */
+export async function revealRelatedTasks(table, getArgs, container, originId) {
+	const args = readArgs(getArgs);
+	if (!args.project || !table || !originId) {
+		return null;
+	}
+	const hostState = container?._treeGanttTable;
+	const gen = hostState?.loadGen;
+
+	let fetched = false;
+	let nested = hostState?.treeFullyLoaded ? table.sourceData : null;
+	if (!Array.isArray(nested) || !nested.length) {
+		frappe.dom.freeze(__("Loading…"));
+		try {
+			nested = await fetchFullTreeRows(getArgs);
+			fetched = true;
+			if (gen != null && hostState?.loadGen !== gen) {
+				return null;
+			}
+			if (hostState) {
+				hostState.treeFullyLoaded = true;
+			}
+		} finally {
+			frappe.dom.unfreeze();
+		}
+	}
+
+	const related = collectRelatedTaskIds(nested, originId);
+	const pathById = collectPathById(nested);
+	const ancestors = [];
+	for (const id of related) {
+		const path = pathById.get(String(id));
+		if (path) {
+			ancestors.push(...ancestorExpandIds(path));
+		}
+	}
+	const needed = sortExpandedIds(ancestors);
+
+	if (hostState) {
+		hostState.relatedTaskIds = new Set(related.map(String));
+	}
+
+	if (fetched) {
+		seedExpandedIds(table, snapshotExpandedIds(table, needed));
+		table.refresh?.(nested);
+		table.refreshAllTreeToggles?.();
+		if (gen != null && hostState?.loadGen !== gen) {
+			return null;
+		}
+		scheduleSideDataRefresh(getArgs, table);
+		return { related, treeChanged: true };
+	}
+
+	const missing = needed.filter((id) => !table.expandedIds?.has(String(id)));
+	for (const id of missing) {
+		if (gen != null && hostState?.loadGen !== gen) {
+			return null;
+		}
+		try {
+			await table.expandRow?.(id);
+		} catch (e) {
+			console.error("[task_tree_gantt] related expand", id, e);
+		}
+	}
+	if (missing.length) {
+		table.refreshAllTreeToggles?.();
+	}
+	return { related, treeChanged: missing.length > 0 };
 }

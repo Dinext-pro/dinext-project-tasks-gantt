@@ -12,6 +12,7 @@ from unittest.mock import patch
 import frappe
 
 from dinext_project_tasks_gantt.task_dates.actual import sync_task_actual_dates
+from dinext_project_tasks_gantt.task_dates.child_inherit import inherit_child_forecast_dates
 from dinext_project_tasks_gantt.task_dates.depend import validate_depend_task_dates
 
 
@@ -145,6 +146,199 @@ class TestDependTaskDates(unittest.TestCase):
 			return_value=[dep],
 		):
 			validate_depend_task_dates(doc)  # no throw
+
+
+class TestChildForecastInherit(unittest.TestCase):
+	TODAY = "2026-08-25"
+
+	def _pair(self, parent_start, parent_end):
+		start, end = inherit_child_forecast_dates(parent_start, parent_end, self.TODAY)
+		return str(start) if start else None, str(end) if end else None
+
+	def test_default_start_today_end_parent(self):
+		self.assertEqual(self._pair("2026-08-01", "2026-08-31"), ("2026-08-25", "2026-08-31"))
+
+	def test_parent_start_past_end_today(self):
+		self.assertEqual(self._pair("2026-08-01", "2026-08-25"), ("2026-08-25", "2026-08-25"))
+
+	def test_parent_both_in_past(self):
+		self.assertEqual(self._pair("2026-07-01", "2026-07-31"), ("2026-07-01", "2026-07-31"))
+
+	def test_parent_start_in_future(self):
+		self.assertEqual(self._pair("2026-09-01", "2026-09-30"), ("2026-09-01", "2026-09-30"))
+
+	def test_parent_start_today(self):
+		self.assertEqual(self._pair("2026-08-25", "2026-08-31"), ("2026-08-25", "2026-08-31"))
+
+	def test_parent_start_missing(self):
+		self.assertEqual(self._pair(None, "2026-08-31"), ("2026-08-25", "2026-08-31"))
+
+	def test_parent_end_missing_start_past(self):
+		self.assertEqual(self._pair("2026-08-01", None), ("2026-08-25", None))
+
+	def test_parent_end_missing_start_future(self):
+		self.assertEqual(self._pair("2026-09-01", None), ("2026-09-01", None))
+
+	def test_parent_dates_missing(self):
+		self.assertEqual(self._pair(None, None), ("2026-08-25", None))
+
+
+class TestApplyChildForecastDefaults(unittest.TestCase):
+	def test_insert_rewrites_copied_parent_window(self):
+		from dinext_project_tasks_gantt.task_dates.child_inherit import (
+			apply_child_forecast_defaults,
+		)
+
+		parent = SimpleNamespace(
+			exp_start_date="2026-03-28",
+			exp_end_date="2026-09-01",
+		)
+		doc = _task(
+			parent_task="TASK-P",
+			exp_start_date="2026-03-28",
+			exp_end_date="2026-09-01",
+		)
+		doc.is_new = lambda: True
+		with patch(
+			"dinext_project_tasks_gantt.task_dates.child_inherit.frappe.db.get_value",
+			return_value=parent,
+		), patch(
+			"dinext_project_tasks_gantt.task_dates.child_inherit.frappe.utils.today",
+			return_value="2026-08-25",
+		):
+			apply_child_forecast_defaults(doc)
+		self.assertEqual(str(doc.exp_start_date), "2026-08-25")
+		self.assertEqual(str(doc.exp_end_date), "2026-09-01")
+
+	def test_keeps_user_dates_different_from_parent(self):
+		from dinext_project_tasks_gantt.task_dates.child_inherit import (
+			apply_child_forecast_defaults,
+		)
+
+		parent = SimpleNamespace(
+			exp_start_date="2026-03-28",
+			exp_end_date="2026-09-01",
+		)
+		doc = _task(
+			parent_task="TASK-P",
+			exp_start_date="2026-08-10",
+			exp_end_date="2026-08-20",
+		)
+		doc.is_new = lambda: True
+		with patch(
+			"dinext_project_tasks_gantt.task_dates.child_inherit.frappe.db.get_value",
+			return_value=parent,
+		):
+			apply_child_forecast_defaults(doc)
+		self.assertEqual(str(doc.exp_start_date), "2026-08-10")
+		self.assertEqual(str(doc.exp_end_date), "2026-08-20")
+
+
+class TestTreeviewPreventive(unittest.TestCase):
+	def test_hours_to_days(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import hours_to_days
+
+		self.assertEqual(hours_to_days(0), 1)
+		self.assertEqual(hours_to_days(8), 1)
+		self.assertEqual(hours_to_days(9), 2)
+		self.assertEqual(hours_to_days(None), 1)
+
+	def test_duration_both_empty(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import (
+			apply_duration_date_defaults,
+		)
+
+		doc = _task(exp_start_date=None, exp_end_date=None, expected_time=8)
+		with patch(
+			"dinext_project_tasks_gantt.task_dates.preventive.today",
+			return_value="2026-08-25",
+		):
+			apply_duration_date_defaults(doc)
+		self.assertEqual(str(doc.exp_start_date), "2026-08-25")
+		self.assertEqual(str(doc.exp_end_date), "2026-08-26")
+
+	def test_duration_only_end(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import (
+			apply_duration_date_defaults,
+		)
+
+		doc = _task(exp_start_date=None, exp_end_date="2026-08-31", expected_time=8)
+		apply_duration_date_defaults(doc)
+		self.assertEqual(str(doc.exp_start_date), "2026-08-30")
+
+	def test_duration_only_start(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import (
+			apply_duration_date_defaults,
+		)
+
+		doc = _task(exp_start_date="2026-08-25", exp_end_date=None, expected_time=8)
+		apply_duration_date_defaults(doc)
+		self.assertEqual(str(doc.exp_end_date), "2026-08-26")
+
+	def test_milestone_collapses_to_end(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import apply_milestone_dates
+
+		doc = _task(
+			is_milestone=1,
+			exp_start_date="2026-08-01",
+			exp_end_date="2026-08-31",
+		)
+		apply_milestone_dates(doc)
+		self.assertEqual(str(doc.exp_start_date), "2026-08-31")
+		self.assertEqual(str(doc.exp_end_date), "2026-08-31")
+
+	def test_project_from_parent(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import (
+			apply_project_from_parent,
+		)
+
+		doc = _task(parent_task="TASK-P", project=None)
+		with patch(
+			"dinext_project_tasks_gantt.task_dates.preventive.frappe.db.get_value",
+			return_value="PROJ-1",
+		):
+			apply_project_from_parent(doc)
+		self.assertEqual(doc.project, "PROJ-1")
+
+	def test_confirm_non_owner_goes_pending_review(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import (
+			apply_completed_confirm,
+		)
+
+		doc = _task(
+			status="Completed",
+			confirm=1,
+			owner="owner@example.com",
+		)
+		with patch(
+			"dinext_project_tasks_gantt.task_dates.preventive.frappe.session"
+		) as session, patch(
+			"dinext_project_tasks_gantt.task_dates.preventive.get_users_with_role",
+			return_value=["admin@example.com"],
+		):
+			session.user = "other@example.com"
+			apply_completed_confirm(doc)
+		self.assertEqual(doc.status, "Pending Review")
+
+	def test_confirm_owner_and_manager_keeps_completed(self):
+		from dinext_project_tasks_gantt.task_dates.preventive import (
+			apply_completed_confirm,
+		)
+
+		doc = _task(
+			status="Completed",
+			confirm=1,
+			owner="owner@example.com",
+		)
+		with patch(
+			"dinext_project_tasks_gantt.task_dates.preventive.frappe.session"
+		) as session, patch(
+			"dinext_project_tasks_gantt.task_dates.preventive.get_users_with_role",
+			return_value=["owner@example.com"],
+		):
+			session.user = "owner@example.com"
+			apply_completed_confirm(doc)
+		self.assertEqual(doc.status, "Completed")
 
 
 if __name__ == "__main__":
