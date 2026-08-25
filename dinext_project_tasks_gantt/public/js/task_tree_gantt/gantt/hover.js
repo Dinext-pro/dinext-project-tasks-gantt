@@ -2,9 +2,11 @@ const ROW_HOVER = "tree-gantt-row--hover";
 const BAR_HOVER = "tree-gantt-bar--hover";
 const ROW_SELECT = "tree-gantt-row--select";
 const BAR_SELECT = "tree-gantt-bar--select";
+const BAR_RELATED = "tree-gantt-bar--related";
+const ARROW_RELATED = "tree-gantt-arrow--related";
 
 const INTERACTIVE =
-	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize";
+	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .tree-gantt-relations";
 
 function clearTableClass(tableHost, className) {
 	tableHost
@@ -63,18 +65,46 @@ function highlightTableRow(tableHost, table, taskId, on, className) {
 	});
 }
 
-function highlightGanttBar(ganttEl, taskId, on, className) {
-	if (!ganttEl || !taskId) {
-		return;
-	}
+function highlightGanttBars(ganttEl, taskIds, className) {
 	clearGanttClass(ganttEl, className);
-	if (!on) {
+	if (!ganttEl || !taskIds?.length) {
 		return;
 	}
-	const bar = ganttEl.querySelector(
-		`.bar-wrapper[data-id="${CSS.escape(String(taskId))}"]`
-	);
-	bar?.classList.add(className);
+	for (const taskId of taskIds) {
+		const bar = ganttEl.querySelector(
+			`.bar-wrapper[data-id="${CSS.escape(String(taskId))}"]`
+		);
+		bar?.classList.add(className);
+	}
+}
+
+function paintRelatedArrows(ganttEl, taskIds) {
+	if (!ganttEl) {
+		return;
+	}
+	ganttEl.querySelectorAll(`.${ARROW_RELATED}`).forEach((el) => {
+		el.classList.remove(ARROW_RELATED);
+	});
+	const ids = new Set((taskIds || []).map(String).filter(Boolean));
+	if (!ids.size) {
+		return;
+	}
+	ganttEl.querySelectorAll("path[data-from][data-to]").forEach((path) => {
+		const from = path.getAttribute("data-from");
+		const to = path.getAttribute("data-to");
+		if (from && to && ids.has(from) && ids.has(to)) {
+			path.classList.add(ARROW_RELATED);
+		}
+	});
+}
+
+export function applyRelatedGanttPaint(ganttEl, taskIds) {
+	highlightGanttBars(ganttEl, taskIds, BAR_RELATED);
+	paintRelatedArrows(ganttEl, taskIds);
+}
+
+function highlightGanttBar(ganttEl, taskId, on, className) {
+	highlightGanttBars(ganttEl, on && taskId ? [taskId] : [], className);
 }
 
 const GANTT_COL_W = 25;
@@ -161,7 +191,7 @@ function taskRowData(table, taskId) {
 	return data;
 }
 
-function scrollGanttToTask(gantt, ganttEl, table, taskId, dateHint) {
+export function scrollGanttToTask(gantt, ganttEl, table, taskId, dateHint) {
 	if (dateHint) {
 		scrollGanttToDate(gantt, ganttEl, dateHint);
 		return;
@@ -195,7 +225,7 @@ function dateFromTableCell(target) {
 	return row ? col : "";
 }
 
-export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) {
+export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, state) {
 	if (!tableHost || !ganttEl) {
 		return () => {};
 	}
@@ -222,6 +252,22 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		}
 		highlightTableRow(tableHost, table, taskId, true, ROW_SELECT);
 		highlightGanttBar(ganttEl, taskId, true, BAR_SELECT);
+	}
+
+	function paintRelatedBars() {
+		applyRelatedGanttPaint(ganttEl, state?.relatedTaskIds || []);
+	}
+
+	function clearRelated() {
+		if (state) {
+			state.relatedTaskIds = [];
+		}
+		const host = tableHost._treeGanttTable;
+		if (host) {
+			host.relatedTaskIds = new Set();
+		}
+		table?.api?.redrawRows?.();
+		applyRelatedGanttPaint(ganttEl, []);
 	}
 
 	function setHover(taskId) {
@@ -276,6 +322,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		if (!id) {
 			return;
 		}
+		clearRelated();
 		setSelect(id);
 		const dateCol = dateFromTableCell(e.target);
 		const rowData = taskRowData(table, id);
@@ -294,6 +341,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		if (!id) {
 			return;
 		}
+		clearRelated();
 		setSelect(id);
 	}
 
@@ -307,6 +355,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 	if (initialSelect) {
 		setSelect(initialSelect);
 	}
+	paintRelatedBars();
 
 	return function cleanup() {
 		if (leaveTimer) {
@@ -322,5 +371,9 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect) 
 		clearTableClass(tableHost, ROW_SELECT);
 		clearGanttClass(ganttEl, BAR_HOVER);
 		clearGanttClass(ganttEl, BAR_SELECT);
+		clearGanttClass(ganttEl, BAR_RELATED);
+		ganttEl.querySelectorAll(`.${ARROW_RELATED}`).forEach((el) => {
+			el.classList.remove(ARROW_RELATED);
+		});
 	};
 }

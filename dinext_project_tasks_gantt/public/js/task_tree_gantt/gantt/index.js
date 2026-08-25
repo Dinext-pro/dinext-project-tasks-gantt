@@ -141,7 +141,8 @@ function bindSync(state) {
 			state.ganttEl,
 			state.table,
 			state.gantt,
-			selectedId
+			selectedId,
+			state
 		);
 		const offsetSync = setupToolbarOffsetSync(
 			state.tableHost,

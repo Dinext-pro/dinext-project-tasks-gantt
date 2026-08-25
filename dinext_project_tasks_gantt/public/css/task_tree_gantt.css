@@ -314,6 +314,13 @@
 	stroke-width: 0.5;
 }
 
+.task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--related,
+.task-tree-gantt-chart .gantt path.tree-gantt-arrow--related {
+	stroke: #39ff14 !important;
+	stroke-width: 2.5;
+	filter: drop-shadow(0 0 3px #39ff14);
+}
+
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover,
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select {
 	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
@@ -323,8 +330,24 @@
 	background-color: color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select.tree-gantt-row--related {
+	background-color: color-mix(in srgb, #39ff14 40%, transparent) !important;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--related .ag-cell {
+	color: #111;
+}
+
 .task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--select .bar {
 	outline: 2px solid var(--border-primary, var(--primary)) !important;
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--related .bar {
+	outline: 3px solid #39ff14 !important;
+	filter: drop-shadow(0 0 4px #39ff14);
 }
 
 /*
@@ -574,6 +597,7 @@ body.task-tree-gantt-resizing {
 	cursor: pointer;
 }
 
+.tree-gantt-relations--clickable,
 .tree-gantt-relations--editable {
 	cursor: pointer;
 	overflow: hidden;
