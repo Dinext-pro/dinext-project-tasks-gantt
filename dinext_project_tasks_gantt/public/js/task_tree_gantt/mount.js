@@ -11,25 +11,35 @@ import { buildShell, setupResize } from "./shell/layout.js";
 import { setColumnContext } from "./table/columns/context.js";
 import { loadTable, revealRelatedTasks } from "./table/index.js";
 
+function stripRelatedRowClass(state) {
+	state.tableHost
+		?.querySelectorAll?.(".ag-row.tree-gantt-row--related")
+		.forEach((el) => el.classList.remove("tree-gantt-row--related"));
+}
+
 function clearRelatedIds(state) {
 	state.relatedTaskIds = [];
+	state.relatedOriginId = "";
 	const host = state.tableHost?._treeGanttTable;
 	if (host) {
 		host.relatedTaskIds = new Set();
 	}
+	stripRelatedRowClass(state);
 	state.table?.api?.redrawRows?.();
-	applyRelatedGanttPaint(state.ganttEl, []);
+	applyRelatedGanttPaint(state.ganttEl, [], "");
 }
 
-function setRelatedIds(state, ids) {
+function setRelatedIds(state, ids, originId) {
+	stripRelatedRowClass(state);
 	const next = [...new Set((ids || []).map(String).filter(Boolean))];
 	state.relatedTaskIds = next;
+	state.relatedOriginId = originId ? String(originId) : "";
 	const host = state.tableHost?._treeGanttTable;
 	if (host) {
 		host.relatedTaskIds = new Set(next);
 	}
 	state.table?.api?.redrawRows?.();
-	applyRelatedGanttPaint(state.ganttEl, next);
+	applyRelatedGanttPaint(state.ganttEl, next, state.relatedOriginId);
 }
 
 async function focusRelated(state, row) {
@@ -37,6 +47,7 @@ async function focusRelated(state, row) {
 		return;
 	}
 	try {
+		clearRelatedIds(state);
 		const result = await revealRelatedTasks(
 			state.table,
 			state.getArgs,
@@ -46,11 +57,15 @@ async function focusRelated(state, row) {
 		if (!result) {
 			return;
 		}
-		setRelatedIds(state, result.related);
+		setRelatedIds(state, result.related, row.id);
 		if (result.treeChanged) {
 			await ensureGantt(state);
 		} else {
-			applyRelatedGanttPaint(state.ganttEl, result.related);
+			applyRelatedGanttPaint(
+				state.ganttEl,
+				result.related,
+				row.id
+			);
 		}
 		scrollGanttToTask(state.gantt, state.ganttEl, state.table, row.id);
 	} catch (e) {
@@ -71,6 +86,7 @@ export async function mount({ page }) {
 		gantt: null,
 		fullscreenShell: null,
 		relatedTaskIds: [],
+		relatedOriginId: "",
 	};
 
 	const reload = async (opts = {}) => {
