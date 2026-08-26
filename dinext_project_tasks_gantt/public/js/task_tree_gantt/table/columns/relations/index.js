@@ -93,15 +93,12 @@ function commitRelationsChange(params, row, nextRelations) {
 	return applied > 0;
 }
 
-function cancelRelationsFocus(wrap) {
-	if (wrap?._relFocusTimer) {
-		window.clearTimeout(wrap._relFocusTimer);
-		wrap._relFocusTimer = 0;
-	}
+function cancelRelationsFocus() {
+	getOnRelationsFocus()?.({ cancel: true });
 }
 
 function openEditor(row, params, wrap) {
-	cancelRelationsFocus(wrap);
+	cancelRelationsFocus();
 	const page = getColumnsPage();
 	const project = page?.fields_dict?.project?.get_value?.() || null;
 	openRelationsPopover({
@@ -165,16 +162,12 @@ export function renderRelations(params) {
 		if (ev.target?.closest?.(".dinext-table-fill-handle")) {
 			return;
 		}
-		ev.stopPropagation();
-		cancelRelationsFocus(wrap);
-		// Wait past dblclick so edit does not also fetch/expand the tree.
-		wrap._relFocusTimer = window.setTimeout(() => {
-			wrap._relFocusTimer = 0;
-			if (!wrap.isConnected) {
-				return;
-			}
-			getOnRelationsFocus()?.({ row, params });
-		}, 220);
+		// detail>1 = second click of a dblclick. Edit owns that gesture.
+		if (ev.detail > 1) {
+			cancelRelationsFocus();
+			return;
+		}
+		getOnRelationsFocus()?.({ row, params });
 	});
 
 	if (fieldCanEdit(row, "relations")) {
