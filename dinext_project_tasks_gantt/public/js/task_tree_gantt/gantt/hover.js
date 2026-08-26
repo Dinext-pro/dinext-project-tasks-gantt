@@ -2,11 +2,12 @@ const ROW_HOVER = "tree-gantt-row--hover";
 const BAR_HOVER = "tree-gantt-bar--hover";
 const ROW_SELECT = "tree-gantt-row--select";
 const BAR_SELECT = "tree-gantt-bar--select";
+const ROW_RELATED = "tree-gantt-row--related";
 const BAR_RELATED = "tree-gantt-bar--related";
 const ARROW_RELATED = "tree-gantt-arrow--related";
 
 const INTERACTIVE =
-	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .tree-gantt-relations";
+	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .dinext-table-fill-handle";
 
 function clearTableClass(tableHost, className) {
 	tableHost
@@ -34,12 +35,8 @@ export function taskIdFromAgRow(table, rowEl) {
 	return parts[parts.length - 1] || pathId;
 }
 
-function highlightTableRow(tableHost, table, taskId, on, className) {
-	if (!tableHost) {
-		return;
-	}
-	clearTableClass(tableHost, className);
-	if (!on || !taskId) {
+function addTableRowClass(tableHost, table, taskId, className) {
+	if (!tableHost || !taskId) {
 		return;
 	}
 	const id = String(taskId);
@@ -63,6 +60,16 @@ function highlightTableRow(tableHost, table, taskId, on, className) {
 			row.classList.add(className);
 		}
 	});
+}
+
+function highlightTableRow(tableHost, table, taskId, on, className) {
+	if (!tableHost) {
+		return;
+	}
+	clearTableClass(tableHost, className);
+	if (on && taskId) {
+		addTableRowClass(tableHost, table, taskId, className);
+	}
 }
 
 function highlightGanttBars(ganttEl, taskIds, className) {
@@ -126,6 +133,17 @@ export function applyRelatedGanttPaint(ganttEl, taskIds, originId) {
 	stripRelatedGanttPaint(ganttEl);
 	highlightGanttBars(ganttEl, taskIds, BAR_RELATED);
 	paintRelatedArrows(ganttEl, taskIds, originId);
+}
+
+/** CSS overlay only — never redrawRows (that remounts cells and kills click/edit). */
+export function paintRelatedRows(tableHost, table, taskIds) {
+	if (!tableHost) {
+		return;
+	}
+	clearTableClass(tableHost, ROW_RELATED);
+	for (const taskId of taskIds || []) {
+		addTableRowClass(tableHost, table, taskId, ROW_RELATED);
+	}
 }
 
 function highlightGanttBar(ganttEl, taskId, on, className) {
@@ -320,18 +338,26 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 	}
 
 	function clearRelated() {
+		const host = tableHost._treeGanttTable;
+		const hadPaint =
+			!!(state && (state.relatedTaskIds.length > 0 || state.relatedOriginId)) ||
+			host?.relatedTaskIds?.size > 0;
+		if (!hadPaint) {
+			return;
+		}
 		if (state) {
+			state.relatedFocusGen = (state.relatedFocusGen || 0) + 1;
+			if (state.relatedRevealTimer) {
+				clearTimeout(state.relatedRevealTimer);
+				state.relatedRevealTimer = 0;
+			}
 			state.relatedTaskIds = [];
 			state.relatedOriginId = "";
 		}
-		const host = tableHost._treeGanttTable;
 		if (host) {
 			host.relatedTaskIds = new Set();
 		}
-		tableHost
-			.querySelectorAll?.(".ag-row.tree-gantt-row--related")
-			.forEach((el) => el.classList.remove("tree-gantt-row--related"));
-		table?.api?.redrawRows?.();
+		clearTableClass(tableHost, ROW_RELATED);
 		applyRelatedGanttPaint(ganttEl, [], "");
 	}
 
@@ -387,8 +413,17 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		if (!id) {
 			return;
 		}
-		clearRelated();
+		const onRelations = !!e.target?.closest?.(".tree-gantt-relations");
+		if (!onRelations) {
+			clearRelated();
+		}
+		const already = lastSelect === id;
 		setSelect(id);
+		// Re-click of the focused row starts click-when-active edit.
+		// Scrolling here steals focus and kills the editor.
+		if (already) {
+			return;
+		}
 		const dateCol = dateFromTableCell(e.target);
 		const rowData = taskRowData(table, id);
 		const hint = dateCol && rowData ? rowData[dateCol] : null;
