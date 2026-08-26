@@ -6,10 +6,14 @@ import {
 	scheduleGanttRefresh,
 	wireTreeGanttHooks,
 } from "./gantt/index.js";
-import { applyRelatedGanttPaint, scrollGanttToTask } from "./gantt/hover.js";
+import { applyRelatedGanttPaint, paintRelatedRows, scrollGanttToTask } from "./gantt/hover.js";
 import { buildShell, setupResize } from "./shell/layout.js";
 import { setColumnContext } from "./table/columns/context.js";
 import { loadTable, revealRelatedTasks } from "./table/index.js";
+import { collectRelatedTaskIds } from "./table/related.js";
+
+/** After this window a click is not part of a dblclick — safe to expand/fetch. */
+const RELATED_REVEAL_MS = 400;
 
 function stripRelatedRowClass(state) {
 	state.tableHost
@@ -17,7 +21,17 @@ function stripRelatedRowClass(state) {
 		.forEach((el) => el.classList.remove("tree-gantt-row--related"));
 }
 
+function cancelRelatedReveal(state) {
+	if (state.relatedRevealTimer) {
+		clearTimeout(state.relatedRevealTimer);
+		state.relatedRevealTimer = 0;
+	}
+	state.relatedFocusGen = (state.relatedFocusGen || 0) + 1;
+}
+
+// Related highlight is CSS only. redrawRows remounts cells and kills click/edit.
 function clearRelatedIds(state) {
+	cancelRelatedReveal(state);
 	state.relatedTaskIds = [];
 	state.relatedOriginId = "";
 	const host = state.tableHost?._treeGanttTable;
@@ -25,12 +39,10 @@ function clearRelatedIds(state) {
 		host.relatedTaskIds = new Set();
 	}
 	stripRelatedRowClass(state);
-	state.table?.api?.redrawRows?.();
 	applyRelatedGanttPaint(state.ganttEl, [], "");
 }
 
 function setRelatedIds(state, ids, originId) {
-	stripRelatedRowClass(state);
 	const next = [...new Set((ids || []).map(String).filter(Boolean))];
 	state.relatedTaskIds = next;
 	state.relatedOriginId = originId ? String(originId) : "";
@@ -38,40 +50,72 @@ function setRelatedIds(state, ids, originId) {
 	if (host) {
 		host.relatedTaskIds = new Set(next);
 	}
-	state.table?.api?.redrawRows?.();
+	paintRelatedRows(state.tableHost, state.table, next);
 	applyRelatedGanttPaint(state.ganttEl, next, state.relatedOriginId);
 }
 
-async function focusRelated(state, row) {
-	if (!row?.id || !state.table) {
+function paintLoadedRelated(state, originId) {
+	const nested = state.table?.sourceData;
+	const ids =
+		Array.isArray(nested) && nested.length
+			? collectRelatedTaskIds(nested, originId)
+			: originId
+				? [originId]
+				: [];
+	setRelatedIds(state, ids, originId);
+}
+
+function scheduleRelatedReveal(state, row) {
+	cancelRelatedReveal(state);
+	state.relatedRevealTimer = window.setTimeout(() => {
+		state.relatedRevealTimer = 0;
+		void revealHiddenRelated(state, row);
+	}, RELATED_REVEAL_MS);
+}
+
+async function revealHiddenRelated(state, row) {
+	const originId = String(row?.id || "");
+	if (!originId || !state.table) {
 		return;
 	}
+	const gen = ++state.relatedFocusGen;
 	try {
-		clearRelatedIds(state);
 		const result = await revealRelatedTasks(
 			state.table,
 			state.getArgs,
 			state.tableHost,
 			row.id
 		);
+		if (gen !== state.relatedFocusGen) {
+			return;
+		}
 		if (!result) {
 			return;
 		}
 		setRelatedIds(state, result.related, row.id);
 		if (result.treeChanged) {
 			await ensureGantt(state);
-		} else {
-			applyRelatedGanttPaint(
-				state.ganttEl,
-				result.related,
-				row.id
-			);
 		}
-		scrollGanttToTask(state.gantt, state.ganttEl, state.table, row.id);
+		if (gen !== state.relatedFocusGen) {
+			return;
+		}
+		scrollGanttToTask(state.gantt, state.ganttEl, state.table, originId);
 	} catch (e) {
 		console.error("[task_tree_gantt] relations focus", e);
 		frappe.msgprint(e.message || String(e));
 	}
+}
+
+function handleRelationsFocus(state, opts = {}) {
+	if (opts.cancel) {
+		cancelRelatedReveal(state);
+		return;
+	}
+	if (!opts.row?.id) {
+		return;
+	}
+	paintLoadedRelated(state, String(opts.row.id));
+	scheduleRelatedReveal(state, opts.row);
 }
 
 export async function mount({ page }) {
@@ -87,6 +131,8 @@ export async function mount({ page }) {
 		fullscreenShell: null,
 		relatedTaskIds: [],
 		relatedOriginId: "",
+		relatedFocusGen: 0,
+		relatedRevealTimer: 0,
 	};
 
 	const reload = async (opts = {}) => {
@@ -134,8 +180,8 @@ export async function mount({ page }) {
 		page,
 		onAssignSaved: refreshGantt,
 		onGanttRefresh: refreshGantt,
-		onRelationsFocus: ({ row }) => {
-			void focusRelated(state, row);
+		onRelationsFocus: (opts) => {
+			handleRelationsFocus(state, opts);
 		},
 		// Subject toolbar Add/Delete/Multiple → full reload.
 		onTreeMutate: (opts) => {
