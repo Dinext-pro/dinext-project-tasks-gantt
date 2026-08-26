@@ -1,9 +1,9 @@
 /**
- * Subject inline edit: Frappe Control(Data), save via save_cells.
- * Started from onActiveClickEdit / dblclick (same as status).
+ * Subject inline edit: Frappe Control(Data).
+ * Persist via commitCellChanges (fill/paste/undo share the same path).
  */
-import { fieldCanEdit, saveCells } from "../../save.js";
-import { getOnGanttRefresh } from "../context.js";
+import { fieldCanEdit } from "../../save.js";
+import { cachedTaskDoc } from "../select-edit.js";
 
 function evaluateReadOnlyDependsOn(expression, doc) {
 	if (typeof expression === "boolean") return expression;
@@ -36,6 +36,39 @@ function fieldIsWritable(doc, taskId) {
 	return status === "Write";
 }
 
+function commitSubjectChange(params, row, next) {
+	const table = params.context?.dinextTable;
+	const oldValue = row.subject || "";
+	const newValue = String(next ?? "").trim();
+	if (String(oldValue) === String(newValue)) {
+		return false;
+	}
+	if (!params.node || typeof table?.commitCellChanges !== "function") {
+		console.error("[task_tree_gantt] subject commit: table/node missing");
+		return false;
+	}
+
+	const source =
+		typeof DinextTable?.CELL_CHANGE_SOURCES?.EDIT === "string"
+			? DinextTable.CELL_CHANGE_SOURCES.EDIT
+			: "edit";
+
+	const { applied } = table.commitCellChanges({
+		source,
+		changes: [
+			{
+				node: params.node,
+				field: "subject",
+				oldValue,
+				newValue,
+				rowIndex: params.node.rowIndex,
+				colId: params.column?.getColId?.() || "subject",
+			},
+		],
+	});
+	return applied > 0;
+}
+
 /**
  * @param {{
  *   mainEl: HTMLElement,
@@ -49,22 +82,14 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 	if (mainEl.dataset.subjectEditing === "1" || mainEl.querySelector(".tree-gantt-subject-edit")) {
 		return;
 	}
-	mainEl.dataset.subjectEditing = "1";
 
 	const taskId = row.id;
-	let doc;
-	try {
-		doc = await frappe.model.with_doc("Task", taskId);
-	} catch (e) {
-		delete mainEl.dataset.subjectEditing;
-		console.error("[task_tree_gantt] subject with_doc", e);
-		return;
-	}
-	if (!fieldIsWritable(doc, taskId)) {
-		delete mainEl.dataset.subjectEditing;
+	let doc = cachedTaskDoc(taskId);
+	if (doc && !fieldIsWritable(doc, taskId)) {
 		return;
 	}
 
+	mainEl.dataset.subjectEditing = "1";
 	const oldValue = row.subject || "";
 	textEl.style.display = "none";
 
@@ -73,30 +98,18 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 	mainEl.appendChild(host);
 
 	let finished = false;
-	const finish = async (commit) => {
+	let unbindKeys = () => {};
+	const finish = (commit) => {
 		if (finished) return;
 		finished = true;
+		unbindKeys();
 		const control = host._control;
-		const raw = control ? control.get_value() : oldValue;
-		const next = String(raw ?? "").trim();
+		const next = control ? control.get_value() : oldValue;
 
-		if (commit) {
-			if (!next) {
-				frappe.show_alert({
-					message: __("Subject is required"),
-					indicator: "orange",
-				});
-			} else if (next !== oldValue) {
-				const ok = await saveCells([
-					{ id: taskId, field: "subject", value: next },
-				]);
-				if (ok) {
-					row.subject = next;
-					if (params.node?.data) {
-						params.node.data.subject = next;
-					}
-					getOnGanttRefresh()?.();
-				}
+		if (commit && next != null && String(next).trim() !== String(oldValue)) {
+			const ok = commitSubjectChange(params, row, next);
+			if (ok) {
+				frappe.model.clear_doc?.("Task", taskId);
 			}
 		}
 
@@ -129,6 +142,22 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 	control.$input?.attr?.("autocomplete", "off");
 
 	const inputEl = control.$input?.get?.(0);
+	if (inputEl) {
+		const onKey = (ev) => {
+			if (ev.key === "Enter") {
+				ev.preventDefault();
+				ev.stopPropagation();
+				finish(true);
+			} else if (ev.key === "Escape") {
+				ev.preventDefault();
+				ev.stopPropagation();
+				finish(false);
+			}
+		};
+		inputEl.addEventListener("keydown", onKey, true);
+		unbindKeys = () => inputEl.removeEventListener("keydown", onKey, true);
+	}
+
 	const focusInput = () => {
 		if (!inputEl || mainEl.dataset.subjectEditing !== "1") {
 			return;
@@ -136,22 +165,20 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 		inputEl.focus();
 		inputEl.select();
 	};
-	// Native focus after AG Grid finishes the click (jQuery trigger does not keep it).
 	requestAnimationFrame(focusInput);
 
-	control.$input?.on?.("keydown", (ev) => {
-		if (ev.key === "Enter") {
-			ev.preventDefault();
-			ev.stopPropagation();
-			void finish(true);
-		} else if (ev.key === "Escape") {
-			ev.preventDefault();
-			ev.stopPropagation();
-			void finish(false);
+	if (!doc) {
+		try {
+			doc = await frappe.model.with_doc("Task", taskId);
+			if (doc && !fieldIsWritable(doc, taskId)) {
+				finish(false);
+			}
+		} catch (e) {
+			console.error("[task_tree_gantt] subject with_doc", e);
 		}
-	});
+	}
 
 	control.$input?.on?.("blur", () => {
-		setTimeout(() => void finish(true), 120);
+		setTimeout(() => finish(true), 120);
 	});
 }
