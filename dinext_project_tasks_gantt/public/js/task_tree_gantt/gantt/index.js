@@ -323,9 +323,11 @@ export function scheduleGanttRefresh(state) {
 }
 
 /**
- * Patch tree expand/collapse:
+ * Patch tree expand/collapse / DnD:
  * - expandAll → load full project tree (lazy roots alone are not enough)
+ * - expandRow → refresh gantt (cached children skip onExpandRow / onTreeChange)
  * - collapse* → refresh gantt (DinextTable has no onCollapseRow)
+ * - refreshAfterRowReorder → drop / undo / revert (persist still refreshes dates)
  */
 export function wireTreeGanttHooks(table, state) {
 	if (!table || table._treeGanttHooks) {
@@ -344,6 +346,15 @@ export function wireTreeGanttHooks(table, state) {
 				});
 	}
 
+	const expandRow = table.expandRow?.bind(table);
+	if (expandRow) {
+		table.expandRow = async (rowId) => {
+			const result = await expandRow(rowId);
+			scheduleGanttRefresh(state);
+			return result;
+		};
+	}
+
 	const collapse = table.collapseRow?.bind(table);
 	if (collapse) {
 		table.collapseRow = (rowId) => {
@@ -357,6 +368,16 @@ export function wireTreeGanttHooks(table, state) {
 		table.collapseAll = () => {
 			collapseAll();
 			scheduleGanttRefresh(state);
+		};
+	}
+
+	const refreshAfterReorder = table.refreshAfterRowReorder?.bind(table);
+	if (refreshAfterReorder) {
+		table.refreshAfterRowReorder = (section) => {
+			refreshAfterReorder(section);
+			if (section !== "summary") {
+				scheduleGanttRefresh(state);
+			}
 		};
 	}
 }
