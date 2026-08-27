@@ -68,6 +68,7 @@ export class FrappeDateCellEditor {
 		);
 
 		this._bindDatepicker();
+		this.control.update_datepicker_position = () => this._placeDatepicker();
 
 		this.control.$input?.on?.("change", () => {
 			this._parsed = null;
@@ -111,6 +112,48 @@ export class FrappeDateCellEditor {
 		DinextTable.adoptOverlay(node, { anchor: this.control?.$input?.[0] });
 	}
 
+	/**
+	 * ControlDate.update_datepicker_position no-ops without `frm`.
+	 * Last table rows: calendar would open below the viewport.
+	 * After fullscreen adoptOverlay (always-below), re-apply flip.
+	 */
+	_placeDatepicker() {
+		const dp = this.control?.datepicker;
+		const node = dp?.$datepicker?.[0];
+		const input = this.control?.$input?.[0];
+		if (!dp || !node || !input) {
+			return;
+		}
+
+		const inputRect = input.getBoundingClientRect();
+		const pickerH = node.offsetHeight || 260;
+		const pickerW = node.offsetWidth || 250;
+		const pad = 8;
+		const gap = 4;
+		const spaceBelow = window.innerHeight - inputRect.bottom - pad;
+		const spaceAbove = inputRect.top - pad;
+		const openAbove = spaceBelow < pickerH && spaceAbove > spaceBelow;
+		const position = openAbove ? "top left" : "bottom left";
+
+		if (dp.opts?.position !== position) {
+			dp.update?.("position", position);
+		}
+
+		let left = inputRect.left;
+		if (left + pickerW > window.innerWidth - pad) {
+			left = Math.max(pad, window.innerWidth - pickerW - pad);
+		}
+		const measuredH = node.offsetHeight || pickerH;
+		const rawTop = openAbove
+			? inputRect.top - measuredH - gap
+			: inputRect.bottom + gap;
+		const maxTop = Math.max(pad, window.innerHeight - measuredH - pad);
+		node.style.position = "fixed";
+		node.style.left = `${Math.max(pad, left)}px`;
+		node.style.top = `${Math.min(maxTop, Math.max(pad, rawTop))}px`;
+		node.style.right = "auto";
+	}
+
 	getGui() {
 		return this.host;
 	}
@@ -120,6 +163,13 @@ export class FrappeDateCellEditor {
 		this._bindDatepicker();
 		this.control?.datepicker?.show?.();
 		this._adoptDatepicker();
+		this._placeDatepicker();
+		requestAnimationFrame(() => {
+			if (this._stopped || !this.control) {
+				return;
+			}
+			this._placeDatepicker();
+		});
 	}
 
 	_readValidated() {
