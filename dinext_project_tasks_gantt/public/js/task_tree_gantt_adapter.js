@@ -55,6 +55,30 @@
 		});
 	}
 
+	/** Classic TreeView menu: Refresh / Rebuild Tree still call make_tree — remap to Gantt. */
+	function wireTreeMenuToGantt(treeview, page) {
+		if (!treeview || treeview.__task_tree_gantt_menu) {
+			return;
+		}
+		treeview.__task_tree_gantt_menu = true;
+		treeview.make_tree = function () {
+			$(this.parent).find(".tree").remove();
+			void page.__task_tree_gantt_on_show?.();
+		};
+		treeview.rebuild_tree = function () {
+			const me = this;
+			frappe.call({
+				method: "frappe.utils.nestedset.rebuild_tree",
+				args: { doctype: me.doctype },
+				callback(r) {
+					if (!r.exc) {
+						void page.__task_tree_gantt_on_show?.();
+					}
+				},
+			});
+		};
+	}
+
 	function setupBurndown(page, getArgs) {
 		if (page.__task_tree_gantt_burndown) {
 			return;
@@ -111,6 +135,7 @@
 			mounted?.onShow?.() || Promise.resolve();
 		setupBurndown(page, mounted?.state?.getArgs);
 		hideClassicTreeChrome(page);
+		wireTreeMenuToGantt(treeview, page);
 		bindPageShow(page);
 	}
 

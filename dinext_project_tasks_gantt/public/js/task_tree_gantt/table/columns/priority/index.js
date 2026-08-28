@@ -2,7 +2,7 @@
  * Column «Приоритет» — same pattern as status:
  * cell shows __(English value); click → Frappe Select; DB stays English.
  */
-import { el, slugClass } from "../../format.js";
+import { el, slugClass, searchableTranslated } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { startPriorityInlineEdit } from "./edit.js";
@@ -89,5 +89,6 @@ export function priorityColumn() {
 		valueParser: parsePriorityValue,
 		cellClass: priorityCellClass,
 		cellClassRules: priorityCellClassRules(),
+		filterValueGetter: (row) => searchableTranslated(row?.priority),
 	};
 }

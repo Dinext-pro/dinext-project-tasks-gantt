@@ -13,6 +13,7 @@ class GetChildrenFormInput(TypedDict, total=False):
 
 	project: str
 	parent_task: str | None
+	task: str | None
 	all_tasks: int | str | bool
 	status: str | None
 	priority: str | None

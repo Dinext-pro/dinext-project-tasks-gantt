@@ -183,10 +183,19 @@ export function addRootTaskToolbarItem() {
 }
 
 /** Tree custom fa-tasks → add_multiple_tasks. */
-export function addMultipleTasks(row) {
+export async function addMultipleTasks(row) {
 	const parentId = row?.id;
 	if (!parentId) return;
 	if (!frappe.model.can_create("Task") || !row.can_write) frappe.throw(__("Not permitted"));
+
+	if (!row.hasChildren) {
+		try {
+			await frappe.db.set_value("Task", parentId, "is_group", 1);
+			row.hasChildren = true;
+		} catch (e) {
+			console.error("[task_tree_gantt] set is_group", e);
+		}
+	}
 
 	const data = [];
 	const dialog = new frappe.ui.Dialog({

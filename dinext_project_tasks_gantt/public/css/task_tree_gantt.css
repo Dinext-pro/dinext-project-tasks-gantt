@@ -1,3 +1,9 @@
+.task-tree-gantt-page,
+.task-tree-gantt-chart,
+.task-tree-gantt-table-host {
+	--g-related-color: #c4a9f3;
+}
+
 .task-tree-gantt-page .title-text.tree-gantt-title--link {
 	cursor: pointer;
 }
@@ -154,6 +160,16 @@
 
 /* --- table chrome (Tree header / details-cell) --- */
 
+.task-tree-gantt-table-host.dinext-table .ag-header-cell {
+	padding-top: 1px;
+	padding-bottom: 1px;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.dinext-table-header--sortable .ag-header-cell-label {
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
 .task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-label {
 	justify-content: center;
 	width: 100%;
@@ -167,15 +183,16 @@
 /* Subject header slightly larger; other headers smaller than Quartz default */
 .task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text,
 .task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .dinext-table-header-sort-text {
-	font-size: var(--text-base, 14px);
+	font-size: var(--text-sm, 12px);
 	font-weight: 600;
+	line-height: 1.15;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text,
 .task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .dinext-table-header-sort-text {
 	font-size: var(--text-xs, 11px);
 	font-weight: 500;
-	line-height: 1.2;
+	line-height: 1.1;
 }
 
 /* Date headers: wrap «Прогноз …» in narrow cols */
@@ -185,7 +202,7 @@
 	white-space: normal;
 	overflow: visible;
 	text-overflow: unset;
-	line-height: 1.15;
+	line-height: 1.1;
 }
 
 /* Cell content centered except subject (tree col keeps left layout) */
@@ -227,6 +244,12 @@
 .task-tree-gantt-chart .gantt-container .grid-header {
 	z-index: 9;
 	overflow: clip;
+}
+
+/* Week: one date row. Hide period labels (ranges / Wxx), keep Day lower row. */
+.task-tree-gantt-chart .gantt-container.gantt-view--week .lower-header {
+	display: none;
+	height: 0;
 }
 
 /* Match table `.dinext-table-hscroll-top` so header+scroll+rows stacks align.
@@ -327,10 +350,10 @@
 
 .task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--related,
 .task-tree-gantt-chart .gantt path.tree-gantt-arrow--related {
-	stroke: #39ff14 !important;
+	stroke: var(--g-related-color) !important;
 	stroke-width: 1.25;
 	pointer-events: stroke;
-	filter: drop-shadow(0 0 1.2px #39ff14);
+	filter: drop-shadow(0 0 1.2px var(--g-related-color));
 	marker-start: url(#tree-gantt-mk-start-rel);
 	marker-end: url(#tree-gantt-mk-end-rel);
 }
@@ -343,7 +366,7 @@
 .task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--related.tree-gantt-arrow--hover,
 .task-tree-gantt-chart .gantt path.tree-gantt-arrow--related.tree-gantt-arrow--hover {
 	stroke-width: 3.2 !important;
-	filter: drop-shadow(0 0 4px #39ff14);
+	filter: drop-shadow(0 0 4px var(--g-related-color));
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover,
@@ -359,7 +382,7 @@
 .task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--related,
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select.tree-gantt-row--related {
-	box-shadow: inset 0 0 0 2px #39ff14;
+	box-shadow: inset 0 0 0 2px var(--g-related-color);
 }
 
 .task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--select .bar {
@@ -367,8 +390,8 @@
 }
 
 .task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--related .bar {
-	outline: 3px solid #39ff14 !important;
-	filter: drop-shadow(0 0 4px #39ff14);
+	outline: 3px solid var(--g-related-color) !important;
+	filter: drop-shadow(0 0 4px var(--g-related-color));
 }
 
 /*
@@ -402,6 +425,12 @@
 	--g-weekend-label-color: #272727;
 	--g-popup-actions: #3e3e3e;
 	--g-handle-color: #c6ccd2;
+	--g-related-color: #c4a9f3;
+}
+
+[data-theme="dark"] .task-tree-gantt-page,
+[data-theme="dark"] .task-tree-gantt-table-host {
+	--g-related-color: #c4a9f3;
 }
 
 /* Opaque so sticky month labels do not bleed through each other on scroll. */
@@ -456,6 +485,14 @@ body.task-tree-gantt-resizing {
 
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-dep-conflict,
 .task-tree-gantt-table-host.dinext-table .tree-gantt-subject.tree-gantt-dep-conflict {
+	color: var(--danger, #e74c3c) !important;
+}
+
+/* CS Task Tree Dependencies: .tree-link.conflict .tree-toolbar-button.fa-level-down
+ * Color only — toolbar stays hover-only like sibling buttons. */
+.task-tree-gantt-table-host.dinext-table
+	.tree-gantt-subject.tree-gantt-dep-conflict
+	.tree-toolbar-button.fa-level-down {
 	color: var(--danger, #e74c3c) !important;
 }
 

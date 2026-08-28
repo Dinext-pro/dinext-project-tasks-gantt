@@ -8,6 +8,7 @@ import {
 	endDateConflictTooltip,
 	startDateConflictTooltip,
 } from "../../../dependencies/check.js";
+import { formatDate } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { FrappeDateCellEditor } from "./frappe-date-editor.js";
@@ -25,6 +26,7 @@ function dateColumnBase(field, headerName, tooltipValueGetter) {
 		tooltipValueGetter,
 		wrapHeaderText: true,
 		headerClass: "tree-gantt-header--wrap",
+		filterValueGetter: (row) => formatDate(row?.[field]) || row?.[field] || "",
 	};
 }
 

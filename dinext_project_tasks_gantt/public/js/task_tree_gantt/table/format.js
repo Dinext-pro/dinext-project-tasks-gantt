@@ -57,3 +57,13 @@ export function formatPercent(value) {
 	}
 	return `${Math.round(n)}%`;
 }
+
+/** Raw + translated label for column filter (status/priority). */
+export function searchableTranslated(value) {
+	const raw = value ? String(value) : "";
+	if (!raw) {
+		return "";
+	}
+	const label = __(raw);
+	return label && label !== raw ? `${raw} ${label}` : raw;
+}

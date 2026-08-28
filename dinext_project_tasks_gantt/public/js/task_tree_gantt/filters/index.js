@@ -77,11 +77,13 @@ export async function setupFilters({ page, onChange }) {
 		options: "Task",
 		label: __("Task"),
 		get_query() {
-			const filters = [["Task", "is_group", "=", 1]];
-			if (args.project) {
-				filters.push(["Task", "project", "=", args.project]);
+			if (!args.project) {
+				return { filters: [["Task", "name", "=", ""]] };
 			}
-			return { filters };
+			return {
+				filters: [["Task", "project", "=", args.project]],
+				page_length: 50,
+			};
 		},
 		change() {
 			if (setArg("task", this.get_value() || "")) {

@@ -66,3 +66,16 @@ export function collectRelatedTaskIds(nested, originId) {
 	walk(nested);
 	return [...ids];
 }
+
+/**
+ * Origin + related ids for highlight. Empty when origin has no pred/succ
+ * (do not paint a lone origin row).
+ */
+export function relatedHighlightIds(nested, originId) {
+	const origin = String(originId || "");
+	const ids = collectRelatedTaskIds(nested, origin);
+	if (!origin) {
+		return ids;
+	}
+	return ids.some((id) => id !== origin) ? ids : [];
+}
