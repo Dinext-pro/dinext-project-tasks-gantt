@@ -404,6 +404,14 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		}
 	}
 
+	function focusRelatedForTask(id) {
+		if (typeof state?.focusRelated === "function") {
+			state.focusRelated(taskRowData(table, id) || { id });
+			return;
+		}
+		clearRelated();
+	}
+
 	function onTableClick(e) {
 		if (e.target?.closest?.(INTERACTIVE)) {
 			return;
@@ -415,7 +423,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		}
 		const onRelations = !!e.target?.closest?.(".tree-gantt-relations");
 		if (!onRelations) {
-			clearRelated();
+			focusRelatedForTask(id);
 		}
 		const already = lastSelect === id;
 		setSelect(id);
@@ -441,7 +449,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		if (!id) {
 			return;
 		}
-		clearRelated();
+		focusRelatedForTask(id);
 		setSelect(id);
 	}
 

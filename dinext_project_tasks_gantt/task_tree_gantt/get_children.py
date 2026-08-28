@@ -196,6 +196,75 @@ def _to_canonical(row: dict) -> dict:
 	}
 
 
+def _attr_filters_on(status, priority, assign_filter, tag) -> bool:
+	return bool(status or priority or assign_filter or tag)
+
+
+def _row_matches_attr_filters(row: dict, status, priority, assign_filter, tag) -> bool:
+	if status and row.get("status") != status:
+		return False
+	if priority and row.get("priority") != priority:
+		return False
+	if assign_filter and assign_filter not in str(row.get("_assign") or ""):
+		return False
+	if tag and tag not in str(row.get("_user_tags") or ""):
+		return False
+	return True
+
+
+def _ids_with_ancestors(parent_by_name: dict[str, str], match_ids: set[str]) -> set[str]:
+	"""Match ids + ancestor chain. Unrelated groups stay out."""
+	keep = set(match_ids)
+	for name in match_ids:
+		cur = parent_by_name.get(name) or ""
+		guard: set[str] = set()
+		while cur and cur not in guard:
+			if cur in keep:
+				break
+			keep.add(cur)
+			guard.add(cur)
+			cur = parent_by_name.get(cur) or ""
+	return keep
+
+
+def _intersect_keep_sets(*sets):
+	"""None = filter off. Intersect active sets. Empty set = no rows."""
+	active = [s for s in sets if s is not None]
+	if not active:
+		return None
+	out = set(active[0])
+	for extra in active[1:]:
+		out &= extra
+	return out
+
+
+def _keep_ids_for_filters(project, task_name, status, priority, assign_filter, tag):
+	"""None = no keep filter. Else match ids + ancestors (empty set = no rows)."""
+	need_attr = _attr_filters_on(status, priority, assign_filter, tag)
+	if not task_name and not need_attr:
+		return None
+	rows = frappe.get_all(
+		"Task",
+		filters={"project": project, "docstatus": ("<", 2)},
+		fields=["name", "parent_task", "status", "priority", "_assign", "_user_tags"],
+		limit_page_length=0,
+	)
+	parent_by_name = {r["name"]: r.get("parent_task") or "" for r in rows}
+	parts = []
+	if task_name:
+		if task_name not in parent_by_name:
+			return set()
+		parts.append(_ids_with_ancestors(parent_by_name, {task_name}))
+	if need_attr:
+		match_ids = {
+			r["name"]
+			for r in rows
+			if _row_matches_attr_filters(r, status, priority, assign_filter, tag)
+		}
+		parts.append(_ids_with_ancestors(parent_by_name, match_ids) if match_ids else set())
+	return _intersect_keep_sets(*parts)
+
+
 def get_children(**kwargs) -> list[dict]:
 	"""
 	Return Tree Gantt rows for DinextTable.
@@ -203,6 +272,7 @@ def get_children(**kwargs) -> list[dict]:
 	Args:
 	        project: Project name (required)
 	        parent_task: None → project roots; else children of this Task
+	        task: page-form Task filter — that task + ancestors, not its children
 	        all_tasks: if true, all tasks in project (ignore parent filter)
 	        status, priority, assign, tag: optional filters
 	        sort_field, sort_order, limit: optional
@@ -215,6 +285,7 @@ def get_children(**kwargs) -> list[dict]:
 		frappe.throw(frappe._("Project is required"))
 
 	parent_task = _param(kwargs, "parent_task")
+	task_name = _param(kwargs, "task")
 	all_tasks = _truthy(_param(kwargs, "all_tasks"))
 	status = _param(kwargs, "status")
 	priority = _param(kwargs, "priority")
@@ -272,15 +343,18 @@ def get_children(**kwargs) -> list[dict]:
 	else:
 		query = query.where(Task.parent_task.isnull() | (Task.parent_task == ""))
 
-	# Product rule: when filtering leaves, still show groups as scaffolding (Tree Gantt navigation).
-	if status:
-		query = query.where((Task.status == status) | (Task.is_group == 1))
-	if priority:
-		query = query.where((Task.priority == priority) | (Task.is_group == 1))
-	if assign_filter:
-		query = query.where((assign_col.like(f"%{assign_filter}%")) | (Task.is_group == 1))
-	if tag:
-		query = query.where((tags_col.like(f"%{tag}%")) | (Task.is_group == 1))
+	# Page-form Task + attr filters: matches + ancestors (not children of the Task).
+	# Expanding the selected task itself: do not apply the task keep-set.
+	task_keep = task_name
+	if task_name and parent_task and parent_task == task_name and not all_tasks:
+		task_keep = None
+	keep_ids = _keep_ids_for_filters(
+		project, task_keep, status, priority, assign_filter, tag
+	)
+	if keep_ids is not None:
+		if not keep_ids:
+			return []
+		query = query.where(Task.name.isin(list(keep_ids)))
 
 	if sort_field in ALLOWED_SORT_FIELDS and (
 		sort_field != "custom_tree_order" or has_tree_order
@@ -299,6 +373,17 @@ def get_children(**kwargs) -> list[dict]:
 		query = query.limit(cint(limit))
 
 	raw_rows = query.run(as_dict=True)
+	if parent_task and not all_tasks and not raw_rows:
+		self_query = (
+			frappe.qb.from_(Task)
+			.select(*select_cols)
+			.where(Task.docstatus < 2)
+			.where(Task.project == project)
+			.where(Task.name == parent_task)
+		)
+		if keep_ids is not None:
+			self_query = self_query.where(Task.name.isin(list(keep_ids)))
+		raw_rows = self_query.run(as_dict=True)
 	rows = [_to_canonical(r) for r in raw_rows]
 	_type_labels(rows)
 	_attach_relations(rows)

@@ -10,7 +10,7 @@ import { applyRelatedGanttPaint, paintRelatedRows, scrollGanttToTask } from "./g
 import { buildShell, setupResize } from "./shell/layout.js";
 import { setColumnContext } from "./table/columns/context.js";
 import { loadTable, revealRelatedTasks } from "./table/index.js";
-import { collectRelatedTaskIds } from "./table/related.js";
+import { relatedHighlightIds } from "./table/related.js";
 
 /** After this window a click is not part of a dblclick — safe to expand/fetch. */
 const RELATED_REVEAL_MS = 400;
@@ -58,11 +58,13 @@ function paintLoadedRelated(state, originId) {
 	const nested = state.table?.sourceData;
 	const ids =
 		Array.isArray(nested) && nested.length
-			? collectRelatedTaskIds(nested, originId)
-			: originId
-				? [originId]
-				: [];
+			? relatedHighlightIds(nested, originId)
+			: [];
+	if (!ids.length) {
+		return false;
+	}
 	setRelatedIds(state, ids, originId);
+	return true;
 }
 
 function scheduleRelatedReveal(state, row) {
@@ -92,7 +94,13 @@ async function revealHiddenRelated(state, row) {
 		if (!result) {
 			return;
 		}
-		setRelatedIds(state, result.related, row.id);
+		const origin = String(row.id);
+		const ids = (result.related || []).filter(Boolean).map(String);
+		if (!ids.some((id) => id !== origin)) {
+			clearRelatedIds(state);
+			return;
+		}
+		setRelatedIds(state, ids, row.id);
 		if (result.treeChanged) {
 			await ensureGantt(state);
 		}
@@ -114,7 +122,12 @@ function handleRelationsFocus(state, opts = {}) {
 	if (!opts.row?.id) {
 		return;
 	}
-	paintLoadedRelated(state, String(opts.row.id));
+	const rels = Array.isArray(opts.row.relations) ? opts.row.relations : [];
+	const painted = paintLoadedRelated(state, String(opts.row.id));
+	if (!painted && !rels.length) {
+		clearRelatedIds(state);
+		return;
+	}
 	scheduleRelatedReveal(state, opts.row);
 }
 
@@ -188,6 +201,7 @@ export async function mount({ page }) {
 			void reload(opts);
 		},
 	});
+	state.focusRelated = (row) => handleRelationsFocus(state, { row });
 
 	const main = page.main.get(0);
 	state.fullscreenShell = main;

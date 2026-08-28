@@ -58,5 +58,6 @@ export function tagsColumn() {
 		edit: false,
 		cellRenderer: renderTags,
 		cellClass: "dinext-table-cell--align-center",
+		filterValueGetter: (row) => parseTags(row?.user_tags).join(" "),
 	};
 }

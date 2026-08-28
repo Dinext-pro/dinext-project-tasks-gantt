@@ -38,6 +38,7 @@ export async function getChildren(args) {
 		args: {
 			project: args.project,
 			parent_task: args.parent_task ?? null,
+			task: args.task || null,
 			all_tasks: args.all_tasks ? 1 : 0,
 			status: args.status || null,
 			priority: args.priority || null,

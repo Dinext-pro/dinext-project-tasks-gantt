@@ -34,6 +34,17 @@ function applyConflictFields(row, src) {
 	row.dep_conflict_end = src?.dep_conflict_end || "";
 }
 
+function violationTooltip(v) {
+	const date = v?.expected_date || "";
+	if (v?.violated_field === "start") {
+		return __("Successor start must be >= {0}", [date]);
+	}
+	if (v?.violated_field === "end") {
+		return __("Successor end must be >= {0}", [date]);
+	}
+	return v?.message || __("Conflict");
+}
+
 function applyResults(rowsById, results) {
 	for (const row of Object.values(rowsById)) {
 		clearConflict(row);
@@ -46,9 +57,9 @@ function applyResults(rowsById, results) {
 		row.dep_conflict = 1;
 		for (const v of item.violations) {
 			if (v.violated_field === "start") {
-				row.dep_conflict_start = v.message || __("Conflict");
+				row.dep_conflict_start = violationTooltip(v);
 			} else if (v.violated_field === "end") {
-				row.dep_conflict_end = v.message || __("Conflict");
+				row.dep_conflict_end = violationTooltip(v);
 			}
 		}
 	}

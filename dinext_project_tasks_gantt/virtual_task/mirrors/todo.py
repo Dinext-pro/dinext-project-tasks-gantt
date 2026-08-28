@@ -22,6 +22,7 @@ def sync_todo_mirror(doc) -> None:
 
 	Ключ пары: тот же allocated_to на противоположной стороне.
 	Closed/Cancelled пишем через db.set_value (анти ping-pong close_all_assignments).
+	После этого всегда rebuild _assign цели без save (ISS-2026-03511).
 	Открытые — save/insert с флагом todo_sync_in_progress.
 	"""
 	if doc.flags.get("todo_sync_in_progress"):
@@ -50,21 +51,21 @@ def sync_todo_mirror(doc) -> None:
 
 	if doc.status in ("Closed", "Cancelled"):
 		# Extreme: db.set_value — без save, иначе 504 (ISS-2025-02315)
-		if not existing_todo:
-			return
-		todo_row = (
-			frappe.db.get_value("ToDo", existing_todo.name, list(_TODO_SYNC_FIELDS), as_dict=True)
-			or {}
-		)
-		updates = {}
-		for fieldname, new_value in data.items():
-			old_value = todo_row.get(fieldname)
-			old_s = "" if old_value is None else str(old_value)
-			new_s = "" if new_value is None else str(new_value)
-			if old_s != new_s:
-				updates[fieldname] = new_value
-		if updates:
-			frappe.db.set_value("ToDo", existing_todo.name, updates, update_modified=False)
+		if existing_todo:
+			todo_row = (
+				frappe.db.get_value("ToDo", existing_todo.name, list(_TODO_SYNC_FIELDS), as_dict=True)
+				or {}
+			)
+			updates = {}
+			for fieldname, new_value in data.items():
+				old_value = todo_row.get(fieldname)
+				old_s = "" if old_value is None else str(old_value)
+				new_s = "" if new_value is None else str(new_value)
+				if old_s != new_s:
+					updates[fieldname] = new_value
+			if updates:
+				frappe.db.set_value("ToDo", existing_todo.name, updates, update_modified=False)
+		_rebuild_assign(target_type, target_name)
 		return
 
 	if existing_todo:
@@ -94,3 +95,20 @@ def sync_todo_mirror(doc) -> None:
 	new_todo.flags.todo_sync_in_progress = True
 	new_todo.update(data)
 	new_todo.insert(ignore_permissions=True)
+
+
+def _rebuild_assign(reference_type: str, reference_name: str) -> None:
+	"""Пересобрать _assign цели как ToDo.update_in_reference, без save.
+
+	ISS-2026-03511: db.set_value на парный ToDo обходит хук ядра.
+	"""
+	if not (reference_type and reference_name):
+		return
+	ref = frappe.get_doc(
+		{
+			"doctype": "ToDo",
+			"reference_type": reference_type,
+			"reference_name": reference_name,
+		}
+	)
+	ref.update_in_reference()

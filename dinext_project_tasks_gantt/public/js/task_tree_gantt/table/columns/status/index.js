@@ -2,7 +2,7 @@
  * Column «Статус» — DinextTable: fill on `.ag-cell` via cellClassRules
  * (not child renderer). Renderer = label + click → Frappe Select.
  */
-import { el, slugClass } from "../../format.js";
+import { el, slugClass, searchableTranslated } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { startStatusInlineEdit } from "./edit.js";
@@ -96,5 +96,6 @@ export function statusColumn() {
 		valueParser: parseStatusValue,
 		cellClass: statusCellClass,
 		cellClassRules: statusCellClassRules(),
+		filterValueGetter: (row) => searchableTranslated(row?.status),
 	};
 }

@@ -184,7 +184,17 @@ function svgEl(name, attrs) {
 	return el;
 }
 
-const MARKER_VER = "2";
+const MARKER_VER = "3";
+const RELATED_COLOR_FALLBACK = "#c4a9f3";
+
+function relatedMarkerColor(ganttEl) {
+	const host = ganttEl?.closest?.(".task-tree-gantt-chart") || ganttEl;
+	if (!host || typeof window.getComputedStyle !== "function") {
+		return RELATED_COLOR_FALLBACK;
+	}
+	const color = window.getComputedStyle(host).getPropertyValue("--g-related-color").trim();
+	return color || RELATED_COLOR_FALLBACK;
+}
 
 function makeStartMarker(id, fill) {
 	const marker = svgEl("marker", {
@@ -236,16 +246,20 @@ function ensureArrowMarkers(ganttEl) {
 		return;
 	}
 	let defs = svg.querySelector("defs.tree-gantt-arrow-defs");
-	if (defs?.getAttribute("data-ver") === MARKER_VER) {
+	const related = relatedMarkerColor(ganttEl);
+	if (
+		defs?.getAttribute("data-ver") === MARKER_VER &&
+		defs?.getAttribute("data-c") === related
+	) {
 		return;
 	}
 	defs?.remove();
 	defs = svgEl("defs", {
 		class: "tree-gantt-arrow-defs",
 		"data-ver": MARKER_VER,
+		"data-c": related,
 	});
 	const muted = "#a4a4a4";
-	const related = "#39ff14";
 	defs.appendChild(makeStartMarker(MK_START, muted));
 	defs.appendChild(makeEndMarker(MK_END, muted));
 	defs.appendChild(makeStartMarker(MK_START_REL, related));

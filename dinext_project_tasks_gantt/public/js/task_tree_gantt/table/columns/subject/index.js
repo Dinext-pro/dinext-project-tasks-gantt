@@ -120,10 +120,6 @@ export function renderSubject(params) {
 	return wrap;
 }
 
-export function subjectTooltip(params) {
-	return subjectTitle(params.data);
-}
-
 export function subjectColumn() {
 	return {
 		field: "subject",
@@ -142,7 +138,6 @@ export function subjectColumn() {
 		// Remount body when dep flags change (value/subject may stay same).
 		treeContentKey: subjectTreeContentKey,
 		cellClassRules: subjectConflictClassRules(),
-		tooltipValueGetter: subjectTooltip,
 		edit: (row) => fieldCanEdit(row, "subject"),
 		suppressClickEdit: true,
 		onActiveClickEdit: startSubjectFromEvent,

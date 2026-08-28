@@ -79,6 +79,48 @@ function showPopup(ctx) {
 	}
 }
 
+function viewModeName(gantt, mode) {
+	if (mode && typeof mode === "object") {
+		return mode.name || "";
+	}
+	if (typeof mode === "string" && mode) {
+		return mode;
+	}
+	const current = gantt?.config?.view_mode || gantt?.options?.view_mode;
+	if (current && typeof current === "object") {
+		return current.name || "";
+	}
+	return String(current || "");
+}
+
+/** Week: keep upper dates, drop lower period labels. Day keeps both rows. */
+function applyLowerHeaderForMode(gantt, mode) {
+	if (!gantt?.options) {
+		return;
+	}
+	const isWeek = viewModeName(gantt, mode) === "Week";
+	const lower = isWeek ? 0 : GANTT_LOWER_HEADER;
+	gantt.options.lower_header_height = lower;
+	gantt.$container?.style.setProperty("--gv-lower-header-height", `${lower}px`);
+	gantt.$container?.classList.toggle("gantt-view--week", isWeek);
+}
+
+function patchWeekHeader(gantt) {
+	if (!gantt || gantt._weekHeaderPatched) {
+		return;
+	}
+	gantt._weekHeaderPatched = true;
+	const orig = gantt.change_view_mode.bind(gantt);
+	gantt.change_view_mode = (mode, preserveScroll) => {
+		applyLowerHeaderForMode(gantt, mode);
+		return orig(mode, preserveScroll);
+	};
+	applyLowerHeaderForMode(gantt, gantt.config?.view_mode);
+	if (viewModeName(gantt, gantt.config?.view_mode) === "Week") {
+		gantt.change_view_mode(gantt.config.view_mode, true);
+	}
+}
+
 function buildOptions(holidays, state) {
 	const weekend = holidays.filter((d) => d.weekly_off);
 	const fest = holidays.filter((d) => !d.weekly_off);
@@ -117,7 +159,10 @@ function buildOptions(holidays, state) {
 		on_date_change: createGanttDateChangeHandler(state, () =>
 			scheduleGanttRefresh(state)
 		),
-		on_view_change: () => reapplyGanttArrows(state),
+		on_view_change: () => {
+			reapplyGanttArrows(state);
+			requestAnimationFrame(() => state.applyGanttOffset?.());
+		},
 	};
 }
 
@@ -221,6 +266,7 @@ async function runGanttUpdate(state) {
 	}
 
 	if (state.gantt?.refresh && state.ganttEl.querySelector?.(".gantt")) {
+		patchWeekHeader(state.gantt);
 		state.gantt.refresh(tasks);
 		bindSync(state);
 		return state.gantt;
@@ -233,6 +279,7 @@ async function runGanttUpdate(state) {
 		tasks,
 		buildOptions(state.holidays || [], state)
 	);
+	patchWeekHeader(state.gantt);
 	bindSync(state);
 	return state.gantt;
 }

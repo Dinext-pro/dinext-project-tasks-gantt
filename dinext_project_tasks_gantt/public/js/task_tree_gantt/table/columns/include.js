@@ -9,5 +9,11 @@ export function includeColumn() {
 		type: "checkbox",
 		sortable: false,
 		edit: (row) => fieldCanEdit(row, "custom_include"),
+		filterValueGetter: (row) => {
+			const on = !!row?.custom_include;
+			const flag = on ? "1" : "0";
+			const label = on ? __("Yes") : __("No");
+			return `${flag} ${label}`;
+		},
 	};
 }
