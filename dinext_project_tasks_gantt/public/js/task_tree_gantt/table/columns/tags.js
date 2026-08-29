@@ -1,6 +1,7 @@
 import { getColumnsPage } from "./context.js";
 import { el, parseTags } from "../format.js";
 import { fixedCol, TREE_COL_WIDTH } from "./widths.js";
+import { normalizeMulti } from "../../filters/defaults.js";
 
 const TAG_LIMIT = 2;
 
@@ -10,12 +11,11 @@ export async function togglePageTag(page, tag) {
 	if (!field) {
 		return;
 	}
-	const old = field.get_value();
-	if (tag === old) {
-		await field.set_value("");
-	} else {
-		await field.set_value(tag);
-	}
+	const current = normalizeMulti(field.get_value());
+	const next = current.includes(tag)
+		? current.filter((t) => t !== tag)
+		: [...current, tag];
+	await field.set_value(next);
 }
 
 export function renderTags(params) {

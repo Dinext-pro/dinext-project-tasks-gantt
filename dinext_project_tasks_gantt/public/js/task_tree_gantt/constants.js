@@ -17,8 +17,7 @@ export const ROW_HEIGHT = 32;
 export const GANTT_BAR_HEIGHT = 19;
 export const GANTT_PADDING = 13;
 
-/** frappe-gantt calendar (upper + lower). Library adds +10 → 76px.
- *  Week zeros lower row at runtime (dates stay, period labels go). */
+/** frappe-gantt calendar (upper + lower). Library adds +10 → 76px. */
 export const GANTT_UPPER_HEADER = 40;
 export const GANTT_LOWER_HEADER = 26;
 export const GANTT_HEADER_CHROME = 10;

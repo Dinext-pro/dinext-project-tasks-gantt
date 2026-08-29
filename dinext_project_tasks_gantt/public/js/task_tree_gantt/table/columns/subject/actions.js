@@ -19,7 +19,13 @@ function rowTreeId(row) {
 
 function taskFilterFromPage() {
 	const page = getColumnsPage();
-	return page?.fields_dict?.task?.get_value?.() || null;
+	const raw = page?.fields_dict?.task?.get_value?.();
+	const ids = Array.isArray(raw)
+		? raw.filter(Boolean)
+		: raw
+			? [raw]
+			: [];
+	return ids.length === 1 ? ids[0] : null;
 }
 
 export function openTaskForm(taskId) {

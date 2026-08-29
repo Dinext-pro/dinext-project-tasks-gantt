@@ -1,6 +1,10 @@
 import { projectStorageKey } from "../constants.js";
 import { setPageTitle } from "../shell/title.js";
-import { filterDefaults, taskSelectOptions } from "./defaults.js";
+import {
+	filterDefaults,
+	normalizeMulti,
+	taskMultiSelectOptions,
+} from "./defaults.js";
 import { applyRouteProject, takeRouteProject } from "./route-project.js";
 
 /**
@@ -25,11 +29,20 @@ export async function setupFilters({ page, onChange }) {
 	const emit = () => onChange?.();
 	let lastProject = args.project;
 
+	function valuesEqual(prev, next) {
+		if (Array.isArray(prev) || Array.isArray(next)) {
+			const a = normalizeMulti(prev);
+			const b = normalizeMulti(next);
+			return a.length === b.length && a.every((v, i) => v === b[i]);
+		}
+		return prev === next;
+	}
+
 	function setArg(fieldname, value) {
-		if (args[fieldname] === value) {
+		if (valuesEqual(args[fieldname], value)) {
 			return false;
 		}
-		args[fieldname] = value;
+		args[fieldname] = Array.isArray(value) ? normalizeMulti(value) : value;
 		return true;
 	}
 
@@ -39,6 +52,45 @@ export async function setupFilters({ page, onChange }) {
 		}
 		return page.add_field(df);
 	};
+
+	function bindMultiSelectList(fieldname, label, getData) {
+		const field = addIfMissing({
+			fieldname,
+			fieldtype: "MultiSelectList",
+			label,
+			placeholder: label,
+			get_data:
+				getData || (() => taskMultiSelectOptions(fieldname)),
+			change() {
+				if (setArg(fieldname, normalizeMulti(this.get_value()))) {
+					emit();
+				}
+			},
+		});
+		const notify = () => {
+			if (setArg(fieldname, normalizeMulti(field.get_value()))) {
+				emit();
+			}
+		};
+		// ControlMultiSelectList always parse_validate("") — df.change fires once.
+		for (const name of [
+			"toggle_select_item",
+			"clear_all_selections",
+			"select_all_options",
+			"set_value",
+		]) {
+			if (typeof field[name] !== "function") {
+				continue;
+			}
+			const orig = field[name].bind(field);
+			field[name] = (...a) => {
+				const result = orig(...a);
+				notify();
+				return result;
+			};
+		}
+		return field;
+	}
 
 	addIfMissing({
 		fieldname: "project",
@@ -71,74 +123,25 @@ export async function setupFilters({ page, onChange }) {
 		},
 	});
 
-	addIfMissing({
-		fieldname: "task",
-		fieldtype: "Link",
-		options: "Task",
-		label: __("Task"),
-		get_query() {
-			if (!args.project) {
-				return { filters: [["Task", "name", "=", ""]] };
-			}
-			return {
-				filters: [["Task", "project", "=", args.project]],
-				page_length: 50,
-			};
-		},
-		change() {
-			if (setArg("task", this.get_value() || "")) {
-				emit();
-			}
-		},
+	bindMultiSelectList("task", __("Task"), (txt) => {
+		if (!args.project) {
+			return [];
+		}
+		return frappe.db.get_link_options("Task", txt || "", {
+			project: args.project,
+		});
 	});
-
-	addIfMissing({
-		fieldname: "status",
-		fieldtype: "Select",
-		label: __("Status"),
-		options: taskSelectOptions("status"),
-		change() {
-			if (setArg("status", this.get_value() || "")) {
-				emit();
-			}
-		},
-	});
-
-	addIfMissing({
-		fieldname: "priority",
-		fieldtype: "Select",
-		label: __("Priority"),
-		options: taskSelectOptions("priority"),
-		change() {
-			if (setArg("priority", this.get_value() || "")) {
-				emit();
-			}
-		},
-	});
-
-	addIfMissing({
-		fieldname: "assign",
-		fieldtype: "Link",
-		options: "User",
-		label: __("Assigned To"),
-		change() {
-			if (setArg("assign", this.get_value() || "")) {
-				emit();
-			}
-		},
-	});
-
-	addIfMissing({
-		fieldname: "tag",
-		fieldtype: "Link",
-		options: "Tag",
-		label: __("User Tags"),
-		change() {
-			if (setArg("tag", this.get_value() || "")) {
-				emit();
-			}
-		},
-	});
+	bindMultiSelectList("status", __("Status"));
+	bindMultiSelectList("priority", __("Priority"));
+	bindMultiSelectList("assign", __("Assigned To"), (txt) =>
+		frappe.db.get_link_options("User", txt || "", {
+			user_type: "System User",
+			enabled: 1,
+		})
+	);
+	bindMultiSelectList("tag", __("User Tags"), (txt) =>
+		frappe.db.get_link_options("Tag", txt || "")
+	);
 
 	addIfMissing({
 		fieldname: "limit",

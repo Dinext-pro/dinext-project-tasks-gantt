@@ -146,11 +146,13 @@ export async function mount({ page }) {
 		relatedOriginId: "",
 		relatedFocusGen: 0,
 		relatedRevealTimer: 0,
+		mountGen: 0,
 	};
 
 	const reload = async (opts = {}) => {
+		const gen = ++state.mountGen;
 		clearRelatedIds(state);
-		state.table = await loadTable(state.tableHost, state.getArgs, {
+		const table = await loadTable(state.tableHost, state.getArgs, {
 			// Coalesced — avoid parallel ensureGantt with mount await below.
 			onTreeChange: () => scheduleGanttRefresh(state),
 			onCellsSaved: () => scheduleGanttRefresh(state),
@@ -169,6 +171,10 @@ export async function mount({ page }) {
 			fullscreenShell: state.fullscreenShell,
 			expandRowIds: opts.expandRowIds,
 		});
+		if (gen !== state.mountGen) {
+			return;
+		}
+		state.table = table;
 		if (state.table) {
 			wireTreeGanttHooks(state.table, state);
 			await ensureGantt(state);
@@ -214,6 +220,10 @@ export async function mount({ page }) {
 	await reload();
 
 	const onShow = () => reload();
+	const onHide = () => {
+		state.mountGen += 1;
+		destroyGantt(state);
+	};
 
-	return { ...zones, state, disposeResize, onShow };
+	return { ...zones, state, disposeResize, onShow, onHide };
 }

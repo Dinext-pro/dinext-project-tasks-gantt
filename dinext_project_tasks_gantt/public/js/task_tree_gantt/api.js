@@ -1,3 +1,5 @@
+import { multiPayload } from "./filters/defaults.js";
+
 const GET_CHILDREN = "dinext_project_tasks_gantt.api.get_children";
 const SAVE_CELLS = "dinext_project_tasks_gantt.api.save_cells";
 const TIMESHEET_LIMITS =
@@ -38,12 +40,12 @@ export async function getChildren(args) {
 		args: {
 			project: args.project,
 			parent_task: args.parent_task ?? null,
-			task: args.task || null,
+			task: multiPayload(args.task),
 			all_tasks: args.all_tasks ? 1 : 0,
-			status: args.status || null,
-			priority: args.priority || null,
-			assign: args.assign || null,
-			tag: args.tag || null,
+			status: multiPayload(args.status),
+			priority: multiPayload(args.priority),
+			assign: multiPayload(args.assign),
+			tag: multiPayload(args.tag),
 			sort_field: args.sort_field || null,
 			sort_order: args.sort_order || null,
 			limit: args.limit || null,

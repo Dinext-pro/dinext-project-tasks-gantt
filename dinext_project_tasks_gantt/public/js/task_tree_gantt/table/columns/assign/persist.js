@@ -2,7 +2,7 @@
  * Sync Task assignees for fill/paste/bulk via PWA (bulk_process_pwa)
  * + Open ToDo. Same defaults as start_pwa_dialog → add_new_pwa.
  * Mass path does not open the PWA dialog.
- * Single-cell dblclick still uses start_pwa_dialog.
+ * Toolbar N>1 uses start_pwa_multi_dialog; dblclick / N=1 uses start_pwa_dialog.
  */
 
 /** Canonical DB value — dialog.js / types.py (not translated). */

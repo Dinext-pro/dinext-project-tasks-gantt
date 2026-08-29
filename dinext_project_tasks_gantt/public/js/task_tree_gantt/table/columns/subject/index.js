@@ -11,6 +11,7 @@ import {
 import { el } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
 import { startSubjectInlineEdit } from "./edit.js";
+import { wireSubjectPreview } from "./preview.js";
 import { buildSubjectToolbar } from "./toolbar.js";
 
 const MILESTONE_SRC = "/files/rhombus.png";
@@ -62,7 +63,7 @@ function wireEdit(wrap, main, text, row, params) {
 		return;
 	}
 	wrap.classList.add("tree-gantt-subject--editable");
-	wrap.title = [wrap.title, __("Double-click to edit")].filter(Boolean).join(" — ");
+	// No wrap.title — native tooltip fights hover preview (mouseleave / flash dismiss).
 	// Single click → selection / gantt scroll; active click / dblclick → edit.
 	wrap.addEventListener("dblclick", (ev) => {
 		if (ev.target.closest?.(".tree-gantt-subject-toolbar")) {
@@ -82,9 +83,9 @@ function wireEdit(wrap, main, text, row, params) {
 export function renderSubject(params) {
 	const row = params.data || {};
 	const wrap = el("span", "tree-gantt-subject");
-	wrap.title = subjectTitle(row);
-
+	// Browser tooltip only for dep conflict — description uses hover preview.
 	if (row.dep_conflict) {
+		wrap.title = subjectTitle(row);
 		wrap.classList.add("tree-gantt-dep-conflict");
 	}
 	if (row.color) {
@@ -117,6 +118,7 @@ export function renderSubject(params) {
 	}
 
 	wireEdit(wrap, main, text, row, params);
+	wireSubjectPreview(wrap, row);
 	return wrap;
 }
 
