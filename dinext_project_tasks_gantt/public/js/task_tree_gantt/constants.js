@@ -17,13 +17,15 @@ export const ROW_HEIGHT = 32;
 export const GANTT_BAR_HEIGHT = 19;
 export const GANTT_PADDING = 13;
 
-/** frappe-gantt grid-header = upper + lower + chrome (keep table/gantt sync). */
+/** frappe-gantt calendar (upper + lower). Library adds +10 → 76px. */
 export const GANTT_UPPER_HEADER = 40;
 export const GANTT_LOWER_HEADER = 26;
 export const GANTT_HEADER_CHROME = 10;
-/** Table headerHeight = gantt upper+lower+chrome (76). Gantt host: CSS padding-top 3px. */
-export const HEADER_HEIGHT =
+export const GANTT_HEADER_HEIGHT =
 	GANTT_UPPER_HEADER + GANTT_LOWER_HEADER + GANTT_HEADER_CHROME;
+
+/** Compact DinextTable column titles. Independent of Gantt calendar. */
+export const HEADER_HEIGHT = 42;
 
 export const GANTT_ASSETS = [
 	"/assets/dinext_common/js/frappe-gantt.umd.js",

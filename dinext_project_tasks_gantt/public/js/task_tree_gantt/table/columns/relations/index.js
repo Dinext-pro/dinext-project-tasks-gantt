@@ -143,7 +143,9 @@ export function renderRelations(params) {
 		: __("Click to highlight related tasks");
 	wrap.title = tipLines.length
 		? `${tipLines.join("\n\n")}\n${tipHint}`
-		: tipHint;
+		: fieldCanEdit(row, "relations")
+			? __("Double-click to edit")
+			: "";
 
 	if (!rels.length) {
 		wrap.classList.add("text-muted");
@@ -157,7 +159,9 @@ export function renderRelations(params) {
 		stampRelationsOnRow(row, rels);
 	}
 
-	wrap.classList.add("tree-gantt-relations--clickable");
+	if (rels.length) {
+		wrap.classList.add("tree-gantt-relations--clickable");
+	}
 	wrap.addEventListener("click", (ev) => {
 		if (ev.target?.closest?.(".dinext-table-fill-handle")) {
 			return;
@@ -209,5 +213,15 @@ export function relationsColumn() {
 		cellRenderer: renderRelations,
 		valueFormatter: relationsValueFormatter,
 		valueParser: relationsValueParser,
+		filterValueGetter: (row) => {
+			const rels = Array.isArray(row?.relations) ? row.relations : [];
+			return rels
+				.map((r) =>
+					[r?.predecessor_subject, r?.predecessor, r?.type]
+						.filter(Boolean)
+						.join(" ")
+				)
+				.join(" ");
+		},
 	};
 }

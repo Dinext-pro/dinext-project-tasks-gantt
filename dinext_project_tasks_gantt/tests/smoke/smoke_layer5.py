@@ -83,6 +83,21 @@ def _door_pwa_dialog_bulk_method() -> None:
 	)
 
 
+def _door_pwa_multi_dialog_bulk_method() -> None:
+	path = (
+		Path(frappe.get_app_path("project_workload_assignment"))
+		/ "public/js/assignment/dialog-multi.js"
+	)
+	src = path.read_text(encoding="utf-8")
+	_ok("pwa_multi_dialog_fn", "start_pwa_multi_dialog" in src)
+	_ok(
+		"pwa_multi_dialog_bulk_method",
+		"project_workload_assignment.pwa_dates.bulk.bulk_process_pwa" in src,
+	)
+	_ok("pwa_multi_dialog_no_pwe", "pwe_rows" not in src)
+	_ok("pwa_multi_dialog_no_task_dates_col", 'fieldname: "task_dates"' not in src)
+
+
 def _document_hook_order() -> None:
 	from dinext_project_tasks_gantt import hooks as gantt_hooks
 
@@ -441,6 +456,7 @@ def run():
 	_door_save_cells_uses_document_save()
 	_door_gantt_assign_seed_task_dates()
 	_door_pwa_dialog_bulk_method()
+	_door_pwa_multi_dialog_bulk_method()
 	_document_hook_order()
 	issue_name = _door_gantt_save_cells_virtual_exp()
 	_door_issue_edit_virtual_pwa(issue_name)

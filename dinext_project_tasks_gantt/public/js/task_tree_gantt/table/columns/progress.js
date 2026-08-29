@@ -25,5 +25,7 @@ export function progressColumn() {
 		edit: false,
 		cellRenderer: renderProgress,
 		cellClass: "dinext-table-cell--align-center",
+		filterKind: "number",
+		filterValueGetter: (row) => row?.progress ?? 0,
 	};
 }

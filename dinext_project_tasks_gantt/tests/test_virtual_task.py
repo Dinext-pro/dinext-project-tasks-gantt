@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from dinext_project_tasks_gantt.virtual_task.helpers import (
 	ISSUE_TO_TASK_PRIORITY,
@@ -148,6 +148,66 @@ class TestTodoMirrorGuard(unittest.TestCase):
 		) as resolve:
 			sync_todo_mirror(doc)
 			resolve.assert_not_called()
+
+
+class TestTodoMirrorAssignRebuild(unittest.TestCase):
+	def _cancelled_doc(self):
+		flags = SimpleNamespace()
+		flags.get = lambda k, d=None: getattr(flags, k, d)
+		doc = SimpleNamespace(
+			flags=flags,
+			reference_type="Task",
+			reference_name="TASK-V",
+			status="Cancelled",
+			allocated_to="u@x",
+		)
+		doc.get = lambda k, d=None: getattr(doc, k, d)
+		return doc
+
+	def test_cancelled_rebuilds_assign_when_peer_already_cancelled(self):
+		doc = self._cancelled_doc()
+		existing = SimpleNamespace(name="TODO-ISS")
+		dummy = MagicMock()
+		peer_row = {field: None for field in (
+			"description", "status", "priority", "date", "color",
+			"assigned_by", "assigned_by_full_name",
+		)}
+		peer_row["status"] = "Cancelled"
+
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.mirror_target_for_issue_or_task",
+			return_value=("Issue", "ISS-1"),
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.frappe.db.get_value",
+			side_effect=[existing, peer_row],
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.frappe.db.set_value"
+		) as set_value, patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.frappe.get_doc",
+			return_value=dummy,
+		):
+			sync_todo_mirror(doc)
+
+		dummy.update_in_reference.assert_called_once()
+		set_value.assert_not_called()
+
+	def test_cancelled_rebuilds_assign_when_peer_missing(self):
+		doc = self._cancelled_doc()
+		dummy = MagicMock()
+
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.mirror_target_for_issue_or_task",
+			return_value=("Issue", "ISS-1"),
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.frappe.db.get_value",
+			return_value=None,
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.todo.frappe.get_doc",
+			return_value=dummy,
+		):
+			sync_todo_mirror(doc)
+
+		dummy.update_in_reference.assert_called_once()
 
 
 if __name__ == "__main__":

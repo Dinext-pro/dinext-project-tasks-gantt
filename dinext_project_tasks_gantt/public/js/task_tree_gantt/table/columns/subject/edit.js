@@ -4,6 +4,7 @@
  */
 import { fieldCanEdit } from "../../save.js";
 import { cachedTaskDoc } from "../select-edit.js";
+import { closeSubjectPreview } from "./preview.js";
 
 function evaluateReadOnlyDependsOn(expression, doc) {
 	if (typeof expression === "boolean") return expression;
@@ -82,6 +83,8 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 	if (mainEl.dataset.subjectEditing === "1" || mainEl.querySelector(".tree-gantt-subject-edit")) {
 		return;
 	}
+
+	closeSubjectPreview();
 
 	const taskId = row.id;
 	let doc = cachedTaskDoc(taskId);

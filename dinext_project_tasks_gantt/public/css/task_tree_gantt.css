@@ -1,3 +1,9 @@
+.task-tree-gantt-page,
+.task-tree-gantt-chart,
+.task-tree-gantt-table-host {
+	--g-related-color: #c4a9f3;
+}
+
 .task-tree-gantt-page .title-text.tree-gantt-title--link {
 	cursor: pointer;
 }
@@ -42,12 +48,120 @@
 	max-width: 100%;
 }
 
-/* Same as Task Tree Style V4: tag + limit are col-md-1. */
-@media (min-width: 768px) {
-.task-tree-gantt-page .page-form > div:nth-child(6),
-.task-tree-gantt-page .page-form > div:nth-child(7) {
-		flex: 0 0 8.33333333% !important;
-		max-width: 8.33333333% !important;
+/*
+ * page.add_field → col-md-2 (16.67%). Six fields fill the row, Limit wraps.
+ * Drop bootstrap column widths on this page only. Do not touch Gantt header.
+ */
+.task-tree-gantt-page .page-form.row {
+	margin-left: 0;
+	margin-right: 0;
+	align-items: center;
+}
+
+.task-tree-gantt-page .page-form > div {
+	display: flex;
+	align-items: center;
+	padding-left: 4px;
+	padding-right: 4px;
+}
+
+.task-tree-gantt-page .page-form .form-group {
+	margin-top: 0;
+	margin-bottom: 0;
+	width: 100%;
+}
+
+.task-tree-gantt-page .page-form .control-input-wrapper,
+.task-tree-gantt-page .page-form .control-input {
+	display: flex;
+	align-items: center;
+	width: 100%;
+}
+
+.task-tree-gantt-page .page-form .form-control,
+.task-tree-gantt-page .page-form .awesomplete,
+.task-tree-gantt-page .page-form .multiselect-list.dropdown {
+	width: 100%;
+	max-width: 100%;
+}
+
+.task-tree-gantt-page .page-form .form-control.input-xs,
+.task-tree-gantt-page .page-form .multiselect-list > .form-control {
+	height: 26px;
+	min-height: 26px;
+	box-sizing: border-box;
+}
+
+/* Dummy $input from ControlMultiSelectList — out of flow so chips share one baseline. */
+.task-tree-gantt-page .page-form [data-fieldtype="MultiSelectList"] .control-input > input:not(.form-control) {
+	position: absolute;
+	width: 0;
+	height: 0;
+	opacity: 0;
+	pointer-events: none;
+	border: 0;
+	padding: 0;
+	margin: 0;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list.dropdown {
+	position: relative;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list > .form-control {
+	position: relative;
+	display: flex;
+	align-items: center;
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list .status-text {
+	position: static;
+	top: auto;
+	width: 100%;
+	line-height: 1.2;
+}
+
+.task-tree-gantt-page .page-form .status-text.ellipsis {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Small: wrap, usable min width. */
+@media (max-width: 991.98px) {
+	.task-tree-gantt-page .page-form {
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.task-tree-gantt-page .page-form > div {
+		flex: 1 1 11rem !important;
+		width: auto !important;
+		max-width: none !important;
+		min-width: 11rem;
+	}
+}
+
+/* md/lg+: one row, share leftover space. Limit stays compact. */
+@media (min-width: 992px) {
+	.task-tree-gantt-page .page-form {
+		flex-wrap: nowrap;
+		align-items: center;
+	}
+
+	.task-tree-gantt-page .page-form > div {
+		flex: 1 1 0 !important;
+		width: auto !important;
+		max-width: none !important;
+		min-width: 0;
+	}
+
+	.task-tree-gantt-page .page-form > [data-fieldname="limit"] {
+		flex: 0 1 8.5rem !important;
+		min-width: 7.5rem;
+		max-width: 9.5rem !important;
 	}
 }
 
@@ -154,6 +268,16 @@
 
 /* --- table chrome (Tree header / details-cell) --- */
 
+.task-tree-gantt-table-host.dinext-table .ag-header-cell {
+	padding-top: 1px;
+	padding-bottom: 1px;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.dinext-table-header--sortable .ag-header-cell-label {
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
 .task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-label {
 	justify-content: center;
 	width: 100%;
@@ -167,15 +291,16 @@
 /* Subject header slightly larger; other headers smaller than Quartz default */
 .task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text,
 .task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .dinext-table-header-sort-text {
-	font-size: var(--text-base, 14px);
+	font-size: var(--text-sm, 12px);
 	font-weight: 600;
+	line-height: 1.15;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text,
 .task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .dinext-table-header-sort-text {
 	font-size: var(--text-xs, 11px);
 	font-weight: 500;
-	line-height: 1.2;
+	line-height: 1.1;
 }
 
 /* Date headers: wrap «Прогноз …» in narrow cols */
@@ -185,7 +310,7 @@
 	white-space: normal;
 	overflow: visible;
 	text-overflow: unset;
-	line-height: 1.15;
+	line-height: 1.1;
 }
 
 /* Cell content centered except subject (tree col keeps left layout) */
@@ -327,10 +452,10 @@
 
 .task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--related,
 .task-tree-gantt-chart .gantt path.tree-gantt-arrow--related {
-	stroke: #39ff14 !important;
+	stroke: var(--g-related-color) !important;
 	stroke-width: 1.25;
 	pointer-events: stroke;
-	filter: drop-shadow(0 0 1.2px #39ff14);
+	filter: drop-shadow(0 0 1.2px var(--g-related-color));
 	marker-start: url(#tree-gantt-mk-start-rel);
 	marker-end: url(#tree-gantt-mk-end-rel);
 }
@@ -343,7 +468,7 @@
 .task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--related.tree-gantt-arrow--hover,
 .task-tree-gantt-chart .gantt path.tree-gantt-arrow--related.tree-gantt-arrow--hover {
 	stroke-width: 3.2 !important;
-	filter: drop-shadow(0 0 4px #39ff14);
+	filter: drop-shadow(0 0 4px var(--g-related-color));
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover,
@@ -359,7 +484,7 @@
 .task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--related,
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select.tree-gantt-row--related {
-	box-shadow: inset 0 0 0 2px #39ff14;
+	box-shadow: inset 0 0 0 2px var(--g-related-color);
 }
 
 .task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--select .bar {
@@ -367,8 +492,8 @@
 }
 
 .task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--related .bar {
-	outline: 3px solid #39ff14 !important;
-	filter: drop-shadow(0 0 4px #39ff14);
+	outline: 3px solid var(--g-related-color) !important;
+	filter: drop-shadow(0 0 4px var(--g-related-color));
 }
 
 /*
@@ -402,6 +527,12 @@
 	--g-weekend-label-color: #272727;
 	--g-popup-actions: #3e3e3e;
 	--g-handle-color: #c6ccd2;
+	--g-related-color: #c4a9f3;
+}
+
+[data-theme="dark"] .task-tree-gantt-page,
+[data-theme="dark"] .task-tree-gantt-table-host {
+	--g-related-color: #c4a9f3;
 }
 
 /* Opaque so sticky month labels do not bleed through each other on scroll. */
@@ -459,6 +590,14 @@ body.task-tree-gantt-resizing {
 	color: var(--danger, #e74c3c) !important;
 }
 
+/* CS Task Tree Dependencies: .tree-link.conflict .tree-toolbar-button.fa-level-down
+ * Color only — toolbar stays hover-only like sibling buttons. */
+.task-tree-gantt-table-host.dinext-table
+	.tree-gantt-subject.tree-gantt-dep-conflict
+	.tree-toolbar-button.fa-level-down {
+	color: var(--danger, #e74c3c) !important;
+}
+
 /* --- table cell chrome (column parity) --- */
 
 /* Subject = Tree .tree-link content (label + hover toolbar). */
@@ -503,6 +642,75 @@ body.task-tree-gantt-resizing {
 
 .tree-gantt-subject-text:hover {
 	text-decoration: underline;
+}
+
+/* Subject hover: Task.description (Text Editor) readonly */
+.tree-gantt-subject-preview {
+	position: fixed;
+	z-index: 1055;
+	min-width: 280px;
+	max-width: min(420px, calc(100vw - 16px));
+	max-height: min(360px, calc(100vh - 24px));
+	display: flex;
+	flex-direction: column;
+	padding: 10px 12px;
+	background: var(--fg-color, #fff);
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: var(--border-radius-md, 6px);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18));
+	pointer-events: auto;
+}
+
+.tree-gantt-subject-preview__body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--text-color);
+}
+
+/* Own wrapper — NOT .ql-editor.read-mode (dark theme kills span colors). */
+.tree-gantt-subject-preview__richtext {
+	min-width: 0;
+	word-wrap: break-word;
+	overflow-wrap: anywhere;
+}
+
+.tree-gantt-subject-preview__richtext p,
+.tree-gantt-subject-preview__richtext ol,
+.tree-gantt-subject-preview__richtext ul,
+.tree-gantt-subject-preview__richtext pre,
+.tree-gantt-subject-preview__richtext blockquote {
+	margin: 0 0 0.4em;
+}
+
+.tree-gantt-subject-preview__richtext p:last-child,
+.tree-gantt-subject-preview__richtext ol:last-child,
+.tree-gantt-subject-preview__richtext ul:last-child,
+.tree-gantt-subject-preview__richtext pre:last-child,
+.tree-gantt-subject-preview__richtext blockquote:last-child {
+	margin-bottom: 0;
+}
+
+.tree-gantt-subject-preview__richtext pre,
+.tree-gantt-subject-preview__richtext .ql-code-block-container {
+	padding: 6px 8px;
+	border-radius: var(--border-radius, 4px);
+	background: var(--control-bg, #f5f7fa);
+	font-family: var(--font-mono, monospace);
+	font-size: 11px;
+	white-space: pre-wrap;
+}
+
+.tree-gantt-subject-preview__richtext a {
+	text-decoration: underline;
+}
+
+.tree-gantt-subject-preview__loading,
+.tree-gantt-subject-preview__empty {
+	font-size: 12px;
 }
 
 /* Tree inline Control(Data) on subject click. */

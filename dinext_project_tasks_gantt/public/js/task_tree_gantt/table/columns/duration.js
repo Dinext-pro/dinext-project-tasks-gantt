@@ -18,5 +18,6 @@ export function durationColumn() {
 		cellClass: "dinext-table-cell--align-center",
 		valueFormatter: durationValueFormatter,
 		edit: false,
+		filterValueGetter: (row) => row?.expected_time ?? row?.duration ?? "",
 	};
 }
