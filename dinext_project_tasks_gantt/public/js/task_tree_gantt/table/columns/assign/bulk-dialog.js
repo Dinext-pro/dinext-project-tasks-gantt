@@ -1,6 +1,6 @@
 /**
- * Bulk assign for rowCheck selection — MultiSelectPills, project team filter.
- * Persist creates PWA (silent defaults) + ToDo; no PWA dialog.
+ * Fallback bulk assign (MultiSelectPills) if start_pwa_multi_dialog is missing.
+ * Toolbar N>1 prefers dialog-multi.js.
  */
 import { fetchProjectTeamUsers, normalizeUsers } from "./persist.js";
 import { getColumnsPage } from "../context.js";

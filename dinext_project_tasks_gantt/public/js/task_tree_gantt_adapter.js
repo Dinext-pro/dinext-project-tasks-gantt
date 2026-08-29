@@ -27,9 +27,10 @@
 	}
 
 	/**
-	 * Cached Tree/Task: Factory.show → container.change_to → $(page).trigger("show").
-	 * post_render / router.change can miss if make_tree throws after change_to.
-	 * Bind after first mount so the initial show (already painted) is not a second reload.
+	 * Cached Tree/Task: Factory.show → container.change_to → $(page).trigger("show")
+	 * then Factory.on_show → make_tree. Bind after first mount so the initial
+	 * show (already painted) is not a second reload.
+	 * show_pending: make_tree skips — otherwise two parallel reload/get_children.
 	 */
 	async function refreshOnShow(page) {
 		const applied = await page.__task_tree_gantt_apply_route?.();
@@ -38,7 +39,7 @@
 		}
 	}
 
-	function bindPageShow(page) {
+	function bindPageLifecycle(page) {
 		if (page.__task_tree_gantt_show_bound) {
 			return;
 		}
@@ -51,7 +52,16 @@
 			if (evt.target !== this) {
 				return;
 			}
-			void refreshOnShow(page);
+			page.__task_tree_gantt_show_pending = true;
+			void refreshOnShow(page).finally(() => {
+				page.__task_tree_gantt_show_pending = false;
+			});
+		});
+		$wrap.on("hide", function (evt) {
+			if (evt.target !== this) {
+				return;
+			}
+			page.__task_tree_gantt_on_hide?.();
 		});
 	}
 
@@ -63,6 +73,9 @@
 		treeview.__task_tree_gantt_menu = true;
 		treeview.make_tree = function () {
 			$(this.parent).find(".tree").remove();
+			if (page.__task_tree_gantt_show_pending) {
+				return;
+			}
 			void page.__task_tree_gantt_on_show?.();
 		};
 		treeview.rebuild_tree = function () {
@@ -133,10 +146,11 @@
 			mounted?.state?.applyRouteProject?.() || Promise.resolve(false);
 		page.__task_tree_gantt_on_show = () =>
 			mounted?.onShow?.() || Promise.resolve();
+		page.__task_tree_gantt_on_hide = () => mounted?.onHide?.();
 		setupBurndown(page, mounted?.state?.getArgs);
 		hideClassicTreeChrome(page);
 		wireTreeMenuToGantt(treeview, page);
-		bindPageShow(page);
+		bindPageLifecycle(page);
 	}
 
 	function install() {

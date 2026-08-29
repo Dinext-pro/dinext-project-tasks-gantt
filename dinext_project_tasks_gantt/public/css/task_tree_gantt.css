@@ -48,12 +48,120 @@
 	max-width: 100%;
 }
 
-/* Same as Task Tree Style V4: tag + limit are col-md-1. */
-@media (min-width: 768px) {
-.task-tree-gantt-page .page-form > div:nth-child(6),
-.task-tree-gantt-page .page-form > div:nth-child(7) {
-		flex: 0 0 8.33333333% !important;
-		max-width: 8.33333333% !important;
+/*
+ * page.add_field → col-md-2 (16.67%). Six fields fill the row, Limit wraps.
+ * Drop bootstrap column widths on this page only. Do not touch Gantt header.
+ */
+.task-tree-gantt-page .page-form.row {
+	margin-left: 0;
+	margin-right: 0;
+	align-items: center;
+}
+
+.task-tree-gantt-page .page-form > div {
+	display: flex;
+	align-items: center;
+	padding-left: 4px;
+	padding-right: 4px;
+}
+
+.task-tree-gantt-page .page-form .form-group {
+	margin-top: 0;
+	margin-bottom: 0;
+	width: 100%;
+}
+
+.task-tree-gantt-page .page-form .control-input-wrapper,
+.task-tree-gantt-page .page-form .control-input {
+	display: flex;
+	align-items: center;
+	width: 100%;
+}
+
+.task-tree-gantt-page .page-form .form-control,
+.task-tree-gantt-page .page-form .awesomplete,
+.task-tree-gantt-page .page-form .multiselect-list.dropdown {
+	width: 100%;
+	max-width: 100%;
+}
+
+.task-tree-gantt-page .page-form .form-control.input-xs,
+.task-tree-gantt-page .page-form .multiselect-list > .form-control {
+	height: 26px;
+	min-height: 26px;
+	box-sizing: border-box;
+}
+
+/* Dummy $input from ControlMultiSelectList — out of flow so chips share one baseline. */
+.task-tree-gantt-page .page-form [data-fieldtype="MultiSelectList"] .control-input > input:not(.form-control) {
+	position: absolute;
+	width: 0;
+	height: 0;
+	opacity: 0;
+	pointer-events: none;
+	border: 0;
+	padding: 0;
+	margin: 0;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list.dropdown {
+	position: relative;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list > .form-control {
+	position: relative;
+	display: flex;
+	align-items: center;
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list .status-text {
+	position: static;
+	top: auto;
+	width: 100%;
+	line-height: 1.2;
+}
+
+.task-tree-gantt-page .page-form .status-text.ellipsis {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Small: wrap, usable min width. */
+@media (max-width: 991.98px) {
+	.task-tree-gantt-page .page-form {
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.task-tree-gantt-page .page-form > div {
+		flex: 1 1 11rem !important;
+		width: auto !important;
+		max-width: none !important;
+		min-width: 11rem;
+	}
+}
+
+/* md/lg+: one row, share leftover space. Limit stays compact. */
+@media (min-width: 992px) {
+	.task-tree-gantt-page .page-form {
+		flex-wrap: nowrap;
+		align-items: center;
+	}
+
+	.task-tree-gantt-page .page-form > div {
+		flex: 1 1 0 !important;
+		width: auto !important;
+		max-width: none !important;
+		min-width: 0;
+	}
+
+	.task-tree-gantt-page .page-form > [data-fieldname="limit"] {
+		flex: 0 1 8.5rem !important;
+		min-width: 7.5rem;
+		max-width: 9.5rem !important;
 	}
 }
 
@@ -244,12 +352,6 @@
 .task-tree-gantt-chart .gantt-container .grid-header {
 	z-index: 9;
 	overflow: clip;
-}
-
-/* Week: one date row. Hide period labels (ranges / Wxx), keep Day lower row. */
-.task-tree-gantt-chart .gantt-container.gantt-view--week .lower-header {
-	display: none;
-	height: 0;
 }
 
 /* Match table `.dinext-table-hscroll-top` so header+scroll+rows stacks align.
@@ -540,6 +642,75 @@ body.task-tree-gantt-resizing {
 
 .tree-gantt-subject-text:hover {
 	text-decoration: underline;
+}
+
+/* Subject hover: Task.description (Text Editor) readonly */
+.tree-gantt-subject-preview {
+	position: fixed;
+	z-index: 1055;
+	min-width: 280px;
+	max-width: min(420px, calc(100vw - 16px));
+	max-height: min(360px, calc(100vh - 24px));
+	display: flex;
+	flex-direction: column;
+	padding: 10px 12px;
+	background: var(--fg-color, #fff);
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: var(--border-radius-md, 6px);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18));
+	pointer-events: auto;
+}
+
+.tree-gantt-subject-preview__body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--text-color);
+}
+
+/* Own wrapper — NOT .ql-editor.read-mode (dark theme kills span colors). */
+.tree-gantt-subject-preview__richtext {
+	min-width: 0;
+	word-wrap: break-word;
+	overflow-wrap: anywhere;
+}
+
+.tree-gantt-subject-preview__richtext p,
+.tree-gantt-subject-preview__richtext ol,
+.tree-gantt-subject-preview__richtext ul,
+.tree-gantt-subject-preview__richtext pre,
+.tree-gantt-subject-preview__richtext blockquote {
+	margin: 0 0 0.4em;
+}
+
+.tree-gantt-subject-preview__richtext p:last-child,
+.tree-gantt-subject-preview__richtext ol:last-child,
+.tree-gantt-subject-preview__richtext ul:last-child,
+.tree-gantt-subject-preview__richtext pre:last-child,
+.tree-gantt-subject-preview__richtext blockquote:last-child {
+	margin-bottom: 0;
+}
+
+.tree-gantt-subject-preview__richtext pre,
+.tree-gantt-subject-preview__richtext .ql-code-block-container {
+	padding: 6px 8px;
+	border-radius: var(--border-radius, 4px);
+	background: var(--control-bg, #f5f7fa);
+	font-family: var(--font-mono, monospace);
+	font-size: 11px;
+	white-space: pre-wrap;
+}
+
+.tree-gantt-subject-preview__richtext a {
+	text-decoration: underline;
+}
+
+.tree-gantt-subject-preview__loading,
+.tree-gantt-subject-preview__empty {
+	font-size: 12px;
 }
 
 /* Tree inline Control(Data) on subject click. */

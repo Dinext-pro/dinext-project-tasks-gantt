@@ -1,5 +1,6 @@
 import { getChildren } from "../api.js";
 import { HEADER_HEIGHT, ROW_HEIGHT } from "../constants.js";
+import { hasMulti, multiPayload, normalizeMulti } from "../filters/defaults.js";
 import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/check.js";
 import { refreshPlanFact } from "./columns/plan_fact/limits.js";
 import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
@@ -55,11 +56,11 @@ function childrenQuery(getArgs, parent_task = null, extra = {}) {
 	return {
 		project: args.project || null,
 		parent_task,
-		task: args.task || null,
-		status: args.status || null,
-		priority: args.priority || null,
-		assign: args.assign || null,
-		tag: args.tag || null,
+		task: multiPayload(args.task),
+		status: multiPayload(args.status),
+		priority: multiPayload(args.priority),
+		assign: multiPayload(args.assign),
+		tag: multiPayload(args.tag),
 		limit: args.limit || null,
 		...extra,
 	};
@@ -70,7 +71,7 @@ async function fetchRootRows(getArgs) {
 	if (!args.project) {
 		return [];
 	}
-	if (args.task) {
+	if (hasMulti(args.task)) {
 		const flat = toTableRows(
 			await getChildren(
 				childrenQuery(getArgs, null, { all_tasks: 1, limit: null })
@@ -98,12 +99,17 @@ async function fetchFullTreeRows(getArgs) {
 	return nestRows(flat);
 }
 
-function taskPathExpandIds(rows, taskId) {
-	if (!taskId) {
+function taskPathExpandIds(rows, taskIds) {
+	const ids = normalizeMulti(taskIds);
+	if (!ids.length) {
 		return [];
 	}
-	const pathId = collectPathById(rows).get(String(taskId));
-	return ancestorExpandIds(pathId);
+	const map = collectPathById(rows);
+	const out = [];
+	for (const id of ids) {
+		out.push(...ancestorExpandIds(map.get(String(id))));
+	}
+	return [...new Set(out)];
 }
 
 function shouldFetchFullTree(state, expandedIds) {
@@ -338,7 +344,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	}
 
 	try {
-		const expanded = args.task
+		const expanded = hasMulti(args.task)
 			? [...(expandRowIds || [])]
 			: state.table
 				? snapshotExpandedIds(state.table, expandRowIds)
@@ -360,7 +366,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				}
 			}
 		}
-		state.treeFullyLoaded = wantFull || Boolean(args.task);
+		state.treeFullyLoaded = wantFull || hasMulti(args.task);
 
 		if (state.table) {
 			// refresh() reuses rowIndex; stale _lastClickedCell would start
@@ -369,7 +375,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				state.table._lastClickedCell = null;
 			}
 			state.table.api?.stopEditing?.();
-			if (wantFull || args.task) {
+			if (wantFull || hasMulti(args.task)) {
 				// Nested source + expanded set → one paint. No per-node getChildren.
 				seedExpandedIds(state.table, expanded);
 				state.table.refresh?.(rows);
@@ -390,7 +396,9 @@ export async function loadTable(container, getArgs, hooks = {}) {
 
 		container.replaceChildren();
 		const projectKey = args.project || "no-project";
-		const taskKey = args.task ? `:${args.task}` : "";
+		const taskKey = hasMulti(args.task)
+			? `:${normalizeMulti(args.task).join(",")}`
+			: "";
 
 		state.table = await DinextTable.create({
 			container,
