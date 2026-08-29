@@ -117,15 +117,57 @@ function buildOptions(holidays, state) {
 		on_date_change: createGanttDateChangeHandler(state, () =>
 			scheduleGanttRefresh(state)
 		),
-		on_view_change: () => reapplyGanttArrows(state),
+		on_view_change: () => {
+			const gen = ganttGen(state);
+			reapplyGanttArrows(state);
+			requestAnimationFrame(() => {
+				if (ganttStillCurrent(state, gen)) {
+					state.applyGanttOffset?.();
+				}
+			});
+		},
 	};
+}
+
+function ganttGen(state) {
+	return state._ganttGen || 0;
+}
+
+function ganttStillCurrent(state, gen) {
+	return ganttGen(state) === gen && !!state.ganttEl?.isConnected;
+}
+
+function watchGanttWidth(state) {
+	const el = state.ganttEl;
+	if (!el || state._ganttWidthRO) {
+		return;
+	}
+	const ro = new ResizeObserver(() => {
+		if (state.ganttEl !== el || !el.isConnected) {
+			ro.disconnect();
+			state._ganttWidthRO = null;
+			return;
+		}
+		if (el.clientWidth > 0) {
+			ro.disconnect();
+			state._ganttWidthRO = null;
+			scheduleGanttRefresh(state);
+		}
+	});
+	state._ganttWidthRO = ro;
+	ro.observe(el);
 }
 
 function reapplyGanttArrows(state) {
 	if (!state?.ganttEl) {
 		return;
 	}
+	const gen = ganttGen(state);
+	const el = state.ganttEl;
 	const run = () => {
+		if (!ganttStillCurrent(state, gen) || state.ganttEl !== el) {
+			return;
+		}
 		applyRelationArrowGeometry(state.ganttEl, state.table);
 		applyRelatedGanttPaint(
 			state.ganttEl,
@@ -189,13 +231,25 @@ function collectGanttTasks(table) {
 }
 
 /**
- * Mount or refresh gantt from current table. No gen-cancel mid-flight —
- * callers use dirty-loop so the latest table state is applied after await.
+ * Mount or refresh gantt from current table.
+ * `_ganttGen` invalidates in-flight work after hide/destroy.
  */
 async function runGanttUpdate(state) {
 	if (!state?.ganttEl) {
 		return null;
 	}
+	const gen = ganttGen(state);
+	if (state.ganttEl.clientWidth <= 0) {
+		await new Promise((r) => requestAnimationFrame(r));
+		if (!ganttStillCurrent(state, gen)) {
+			return null;
+		}
+		if (state.ganttEl.clientWidth <= 0) {
+			watchGanttWidth(state);
+			return null;
+		}
+	}
+
 	const project = state.getArgs?.()?.project;
 	if (!project || !state.table) {
 		destroyGantt(state);
@@ -203,6 +257,9 @@ async function runGanttUpdate(state) {
 	}
 
 	await ensureAssets();
+	if (!ganttStillCurrent(state, gen)) {
+		return null;
+	}
 
 	const tasks = collectGanttTasks(state.table);
 	if (!tasks.length) {
@@ -215,8 +272,11 @@ async function runGanttUpdate(state) {
 		state.holidaysProject = project;
 	}
 
-	// Project may have changed while holidays loaded.
-	if (state.getArgs?.()?.project !== project || !state.table) {
+	if (
+		!ganttStillCurrent(state, gen) ||
+		state.getArgs?.()?.project !== project ||
+		!state.table
+	) {
 		return null;
 	}
 
@@ -237,22 +297,24 @@ async function runGanttUpdate(state) {
 	return state.gantt;
 }
 
-/** Serial dirty-loop: coalesce bursts, never cancel an in-flight mount. */
+/** Serial dirty-loop. Stop if destroy/hide bumped `_ganttGen`. */
 async function pumpGanttUpdates(state) {
 	if (state._ganttPumping) {
 		return;
 	}
 	state._ganttPumping = true;
+	const pumpId = ganttGen(state);
 	try {
-		while (state._ganttDirty) {
+		while (state._ganttDirty && ganttGen(state) === pumpId) {
 			state._ganttDirty = false;
 			await runGanttUpdate(state);
 		}
 	} finally {
-		state._ganttPumping = false;
-		// Dirty set during finally window.
-		if (state._ganttDirty) {
-			void pumpGanttUpdates(state);
+		if (ganttGen(state) === pumpId) {
+			state._ganttPumping = false;
+			if (state._ganttDirty) {
+				void pumpGanttUpdates(state);
+			}
 		}
 	}
 }
@@ -270,7 +332,12 @@ export function destroyGantt(state) {
 	if (!state) {
 		return;
 	}
+	state._ganttGen = ganttGen(state) + 1;
 	state._ganttDirty = false;
+	if (state._ganttWidthRO) {
+		state._ganttWidthRO.disconnect();
+		state._ganttWidthRO = null;
+	}
 	if (state._ganttRaf) {
 		cancelAnimationFrame(state._ganttRaf);
 		state._ganttRaf = 0;

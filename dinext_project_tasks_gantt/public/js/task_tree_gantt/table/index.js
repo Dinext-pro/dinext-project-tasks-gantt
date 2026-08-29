@@ -1,5 +1,6 @@
 import { getChildren } from "../api.js";
 import { HEADER_HEIGHT, ROW_HEIGHT } from "../constants.js";
+import { hasMulti, multiPayload, normalizeMulti } from "../filters/defaults.js";
 import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/check.js";
 import { refreshPlanFact } from "./columns/plan_fact/limits.js";
 import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
@@ -55,10 +56,11 @@ function childrenQuery(getArgs, parent_task = null, extra = {}) {
 	return {
 		project: args.project || null,
 		parent_task,
-		status: args.status || null,
-		priority: args.priority || null,
-		assign: args.assign || null,
-		tag: args.tag || null,
+		task: multiPayload(args.task),
+		status: multiPayload(args.status),
+		priority: multiPayload(args.priority),
+		assign: multiPayload(args.assign),
+		tag: multiPayload(args.tag),
 		limit: args.limit || null,
 		...extra,
 	};
@@ -69,26 +71,18 @@ async function fetchRootRows(getArgs) {
 	if (!args.project) {
 		return [];
 	}
-	// Task filter = group: show its children as top-level rows.
-	return toTableRows(
-		await getChildren(childrenQuery(getArgs, args.task || null))
-	);
-}
-
-function findNestedRow(nodes, id) {
-	for (const node of nodes || []) {
-		if (node.id === id) {
-			return node;
-		}
-		const hit = findNestedRow(node.children, id);
-		if (hit) {
-			return hit;
-		}
+	if (hasMulti(args.task)) {
+		const flat = toTableRows(
+			await getChildren(
+				childrenQuery(getArgs, null, { all_tasks: 1, limit: null })
+			)
+		);
+		return nestRows(flat);
 	}
-	return null;
+	return toTableRows(await getChildren(childrenQuery(getArgs, null)));
 }
 
-/** One request: full project (or Task-filter subtree), nested. */
+/** One request: full project (or Task-filter path), nested. */
 async function fetchFullTreeRows(getArgs) {
 	const args = readArgs(getArgs);
 	if (!args.project) {
@@ -102,22 +96,28 @@ async function fetchFullTreeRows(getArgs) {
 			})
 		)
 	);
-	const nested = nestRows(flat);
-	if (!args.task) {
-		return nested;
+	return nestRows(flat);
+}
+
+function taskPathExpandIds(rows, taskIds) {
+	const ids = normalizeMulti(taskIds);
+	if (!ids.length) {
+		return [];
 	}
-	const node = findNestedRow(nested, args.task);
-	if (node?.children?.length) {
-		return node.children;
+	const map = collectPathById(rows);
+	const out = [];
+	for (const id of ids) {
+		out.push(...ancestorExpandIds(map.get(String(id))));
 	}
-	if (node) {
-		return [node];
-	}
-	return nested;
+	return [...new Set(out)];
 }
 
 function shouldFetchFullTree(state, expandedIds) {
 	if (state?.treeFullyLoaded && expandedIds.length) {
+		return true;
+	}
+	// Nested path (`A:B`): roots-only refresh cannot find the former leaf.
+	if ((expandedIds || []).some((id) => String(id).includes(":"))) {
 		return true;
 	}
 	return expandedIds.length > 1;
@@ -195,6 +195,52 @@ async function restoreExpanded(table, ids, gen, state) {
 			console.error("[task_tree_gantt] restore expand", id, e);
 		}
 	}
+}
+
+function rowHasVisibleDescendants(table, rowId) {
+	const prefix = `${String(rowId)}:`;
+	let found = false;
+	table.api?.forEachNode?.((node) => {
+		if (found) {
+			return;
+		}
+		const id = String(node.data?._rowId || "");
+		if (id.startsWith(prefix)) {
+			found = true;
+		}
+	});
+	return found;
+}
+
+/**
+ * Former leaf → group: wantFull seeds expandedIds then refresh. expandRow no-ops
+ * if id already in the set, so empty nested children stay hidden. Lazy restore
+ * can also miss getRowNode right after rowData replace. Force expand until
+ * children exist in source or are visible under the parent.
+ */
+async function ensureExpanded(table, ids, gen, state) {
+	if (!table?.expandRow || !ids?.length) {
+		return;
+	}
+	for (const id of sortExpandedIds(ids)) {
+		if (gen != null && state?.loadGen !== gen) {
+			return;
+		}
+		const kids = table.getSourceChildren?.(id) || [];
+		const visible = rowHasVisibleDescendants(table, id);
+		if (kids.length && visible && table.isRowExpanded?.(id)) {
+			continue;
+		}
+		if (table.expandedIds?.has?.(id)) {
+			table.expandedIds.delete(id);
+		}
+		try {
+			await table.expandRow(id);
+		} catch (e) {
+			console.error("[task_tree_gantt] ensure expand", id, e);
+		}
+	}
+	table.refreshAllTreeToggles?.();
 }
 
 function scheduleSideDataRefresh(getArgs, table, rows) {
@@ -298,9 +344,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	}
 
 	try {
-		const expanded = state.table
-			? snapshotExpandedIds(state.table, expandRowIds)
-			: [...(expandRowIds || [])];
+		const expanded = hasMulti(args.task)
+			? [...(expandRowIds || [])]
+			: state.table
+				? snapshotExpandedIds(state.table, expandRowIds)
+				: [...(expandRowIds || [])];
 		const wantFull = Boolean(state.table) && shouldFetchFullTree(state, expanded);
 		const rows = wantFull
 			? await fetchFullTreeRows(getArgs)
@@ -310,7 +358,15 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		}
 
 		state.rows = rows;
-		state.treeFullyLoaded = wantFull;
+		const pathExpand = taskPathExpandIds(rows, args.task);
+		if (pathExpand.length) {
+			for (const id of pathExpand) {
+				if (!expanded.includes(id)) {
+					expanded.push(id);
+				}
+			}
+		}
+		state.treeFullyLoaded = wantFull || hasMulti(args.task);
 
 		if (state.table) {
 			// refresh() reuses rowIndex; stale _lastClickedCell would start
@@ -319,13 +375,16 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				state.table._lastClickedCell = null;
 			}
 			state.table.api?.stopEditing?.();
-			if (wantFull) {
+			if (wantFull || hasMulti(args.task)) {
 				// Nested source + expanded set → one paint. No per-node getChildren.
 				seedExpandedIds(state.table, expanded);
 				state.table.refresh?.(rows);
 			} else {
 				state.table.refresh?.(rows);
 				await restoreExpanded(state.table, expanded, gen, state);
+			}
+			if (expandRowIds?.length) {
+				await ensureExpanded(state.table, expanded, gen, state);
 			}
 			if (gen !== state.loadGen) {
 				return null;
@@ -337,11 +396,14 @@ export async function loadTable(container, getArgs, hooks = {}) {
 
 		container.replaceChildren();
 		const projectKey = args.project || "no-project";
-		const taskKey = args.task ? `:${args.task}` : "";
+		const taskKey = hasMulti(args.task)
+			? `:${normalizeMulti(args.task).join(",")}`
+			: "";
 
 		state.table = await DinextTable.create({
 			container,
 			data: rows,
+			expandedIds: expanded,
 			columns: getColumns(),
 			edit: true,
 			selection: { enabled: true },
@@ -351,6 +413,8 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			rowCheck: { enabled: true },
 			toolbar: {
 				persistKey: `task-tree-gantt:${projectKey}${taskKey}`,
+				defaultPinned: true,
+				lockPinned: true,
 				// "rows" → delete (+ move when rowReorder on). Add Child stays domain item.
 				presets: ["history", "tree", "rows", "fullscreen"],
 				items: [addRootTaskToolbarItem(), bulkAssignToolbarItem()],
@@ -396,7 +460,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				headerHeight: HEADER_HEIGHT,
 				// Core FilterMixin also sets 28; keep explicit so search ≠ 76px header.
 				floatingFiltersHeight: 28,
-				tooltipShowDelay: 0,
+				enableBrowserTooltips: true,
 				getRowClass: (params) => {
 					const ids = getState(container).relatedTaskIds;
 					if (
@@ -429,6 +493,15 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		if (gen !== state.loadGen) {
 			destroyState(state);
 			return null;
+		}
+
+		if (expandRowIds?.length) {
+			await restoreExpanded(state.table, expandRowIds, gen, state);
+			await ensureExpanded(state.table, expandRowIds, gen, state);
+			if (gen !== state.loadGen) {
+				destroyState(state);
+				return null;
+			}
 		}
 
 		onTreeChange?.();

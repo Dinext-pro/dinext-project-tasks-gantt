@@ -45,5 +45,6 @@ export function planFactColumn() {
 		edit: false,
 		cellRenderer: renderPlanFact,
 		cellClass: "dinext-table-cell--align-center",
+		filterable: false,
 	};
 }

@@ -100,7 +100,7 @@ export function buildSubjectToolbar(row) {
 			makeBtn({
 				iconClass: "fa fa-tasks",
 				title: __("Add Multiple"),
-				onClick: () => addMultipleTasks(row),
+				onClick: () => void addMultipleTasks(row),
 			})
 		);
 	}

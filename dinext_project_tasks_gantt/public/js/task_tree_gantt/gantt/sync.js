@@ -1,4 +1,5 @@
-/** Base gantt top offset (px). Live value set by setupToolbarOffsetSync (overrides CSS). */
+import { GANTT_HEADER_HEIGHT, HEADER_HEIGHT } from "../constants.js";
+
 const GANTT_BASE_TOP_PAD = 1.5;
 
 function tableViewport(tableHost) {
@@ -131,11 +132,17 @@ function parkGanttHScroll(ganttEl, bar) {
 	}
 }
 
+function tableTitleHeaderHeight(tableHost) {
+	const row = tableHost?.querySelector?.(
+		".ag-header-row:not(.ag-header-row-column-filter)"
+	);
+	return row?.offsetHeight || HEADER_HEIGHT;
+}
+
 /**
- * When DinextTable toolbar opens/pins, grid shifts down in-flow.
- * Mirror that offset on gantt (base pad + toolbar height).
- * Table top H-scroll sits between header and rows — match that stack
- * with a sticky top scrollbar so gantt bars stay on the same row level.
+ * Toolbar + column-search sit above both panes.
+ * Gantt calendar is taller than the table title row — subtract that
+ * delta so bars line up with rows (calendar hangs into the toolbar gap).
  */
 export function setupToolbarOffsetSync(tableHost, ganttEl, parkedBar) {
 	if (!ganttEl) {
@@ -169,18 +176,27 @@ export function setupToolbarOffsetSync(tableHost, ganttEl, parkedBar) {
 		});
 	};
 
+	let headerEl = null;
+	let ro;
 	const apply = () => {
 		const toolbarH = toolbar?.offsetHeight || 0;
 		const filterH = filterRowHeight(tableHost);
-		ganttEl.style.paddingTop = `${GANTT_BASE_TOP_PAD + toolbarH + filterH}px`;
+		const header = ganttEl.querySelector(".grid-header");
+		if (ro && header && header !== headerEl) {
+			if (headerEl) {
+				ro.unobserve(headerEl);
+			}
+			headerEl = header;
+			ro.observe(header);
+		}
+		const ganttHeaderH = header?.offsetHeight || GANTT_HEADER_HEIGHT;
+		const tableHeaderH = tableTitleHeaderHeight(tableHost);
+		const headerDelta = Math.max(0, ganttHeaderH - tableHeaderH);
+		ganttEl.style.paddingTop = `${GANTT_BASE_TOP_PAD + toolbarH + filterH - headerDelta}px`;
 
 		const scrollH = topHScrollHeight(tableHost);
-		const header = ganttEl.querySelector(".grid-header");
 		ganttEl.style.setProperty("--gantt-top-scroll-h", `${scrollH}px`);
-		ganttEl.style.setProperty(
-			"--gantt-header-h",
-			`${header?.offsetHeight || 76}px`
-		);
+		ganttEl.style.setProperty("--gantt-header-h", `${ganttHeaderH}px`);
 
 		placeGanttHScroll(ganttEl, bar);
 		bar.classList.toggle("is-idle", scrollH === 0);
@@ -192,12 +208,10 @@ export function setupToolbarOffsetSync(tableHost, ganttEl, parkedBar) {
 		}
 	};
 
-	apply();
-
 	viewport?.addEventListener("scroll", onBarScroll, { passive: true });
 	ganttVp?.addEventListener("scroll", onGanttHScroll, { passive: true });
 
-	const ro = new ResizeObserver(apply);
+	ro = new ResizeObserver(apply);
 	if (toolbar) {
 		ro.observe(toolbar);
 	}
@@ -212,6 +226,7 @@ export function setupToolbarOffsetSync(tableHost, ganttEl, parkedBar) {
 	if (ganttVp) {
 		ro.observe(ganttVp);
 	}
+	apply();
 
 	const mo = tableHost
 		? new MutationObserver(() => {

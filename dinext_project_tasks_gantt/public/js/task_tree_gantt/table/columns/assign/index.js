@@ -54,12 +54,7 @@ function renderAvatars(users, row) {
 		if (isTodoOnly) {
 			const tip = __("{0}: assigned via ToDo only (no workload)", [fullName]);
 			wrap.setAttribute("aria-label", tip);
-			$(wrap).tooltip({
-				title: tip,
-				container: "body",
-				trigger: "hover",
-				delay: { show: 200, hide: 0 },
-			});
+			wrap.title = tip;
 		} else {
 			wrap.title = fullName;
 		}
@@ -229,5 +224,20 @@ export function assignColumn() {
 		valueFormatter: assignValueFormatter,
 		valueParser: assignValueParser,
 		cellClass: "dinext-table-cell--align-center",
+		filterValueGetter: (row) => {
+			const users = Array.isArray(row?.assign) ? row.assign : [];
+			const parts = [];
+			for (const user of users) {
+				if (!user) {
+					continue;
+				}
+				parts.push(String(user));
+				const fullName = frappe.user?.full_name?.(user);
+				if (fullName && fullName !== user) {
+					parts.push(fullName);
+				}
+			}
+			return parts.join(" ");
+		},
 	};
 }
