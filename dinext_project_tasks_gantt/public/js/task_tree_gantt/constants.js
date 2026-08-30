@@ -12,10 +12,10 @@ export const MIN_LEFT_PCT = 30;
 export const MIN_RIGHT_PCT = 2;
 export const DEFAULT_LEFT_PCT = 55;
 
-/** Match legacy tree/gantt pitch: bar_height + padding. */
-export const ROW_HEIGHT = 32;
+/** Match tree/gantt pitch: bar_height + padding. */
+export const ROW_HEIGHT = 28;
 export const GANTT_BAR_HEIGHT = 19;
-export const GANTT_PADDING = 13;
+export const GANTT_PADDING = 9;
 
 /** frappe-gantt calendar (upper + lower). Library adds +10 → 76px. */
 export const GANTT_UPPER_HEADER = 40;

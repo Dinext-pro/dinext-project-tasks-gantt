@@ -103,7 +103,7 @@ function buildOptions(holidays, state) {
 		language: frappe.boot.lang,
 		upper_header_height: GANTT_UPPER_HEADER,
 		lower_header_height: GANTT_LOWER_HEADER,
-		bar_corner_radius: 1,
+		bar_corner_radius: 3,
 		padding: GANTT_PADDING,
 		bar_height: GANTT_BAR_HEIGHT,
 		column_width: 25,
