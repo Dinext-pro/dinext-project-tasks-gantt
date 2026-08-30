@@ -7,7 +7,7 @@ const BAR_RELATED = "tree-gantt-bar--related";
 const ARROW_RELATED = "tree-gantt-arrow--related";
 
 const INTERACTIVE =
-	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .dinext-table-fill-handle";
+	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .dinext-table-tree-toggle, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .dinext-table-fill-handle";
 
 function clearTableClass(tableHost, className) {
 	tableHost

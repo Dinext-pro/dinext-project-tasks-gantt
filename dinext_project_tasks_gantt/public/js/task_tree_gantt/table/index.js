@@ -264,7 +264,7 @@ function createExpandHandler(getArgs, onTreeChange) {
 			row?.id || String(rowId || "").split(":").filter(Boolean).pop() || null;
 		const children = toTableRows(
 			await getChildren(childrenQuery(getArgs, parentTask))
-		);
+		).filter((child) => String(child?.id || "") !== String(parentTask || ""));
 		// Sort layer reorders children inside setRowChildren when sort active.
 		table.setRowChildren(rowId, children);
 		onTreeChange?.();
