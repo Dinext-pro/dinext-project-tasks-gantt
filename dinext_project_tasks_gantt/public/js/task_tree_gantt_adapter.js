@@ -85,7 +85,10 @@
 				args: { doctype: me.doctype },
 				callback(r) {
 					if (!r.exc) {
-						void page.__task_tree_gantt_on_show?.();
+						void (
+							page.__task_tree_gantt_reset_view?.() ||
+							page.__task_tree_gantt_on_show?.()
+						);
 					}
 				},
 			});
@@ -146,6 +149,8 @@
 			mounted?.state?.applyRouteProject?.() || Promise.resolve(false);
 		page.__task_tree_gantt_on_show = () =>
 			mounted?.onShow?.() || Promise.resolve();
+		page.__task_tree_gantt_reset_view = () =>
+			mounted?.resetView?.() || mounted?.onShow?.() || Promise.resolve();
 		page.__task_tree_gantt_on_hide = () => mounted?.onHide?.();
 		setupBurndown(page, mounted?.state?.getArgs);
 		hideClassicTreeChrome(page);
