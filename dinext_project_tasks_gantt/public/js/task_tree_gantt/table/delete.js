@@ -75,7 +75,7 @@ export function createOnBeforeDeleteRows() {
 export function createOnDeleteRows() {
 	return async ({ rows }) => {
 		const ordered = sortDeepestFirst(rows);
-		frappe.dom.freeze(__("DeletingтАж"));
+		frappe.dom.freeze(__("Deleting…"));
 		try {
 			for (const row of ordered) {
 				await frappe.xcall("frappe.client.delete", {
