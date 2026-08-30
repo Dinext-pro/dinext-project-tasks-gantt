@@ -233,5 +233,17 @@ export async function mount({ page }) {
 		destroyGantt(state);
 	};
 
-	return { ...zones, state, disposeResize, onShow, onHide };
+	const resetView = async () => {
+		await filters.resetExceptProject?.();
+		if (state.table) {
+			state.table.clearSort?.({ silent: true });
+			state.table.clearFilter?.({ silent: true });
+			if (state.table.isFilterRowOpen?.()) {
+				state.table.toggleFilterRow?.(false);
+			}
+		}
+		await reload();
+	};
+
+	return { ...zones, state, disposeResize, onShow, onHide, resetView };
 }
