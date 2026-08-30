@@ -177,7 +177,10 @@ export async function mount({ page }) {
 		state.table = table;
 		if (state.table) {
 			wireTreeGanttHooks(state.table, state);
-			await ensureGantt(state);
+			const merge = state.tableHost?._treeGanttTable?.lastMerge;
+			if (!state.gantt || merge?.ganttChanged !== false) {
+				await ensureGantt(state);
+			}
 		} else {
 			destroyGantt(state);
 		}
@@ -219,7 +222,12 @@ export async function mount({ page }) {
 
 	await reload();
 
-	const onShow = () => reload();
+	const onShow = async () => {
+		if (state.table) {
+			await ensureGantt(state);
+		}
+		await reload();
+	};
 	const onHide = () => {
 		state.mountGen += 1;
 		destroyGantt(state);
