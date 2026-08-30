@@ -71,8 +71,8 @@ def _persist_virtual_task_or_throw(task_doc, is_new=False):
 		if msg:
 			raise
 		frappe.throw(
-			title=_("Невозможно сохранить задачу из обращения"),
-			msg=_("Проверьте поля связанной задачи."),
+			title=_("Unable to save task from issue"),
+			msg=_("Check the linked task fields."),
 			exc=frappe.ValidationError,
 		)
 	finally:
