@@ -405,7 +405,7 @@ export function wireTreeGanttHooks(table, state) {
 	const expandAll = table.expandAll?.bind(table);
 	if (expandAll) {
 		table.expandAll = () =>
-			expandAllRows(table, state.getArgs, state.tableHost, expandAll)
+			expandAllRows(table, state.getArgs, state.tableHost)
 				.then(() => scheduleGanttRefresh(state))
 				.catch((e) => {
 					console.error(e);
