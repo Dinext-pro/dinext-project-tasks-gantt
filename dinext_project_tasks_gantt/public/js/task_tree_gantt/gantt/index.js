@@ -15,9 +15,22 @@ import {
 	bindRelationArrowGeometry,
 } from "./arrows.js";
 
+/** Skip frappe.require after first load — execute() always frappe.dom.freeze. */
+let assetsPromise = null;
+
 async function ensureAssets() {
-	await frappe.require([...GANTT_ASSETS]);
+	if (typeof window.Gantt === "function") {
+		return;
+	}
+	if (!assetsPromise) {
+		assetsPromise = frappe.require([...GANTT_ASSETS]).catch((err) => {
+			assetsPromise = null;
+			throw err;
+		});
+	}
+	await assetsPromise;
 	if (typeof window.Gantt !== "function") {
+		assetsPromise = null;
 		throw new Error("frappe-gantt (window.Gantt) not loaded");
 	}
 }
@@ -103,7 +116,7 @@ function buildOptions(holidays, state) {
 		language: frappe.boot.lang,
 		upper_header_height: GANTT_UPPER_HEADER,
 		lower_header_height: GANTT_LOWER_HEADER,
-		bar_corner_radius: 1,
+		bar_corner_radius: 3,
 		padding: GANTT_PADDING,
 		bar_height: GANTT_BAR_HEIGHT,
 		column_width: 25,
@@ -405,7 +418,7 @@ export function wireTreeGanttHooks(table, state) {
 	const expandAll = table.expandAll?.bind(table);
 	if (expandAll) {
 		table.expandAll = () =>
-			expandAllRows(table, state.getArgs, state.tableHost, expandAll)
+			expandAllRows(table, state.getArgs, state.tableHost)
 				.then(() => scheduleGanttRefresh(state))
 				.catch((e) => {
 					console.error(e);

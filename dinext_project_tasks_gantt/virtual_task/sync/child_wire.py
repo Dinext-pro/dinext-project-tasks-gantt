@@ -12,7 +12,7 @@ def wire_task_child_to_issue(doc) -> None:
 	Virtual с заполненным issue — ошибка (нельзя).
 	"""
 	if doc.get("type") == "Issue" and doc.get("issue"):
-		frappe.throw(_("Виртуальная задача не может быть привязана к Issue"))
+		frappe.throw(_("Virtual task cannot be linked to an Issue"))
 
 	if doc.get("issue"):
 		issue_name = doc.get("issue")

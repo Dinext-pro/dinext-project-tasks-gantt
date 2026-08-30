@@ -412,17 +412,6 @@ def get_children(**kwargs) -> list[dict]:
 		query = query.limit(cint(limit))
 
 	raw_rows = query.run(as_dict=True)
-	if parent_task and not all_tasks and not raw_rows:
-		self_query = (
-			frappe.qb.from_(Task)
-			.select(*select_cols)
-			.where(Task.docstatus < 2)
-			.where(Task.project == project)
-			.where(Task.name == parent_task)
-		)
-		if keep_ids is not None:
-			self_query = self_query.where(Task.name.isin(list(keep_ids)))
-		raw_rows = self_query.run(as_dict=True)
 	rows = [_to_canonical(r) for r in raw_rows]
 	_type_labels(rows)
 	_attach_relations(rows)

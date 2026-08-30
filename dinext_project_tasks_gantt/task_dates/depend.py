@@ -73,7 +73,7 @@ def validate_depend_task_dates(doc) -> None:
 	if not overlapping_tasks:
 		return
 
-	error_message = _("""Периоды дат дочерних задач должны входить в период родительской задачи.""")
+	error_message = _("Child task date periods must fit within the parent task period.")
 
 	task_details = "<br>".join(
 		[
@@ -86,11 +86,11 @@ def validate_depend_task_dates(doc) -> None:
 	current_task_dates = f"{format_date(doc.exp_start_date)} - {format_date(doc.exp_end_date)}"
 
 	frappe.throw(
-		title=_("Конфликт дат периодов"),
-		msg=f"""<b>Текущая задача:</b> {doc.subject}<br>
-                    <b>Период:</b> {current_task_dates}<br><br>
+		title=_("Period date conflict"),
+		msg=f"""<b>{_("Current task:")}</b> {doc.subject}<br>
+                    <b>{_("Period:")}</b> {current_task_dates}<br><br>
                     {error_message}<br><br>
-                    <b>Дочерние задачи с датами вне периода:</b><br>
+                    <b>{_("Child tasks with dates outside the period:")}</b><br>
                     {task_details}""",
 		exc=frappe.ValidationError,
 		is_minimizable=True,
