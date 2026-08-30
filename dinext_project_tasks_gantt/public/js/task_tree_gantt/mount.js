@@ -210,8 +210,6 @@ export async function mount({ page }) {
 			void reload(opts);
 		},
 	});
-	state.focusRelated = (row) => handleRelationsFocus(state, { row });
-
 	const main = page.main.get(0);
 	state.fullscreenShell = main;
 	const zones = buildShell(main);

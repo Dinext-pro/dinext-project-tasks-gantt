@@ -31,34 +31,35 @@ function todoOnlySet(row) {
 function renderAvatars(users, row) {
 	const list = el(
 		"div",
-		"list-assignments tree-gantt-assign-avatars d-flex align-items-center"
+		"list-assignments tree-gantt-assign-avatars avatar-group overlap"
 	);
 	const todoOnly = todoOnlySet(row);
 	const shown = users.slice(0, 3);
 	for (const user of shown) {
-		const wrap = el("span", "tree-gantt-assign-avatar");
 		const fullName = frappe.user?.full_name?.(user) || user;
 		const isTodoOnly = todoOnly.has(user);
-		wrap.classList.add(
+		const tmp = document.createElement("div");
+		tmp.innerHTML = frappe.avatar(user, "avatar-small");
+		const avatarNode = tmp.firstElementChild;
+		if (!avatarNode) {
+			continue;
+		}
+		avatarNode.classList.add(
+			"tree-gantt-assign-avatar",
 			isTodoOnly
 				? "tree-gantt-assign-avatar--todo"
 				: "tree-gantt-assign-avatar--pwa"
 		);
-		const avatarHtml = frappe.avatar(user, "avatar-small");
-		const tmp = document.createElement("div");
-		tmp.innerHTML = avatarHtml;
-		const avatarNode = tmp.firstElementChild;
-		if (avatarNode) {
-			wrap.appendChild(avatarNode);
+		const tip = isTodoOnly
+			? __("{0}: assigned via ToDo only (no workload)", [fullName])
+			: fullName;
+		avatarNode.setAttribute("aria-label", tip);
+		avatarNode.title = tip;
+		const frame = avatarNode.querySelector(".avatar-frame");
+		if (frame) {
+			frame.title = tip;
 		}
-		if (isTodoOnly) {
-			const tip = __("{0}: assigned via ToDo only (no workload)", [fullName]);
-			wrap.setAttribute("aria-label", tip);
-			wrap.title = tip;
-		} else {
-			wrap.title = fullName;
-		}
-		list.appendChild(wrap);
+		list.appendChild(avatarNode);
 	}
 	if (users.length > 3) {
 		const more = el("span", "avatar-group-more text-muted");

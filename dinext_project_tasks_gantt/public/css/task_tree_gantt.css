@@ -4,6 +4,15 @@
 	--g-related-color: #c4a9f3;
 }
 
+/*
+ * Raven sets inline padding-bottom:60px on the global .main-section (desk chrome).
+ * Tree page is viewport-locked — that pad adds a useless page scroll. Other routes keep it.
+ */
+body[data-route="Tree/Task"] .main-section,
+body[data-route^="Tree/Task/"] .main-section {
+	padding-bottom: 0 !important;
+}
+
 .task-tree-gantt-page .title-text.tree-gantt-title--link {
 	cursor: pointer;
 }
@@ -266,6 +275,27 @@
 	min-height: 0;
 }
 
+.task-tree-gantt-table-host--loading {
+	justify-content: center;
+	align-items: center;
+}
+
+.task-tree-gantt-table-spinner {
+	width: 28px;
+	height: 28px;
+	flex: 0 0 auto;
+	border: 2px solid var(--border-color, rgba(0, 0, 0, 0.12));
+	border-top-color: var(--primary, #2490ef);
+	border-radius: 50%;
+	animation: task-tree-gantt-table-spin 0.7s linear infinite;
+}
+
+@keyframes task-tree-gantt-table-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 /* --- table chrome (Tree header / details-cell) --- */
 
 .task-tree-gantt-table-host.dinext-table .ag-header-cell {
@@ -460,6 +490,8 @@
 .task-tree-gantt-chart .gantt .arrow path[data-from] {
 	fill: none;
 	stroke-width: 1.1;
+	stroke-linecap: round;
+	stroke-linejoin: round;
 	pointer-events: none;
 	marker-start: url(#tree-gantt-mk-start);
 	marker-end: url(#tree-gantt-mk-end);
@@ -495,11 +527,25 @@
 	background-color: color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--related,
-.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--related,
-.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
-.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select.tree-gantt-row--related {
-	box-shadow: inset 0 0 0 2px var(--g-related-color);
+/* Related outline: skip pin seam so pinned + center read as one row. */
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.ag-row-hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.tree-gantt-row--select.tree-gantt-row--related {
+	box-shadow:
+		inset 2px 0 0 var(--g-related-color),
+		inset 0 2px 0 var(--g-related-color),
+		inset 0 -2px 0 var(--g-related-color);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.ag-row-hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.tree-gantt-row--select.tree-gantt-row--related {
+	box-shadow:
+		inset -2px 0 0 var(--g-related-color),
+		inset 0 2px 0 var(--g-related-color),
+		inset 0 -2px 0 var(--g-related-color);
 }
 
 .task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--select .bar {
@@ -625,6 +671,7 @@ body.task-tree-gantt-resizing {
 	min-width: 0;
 	max-width: 100%;
 	width: 100%;
+	height: 100%;
 	line-height: 1.2;
 	vertical-align: middle;
 }
@@ -765,14 +812,16 @@ body.task-tree-gantt-resizing {
 }
 
 /* Tree: .tree-link:hover .tree-node-toolbar { display: inline-flex }.
- * Host node IS .dinext-table (same element) — no descendant combinator. */
+ * Host node IS .dinext-table (same element) — no descendant combinator.
+ * Kill Frappe .tree-node-toolbar margin-top:-8px (lifts the bar off-center). */
 .tree-gantt-subject-toolbar {
 	display: none;
 	flex: 0 0 auto;
-	align-items: center;
-	align-self: center;
-	gap: 1px;
-	margin-left: 4px;
+	align-items: stretch;
+	align-self: stretch;
+	gap: 0;
+	margin: 0 0 0 4px;
+	padding: 0;
 	white-space: nowrap;
 }
 
@@ -790,15 +839,20 @@ body.task-tree-gantt-resizing {
 	overflow: visible;
 }
 
-/* Tree sticky .tree-link: opaque bg + edge shadow while center scrolls. */
+.task-tree-gantt-table-host .ag-cell[col-id="subject"] .dinext-table-tree-cell,
+.task-tree-gantt-table-host .ag-cell[col-id="subject"] .dinext-table-tree-content,
+.task-tree-gantt-table-host .dinext-table-tree-cell .tree-gantt-subject {
+	align-self: stretch;
+	height: 100%;
+	min-height: 100%;
+}
+
+/* Tree sticky .tree-link: opaque bg while center scrolls. No pin-seam shadow. */
 .task-tree-gantt-table-host .ag-pinned-left-cols-container,
 .task-tree-gantt-table-host .ag-pinned-left-header {
 	background: var(--bg-color, var(--card-bg, #fff));
 	z-index: 2;
-}
-
-.task-tree-gantt-table-host .ag-pinned-left-cols-container {
-	box-shadow: 1px 0 3px -2px gray;
+	box-shadow: none;
 }
 
 .task-tree-gantt-table-host .ag-pinned-left-cols-container .ag-cell[col-id="subject"] {
@@ -818,11 +872,32 @@ body.task-tree-gantt-resizing {
 }
 
 .tree-gantt-subject-toolbar .btn {
-	padding: 0 4px;
-	min-height: 18px;
-	line-height: 1.1;
-	font-size: 11px;
-	border-radius: 2px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	min-height: 0;
+	min-width: 22px;
+	padding: 0 5px;
+	line-height: 1;
+	font-size: 14px;
+	border: none !important;
+	border-radius: 3px;
+	box-shadow: none !important;
+	background: transparent !important;
+	background-color: transparent !important;
+}
+
+.tree-gantt-subject-toolbar.btn-group > .btn + .btn,
+.tree-gantt-subject-toolbar.btn-group > .btn:nth-child(2) {
+	margin-left: 0;
+	border-left: none !important;
+}
+
+.tree-gantt-subject-toolbar .btn:hover,
+.tree-gantt-subject-toolbar .btn:focus-visible {
+	background: var(--btn-default-bg, var(--control-bg, #f4f5f6)) !important;
+	background-color: var(--btn-default-bg, var(--control-bg, #f4f5f6)) !important;
 }
 
 .tree-gantt-subject-toolbar .btn.fa:before {
@@ -943,13 +1018,23 @@ body.task-tree-gantt-resizing {
 	cursor: cell;
 }
 
+.task-tree-gantt-table-host .ag-cell[col-id="assign"] {
+	overflow: visible;
+}
+
 .task-tree-gantt-table-host .ag-cell[col-id="assign"]:hover {
 	background-color: var(--control-bg);
+}
+
+/* Desk overlap CSS is `.avatar-group.overlap:hover` — also expand on cell hover. */
+.task-tree-gantt-table-host .ag-cell[col-id="assign"]:hover .avatar-group.overlap .avatar:not(:first-child) {
+	margin-left: var(--margin-xs);
 }
 
 .tree-gantt-assign-avatars .avatar {
 	width: 22px;
 	height: 22px;
+	border-radius: 50%;
 }
 
 .tree-gantt-assign-avatars .avatar-frame {
@@ -957,19 +1042,13 @@ body.task-tree-gantt-resizing {
 	height: 22px;
 }
 
-/* PWA-backed vs ToDo-only assignees */
-.tree-gantt-assign-avatar {
-	display: inline-flex;
-	line-height: 0;
-	border-radius: 50%;
-}
-
-.tree-gantt-assign-avatar--todo {
+/* Outline on the circular frame — .avatar box is square. */
+.tree-gantt-assign-avatar--todo .avatar-frame {
 	outline: 2px dashed var(--orange-500, #ed8936);
 	outline-offset: 1px;
 }
 
-.tree-gantt-assign-avatar--pwa {
+.tree-gantt-assign-avatar--pwa .avatar-frame {
 	outline: 2px solid transparent;
 }
 
