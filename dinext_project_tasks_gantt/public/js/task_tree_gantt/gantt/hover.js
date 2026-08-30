@@ -7,7 +7,7 @@ const BAR_RELATED = "tree-gantt-bar--related";
 const ARROW_RELATED = "tree-gantt-arrow--related";
 
 const INTERACTIVE =
-	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .dinext-table-fill-handle";
+	"button, a, input, select, textarea, .ag-checkbox, .ag-selection-checkbox, .ag-header, .dinext-table-toolbar, .tree-gantt-subject-toolbar, .dinext-table-tree-toggle, .tree-gantt-frappe-date-editor, .ag-floating-filter, .ag-header-cell-resize, .dinext-table-fill-handle";
 
 function clearTableClass(tableHost, className) {
 	tableHost
@@ -404,12 +404,12 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		}
 	}
 
-	function focusRelatedForTask(id) {
-		if (typeof state?.focusRelated === "function") {
-			state.focusRelated(taskRowData(table, id) || { id });
-			return;
+	function onRelationsCell(target) {
+		const cell = target?.closest?.(".ag-cell");
+		if (cell?.getAttribute?.("col-id") === "relations") {
+			return true;
 		}
-		clearRelated();
+		return !!target?.closest?.(".tree-gantt-relations");
 	}
 
 	function onTableClick(e) {
@@ -421,9 +421,9 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		if (!id) {
 			return;
 		}
-		const onRelations = !!e.target?.closest?.(".tree-gantt-relations");
-		if (!onRelations) {
-			focusRelatedForTask(id);
+		// Highlight is owned by the Relations cell click handler.
+		if (!onRelationsCell(e.target)) {
+			clearRelated();
 		}
 		const already = lastSelect === id;
 		setSelect(id);
@@ -449,7 +449,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		if (!id) {
 			return;
 		}
-		focusRelatedForTask(id);
+		clearRelated();
 		setSelect(id);
 	}
 

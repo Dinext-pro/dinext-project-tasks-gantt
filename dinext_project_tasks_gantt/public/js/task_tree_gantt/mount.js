@@ -177,7 +177,10 @@ export async function mount({ page }) {
 		state.table = table;
 		if (state.table) {
 			wireTreeGanttHooks(state.table, state);
-			await ensureGantt(state);
+			const merge = state.tableHost?._treeGanttTable?.lastMerge;
+			if (!state.gantt || merge?.ganttChanged !== false) {
+				await ensureGantt(state);
+			}
 		} else {
 			destroyGantt(state);
 		}
@@ -207,8 +210,6 @@ export async function mount({ page }) {
 			void reload(opts);
 		},
 	});
-	state.focusRelated = (row) => handleRelationsFocus(state, { row });
-
 	const main = page.main.get(0);
 	state.fullscreenShell = main;
 	const zones = buildShell(main);
@@ -219,11 +220,28 @@ export async function mount({ page }) {
 
 	await reload();
 
-	const onShow = () => reload();
+	const onShow = async () => {
+		if (state.table) {
+			await ensureGantt(state);
+		}
+		await reload();
+	};
 	const onHide = () => {
 		state.mountGen += 1;
 		destroyGantt(state);
 	};
 
-	return { ...zones, state, disposeResize, onShow, onHide };
+	const resetView = async () => {
+		await filters.resetExceptProject?.();
+		if (state.table) {
+			state.table.clearSort?.({ silent: true });
+			state.table.clearFilter?.({ silent: true });
+			if (state.table.isFilterRowOpen?.()) {
+				state.table.toggleFilterRow?.(false);
+			}
+		}
+		await reload();
+	};
+
+	return { ...zones, state, disposeResize, onShow, onHide, resetView };
 }

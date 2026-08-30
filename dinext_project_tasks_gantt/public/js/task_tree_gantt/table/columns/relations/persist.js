@@ -1,16 +1,14 @@
 /**
  * Sync Task.custom_relations (Task Relation) from popover row list.
  * Each row: predecessor + type (+ buffer preserved when key matches).
+ * type is English Select value; UI labels go through __().
  */
+import { DEFAULT_RELATION_TYPE, resolveRelationType } from "./options.js";
 
-/** Canonical Select value from Task Relation.type. */
-export const DEFAULT_RELATION_TYPE = "FS (Finish → Start)";
+export { DEFAULT_RELATION_TYPE };
 
 function normalizeRelationType(value) {
-	if (value == null || value === "") {
-		return DEFAULT_RELATION_TYPE;
-	}
-	return String(value).trim() || DEFAULT_RELATION_TYPE;
+	return resolveRelationType(value);
 }
 
 function relationKey(predecessor, type) {

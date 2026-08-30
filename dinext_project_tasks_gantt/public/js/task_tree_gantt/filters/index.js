@@ -28,6 +28,7 @@ export async function setupFilters({ page, onChange }) {
 	}
 	const emit = () => onChange?.();
 	let lastProject = args.project;
+	let muteChange = false;
 
 	function valuesEqual(prev, next) {
 		if (Array.isArray(prev) || Array.isArray(next)) {
@@ -68,7 +69,7 @@ export async function setupFilters({ page, onChange }) {
 			},
 		});
 		const notify = () => {
-			if (setArg(fieldname, normalizeMulti(field.get_value()))) {
+			if (setArg(fieldname, normalizeMulti(field.get_value())) && !muteChange) {
 				emit();
 			}
 		};
@@ -151,7 +152,7 @@ export async function setupFilters({ page, onChange }) {
 			const raw = this.get_value();
 			const next =
 				raw === null || raw === undefined || raw === "" ? null : cint(raw);
-			if (setArg("limit", next)) {
+			if (setArg("limit", next) && !muteChange) {
 				emit();
 			}
 		},
@@ -162,8 +163,29 @@ export async function setupFilters({ page, onChange }) {
 		void setPageTitle(page, args.project);
 	}
 
+	async function resetExceptProject() {
+		muteChange = true;
+		try {
+			for (const name of ["task", "status", "priority", "assign", "tag"]) {
+				setArg(name, []);
+				const field = page.fields_dict?.[name];
+				if (typeof field?.set_value === "function") {
+					await field.set_value([]);
+				}
+			}
+			setArg("limit", null);
+			const limitField = page.fields_dict?.limit;
+			if (typeof limitField?.set_value === "function") {
+				await limitField.set_value("");
+			}
+		} finally {
+			muteChange = false;
+		}
+	}
+
 	const api = {
 		getArgs: () => ({ ...args }),
+		resetExceptProject,
 		applyRouteProject: () =>
 			applyRouteProject(page, args, {
 				onProject: (project) => {

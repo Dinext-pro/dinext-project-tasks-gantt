@@ -47,7 +47,7 @@ export function nestRows(flat) {
 	for (const row of flat || []) {
 		const node = byId[row.id];
 		const parentId = row.parent_task;
-		if (parentId && byId[parentId]) {
+		if (parentId && parentId !== row.id && byId[parentId]) {
 			byId[parentId].children.push(node);
 			byId[parentId].hasChildren = true;
 		} else {
