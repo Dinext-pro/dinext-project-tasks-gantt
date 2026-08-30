@@ -15,9 +15,22 @@ import {
 	bindRelationArrowGeometry,
 } from "./arrows.js";
 
+/** Skip frappe.require after first load — execute() always frappe.dom.freeze. */
+let assetsPromise = null;
+
 async function ensureAssets() {
-	await frappe.require([...GANTT_ASSETS]);
+	if (typeof window.Gantt === "function") {
+		return;
+	}
+	if (!assetsPromise) {
+		assetsPromise = frappe.require([...GANTT_ASSETS]).catch((err) => {
+			assetsPromise = null;
+			throw err;
+		});
+	}
+	await assetsPromise;
 	if (typeof window.Gantt !== "function") {
+		assetsPromise = null;
 		throw new Error("frappe-gantt (window.Gantt) not loaded");
 	}
 }
