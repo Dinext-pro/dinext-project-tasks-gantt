@@ -31,12 +31,31 @@ function getState(container) {
 	return container._treeGanttTable ?? (container._treeGanttTable = {});
 }
 
+const HOST_LOADING = "task-tree-gantt-table-host--loading";
+
+function clearHostChrome(container) {
+	container.classList.remove("text-muted", HOST_LOADING);
+}
+
 function showPlaceholder(container, text) {
+	clearHostChrome(container);
 	container.classList.add("text-muted");
 	container.textContent = text;
 }
 
+function showLoading(container) {
+	clearHostChrome(container);
+	container.classList.add(HOST_LOADING);
+	container.replaceChildren();
+	const spin = document.createElement("div");
+	spin.className = "task-tree-gantt-table-spinner";
+	spin.setAttribute("role", "status");
+	spin.setAttribute("aria-label", __("Loading…"));
+	container.appendChild(spin);
+}
+
 function showError(container, err) {
+	clearHostChrome(container);
 	container.classList.add("text-muted");
 	container.textContent = err?.message || String(err);
 }
@@ -303,8 +322,6 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		throw new Error("loadTable: container required");
 	}
 
-	await ensureBundle();
-
 	const state = getState(container);
 	const gen = (state.loadGen = (state.loadGen || 0) + 1);
 	const args = readArgs(getArgs);
@@ -318,7 +335,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	} = hooks;
 	const fullscreen = resolveFullscreenOpts(container, fullscreenShell);
 
-	container.classList.remove("text-muted");
+	clearHostChrome(container);
 
 	if (!args.project) {
 		destroyState(state);
@@ -328,7 +345,12 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	}
 
 	if (!state.table) {
-		showPlaceholder(container, __("Loading…"));
+		showLoading(container);
+	}
+
+	await ensureBundle();
+	if (gen !== state.loadGen) {
+		return null;
 	}
 
 	try {
@@ -391,6 +413,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			return state.table;
 		}
 
+		clearHostChrome(container);
 		container.replaceChildren();
 		const projectKey = args.project || "no-project";
 		const taskKey = hasMulti(args.task)

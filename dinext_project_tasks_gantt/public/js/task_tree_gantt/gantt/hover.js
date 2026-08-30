@@ -404,12 +404,12 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		}
 	}
 
-	function focusRelatedForTask(id) {
-		if (typeof state?.focusRelated === "function") {
-			state.focusRelated(taskRowData(table, id) || { id });
-			return;
+	function onRelationsCell(target) {
+		const cell = target?.closest?.(".ag-cell");
+		if (cell?.getAttribute?.("col-id") === "relations") {
+			return true;
 		}
-		clearRelated();
+		return !!target?.closest?.(".tree-gantt-relations");
 	}
 
 	function onTableClick(e) {
@@ -421,9 +421,9 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		if (!id) {
 			return;
 		}
-		const onRelations = !!e.target?.closest?.(".tree-gantt-relations");
-		if (!onRelations) {
-			focusRelatedForTask(id);
+		// Highlight is owned by the Relations cell click handler.
+		if (!onRelationsCell(e.target)) {
+			clearRelated();
 		}
 		const already = lastSelect === id;
 		setSelect(id);
@@ -449,7 +449,7 @@ export function setupHoverSync(tableHost, ganttEl, table, gantt, initialSelect, 
 		if (!id) {
 			return;
 		}
-		focusRelatedForTask(id);
+		clearRelated();
 		setSelect(id);
 	}
 

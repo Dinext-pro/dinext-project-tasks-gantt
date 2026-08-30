@@ -6,6 +6,8 @@
 import { shortRelationType } from "../table/columns/relations/options.js";
 
 const STUB = 10;
+/** Fillet at orthogonal corners. Clamp to half of each adjacent segment. */
+const CURVE = 6;
 const NS = "http://www.w3.org/2000/svg";
 const MK_START = "tree-gantt-mk-start";
 const MK_END = "tree-gantt-mk-end";
@@ -20,6 +22,75 @@ function n(v) {
 
 function d(...parts) {
 	return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function dist(a, b) {
+	return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function samePoint(a, b) {
+	return a && b && a.x === b.x && a.y === b.y;
+}
+
+function collinear(a, b, c) {
+	return (b.x - a.x) * (c.y - b.y) === (b.y - a.y) * (c.x - b.x);
+}
+
+function uniquePoints(points) {
+	const out = [];
+	for (const p of points) {
+		const next = { x: n(p.x), y: n(p.y) };
+		if (!samePoint(out[out.length - 1], next)) {
+			out.push(next);
+		}
+	}
+	const slim = [];
+	for (const p of out) {
+		while (
+			slim.length >= 2 &&
+			collinear(slim[slim.length - 2], slim[slim.length - 1], p)
+		) {
+			slim.pop();
+		}
+		slim.push(p);
+	}
+	return slim;
+}
+
+/** Orthogonal polyline → SVG path with quadratic fillets. */
+function roundedPath(points, radius = CURVE) {
+	const pts = uniquePoints(points);
+	if (pts.length === 0) {
+		return "";
+	}
+	if (pts.length === 1) {
+		return d("M", pts[0].x, pts[0].y);
+	}
+	if (pts.length === 2) {
+		return d("M", pts[0].x, pts[0].y, "L", pts[1].x, pts[1].y);
+	}
+	const parts = ["M", pts[0].x, pts[0].y];
+	for (let i = 1; i < pts.length - 1; i++) {
+		const prev = pts[i - 1];
+		const cur = pts[i];
+		const next = pts[i + 1];
+		const inLen = dist(prev, cur);
+		const outLen = dist(cur, next);
+		const r = Math.min(radius, inLen / 2, outLen / 2);
+		if (r < 0.5 || inLen < 0.5 || outLen < 0.5) {
+			parts.push("L", cur.x, cur.y);
+			continue;
+		}
+		const ux = (cur.x - prev.x) / inLen;
+		const uy = (cur.y - prev.y) / inLen;
+		const vx = (next.x - cur.x) / outLen;
+		const vy = (next.y - cur.y) / outLen;
+		parts.push("L", n(cur.x - ux * r), n(cur.y - uy * r));
+		parts.push("Q", cur.x, cur.y, n(cur.x + vx * r), n(cur.y + vy * r));
+	}
+	const last = pts[pts.length - 1];
+	parts.push("L", last.x, last.y);
+	return d(...parts);
 }
 
 function midY(box) {
@@ -43,28 +114,34 @@ function pathFS(from, to) {
 	const goLeft = x2 < x1 + STUB;
 	if (sameRow(from, to)) {
 		if (!goLeft) {
-			return d("M", n(x1), n(y1), "H", n(x2));
+			return roundedPath([
+				{ x: x1, y: y1 },
+				{ x: x2, y: y2 },
+			]);
 		}
 		const ly = loopY(from, to);
-		return d(
-			"M",
-			n(x1),
-			n(y1),
-			"V",
-			n(ly),
-			"H",
-			n(x2 - STUB),
-			"V",
-			n(y2),
-			"H",
-			n(x2)
-		);
+		return roundedPath([
+			{ x: x1, y: y1 },
+			{ x: x1, y: ly },
+			{ x: x2 - STUB, y: ly },
+			{ x: x2 - STUB, y: y2 },
+			{ x: x2, y: y2 },
+		]);
 	}
 	if (!goLeft) {
 		const sx = x1 + STUB;
-		return d("M", n(x1), n(y1), "H", n(sx), "V", n(y2), "H", n(x2));
+		return roundedPath([
+			{ x: x1, y: y1 },
+			{ x: sx, y: y1 },
+			{ x: sx, y: y2 },
+			{ x: x2, y: y2 },
+		]);
 	}
-	return d("M", n(x1), n(y1), "V", n(y2), "H", n(x2));
+	return roundedPath([
+		{ x: x1, y: y1 },
+		{ x: x1, y: y2 },
+		{ x: x2, y: y2 },
+	]);
 }
 
 /** SS: pred left → succ left. */
@@ -76,23 +153,21 @@ function pathSS(from, to) {
 	const left = Math.min(x1, x2) - STUB;
 	if (sameRow(from, to)) {
 		const ly = loopY(from, to);
-		return d(
-			"M",
-			n(x1),
-			n(y1),
-			"H",
-			n(left),
-			"V",
-			n(ly),
-			"H",
-			n(x2 - STUB),
-			"V",
-			n(y2),
-			"H",
-			n(x2)
-		);
+		return roundedPath([
+			{ x: x1, y: y1 },
+			{ x: left, y: y1 },
+			{ x: left, y: ly },
+			{ x: x2 - STUB, y: ly },
+			{ x: x2 - STUB, y: y2 },
+			{ x: x2, y: y2 },
+		]);
 	}
-	return d("M", n(x1), n(y1), "H", n(left), "V", n(y2), "H", n(x2));
+	return roundedPath([
+		{ x: x1, y: y1 },
+		{ x: left, y: y1 },
+		{ x: left, y: y2 },
+		{ x: x2, y: y2 },
+	]);
 }
 
 /** FF: pred right → succ right. */
@@ -104,23 +179,21 @@ function pathFF(from, to) {
 	const right = Math.max(x1, x2) + STUB;
 	if (sameRow(from, to)) {
 		const ly = loopY(from, to);
-		return d(
-			"M",
-			n(x1),
-			n(y1),
-			"H",
-			n(right),
-			"V",
-			n(ly),
-			"H",
-			n(x2 + STUB),
-			"V",
-			n(y2),
-			"H",
-			n(x2)
-		);
+		return roundedPath([
+			{ x: x1, y: y1 },
+			{ x: right, y: y1 },
+			{ x: right, y: ly },
+			{ x: x2 + STUB, y: ly },
+			{ x: x2 + STUB, y: y2 },
+			{ x: x2, y: y2 },
+		]);
 	}
-	return d("M", n(x1), n(y1), "H", n(right), "V", n(y2), "H", n(x2));
+	return roundedPath([
+		{ x: x1, y: y1 },
+		{ x: right, y: y1 },
+		{ x: right, y: y2 },
+		{ x: x2, y: y2 },
+	]);
 }
 
 /** SF: pred left → succ right. */
@@ -133,35 +206,22 @@ function pathSF(from, to) {
 	const ex = x2 + STUB;
 	if (sameRow(from, to)) {
 		const ly = loopY(from, to);
-		return d(
-			"M",
-			n(x1),
-			n(y1),
-			"H",
-			n(sx),
-			"V",
-			n(ly),
-			"H",
-			n(ex),
-			"V",
-			n(y2),
-			"H",
-			n(x2)
-		);
+		return roundedPath([
+			{ x: x1, y: y1 },
+			{ x: sx, y: y1 },
+			{ x: sx, y: ly },
+			{ x: ex, y: ly },
+			{ x: ex, y: y2 },
+			{ x: x2, y: y2 },
+		]);
 	}
-	return d(
-		"M",
-		n(x1),
-		n(y1),
-		"H",
-		n(sx),
-		"V",
-		n(y2),
-		"H",
-		n(ex),
-		"H",
-		n(x2)
-	);
+	return roundedPath([
+		{ x: x1, y: y1 },
+		{ x: sx, y: y1 },
+		{ x: sx, y: y2 },
+		{ x: ex, y: y2 },
+		{ x: x2, y: y2 },
+	]);
 }
 
 const PATH_BY_TYPE = {
