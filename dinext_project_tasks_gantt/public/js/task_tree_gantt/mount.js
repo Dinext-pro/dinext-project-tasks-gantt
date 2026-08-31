@@ -11,6 +11,10 @@ import { buildShell, setupResize } from "./shell/layout.js";
 import { setColumnContext } from "./table/columns/context.js";
 import { loadTable, revealRelatedTasks } from "./table/index.js";
 import { relatedHighlightIds } from "./table/related.js";
+import {
+	closeSubjectPreview,
+	invalidateSubjectDescriptionCache,
+} from "./table/columns/subject/preview.js";
 
 /** After this window a click is not part of a dblclick — safe to expand/fetch. */
 const RELATED_REVEAL_MS = 400;
@@ -221,6 +225,7 @@ export async function mount({ page }) {
 	await reload();
 
 	const onShow = async () => {
+		invalidateSubjectDescriptionCache();
 		if (state.table) {
 			await ensureGantt(state);
 		}
@@ -228,6 +233,8 @@ export async function mount({ page }) {
 	};
 	const onHide = () => {
 		state.mountGen += 1;
+		closeSubjectPreview();
+		invalidateSubjectDescriptionCache();
 		destroyGantt(state);
 	};
 

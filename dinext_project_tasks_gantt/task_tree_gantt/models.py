@@ -37,6 +37,10 @@ class GetChildrenRow(TypedDict, total=False):
 	expected_time: float | None
 	progress: float | None
 	parent_task: str | None
+	can_read: int
+	can_write: int
+	can_write_fields: list[str]
+	has_children: bool
 	_assign: Any
 	custom_include: int
 	is_milestone: int
@@ -68,11 +72,19 @@ class SaveCellsSideEffectRow(TypedDict, total=False):
 	exp_end_date: str | None
 
 
+class SaveCellsWriteFlags(TypedDict):
+	"""Write flags for one saved Task (DocType fieldnames)."""
+
+	can_write: int
+	can_write_fields: list[str]
+
+
 class SaveCellsResponse(TypedDict, total=False):
 	"""Ответ save_cells."""
 
 	updated: int
 	rows: list[SaveCellsSideEffectRow]
+	write: dict[str, SaveCellsWriteFlags]
 
 
 class ReorderSiblingsFormInput(TypedDict, total=False):

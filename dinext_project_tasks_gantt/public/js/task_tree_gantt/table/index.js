@@ -21,9 +21,10 @@ import {
 	changesAffectGantt,
 	onSaveCells,
 	onValidateCells,
+	writeDeniedTitle,
 } from "./save.js";
 import { SORT_COMPARATORS } from "./sort.js";
-import { createOnRowReorder } from "../dnd/index.js";
+import { createOnRowReorder, canReorderTaskRow, validateTaskRowReorder } from "../dnd/index.js";
 
 const ensureBundle = () => frappe.require(["dinext-table.bundle.js"]);
 
@@ -65,6 +66,27 @@ function destroyState(state) {
 		state.table.destroy();
 	}
 	state.table = null;
+}
+
+function bindReorderDeniedHint(container) {
+	if (container._writeDeniedHandleHint) {
+		return;
+	}
+	container._writeDeniedHandleHint = true;
+	container.addEventListener("pointerover", (e) => {
+		const handle = e.target?.closest?.(".dinext-table-row-reorder-handle");
+		if (!handle || !container.contains(handle)) {
+			return;
+		}
+		const denied = handle
+			.closest(".ag-row")
+			?.classList.contains("tree-gantt-row--reorder-denied");
+		const tip = denied ? writeDeniedTitle() : __("Move");
+		if (handle.getAttribute("title") !== tip) {
+			handle.setAttribute("title", tip);
+			handle.setAttribute("aria-label", tip);
+		}
+	});
 }
 
 function readArgs(getArgs) {
@@ -415,6 +437,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 
 		clearHostChrome(container);
 		container.replaceChildren();
+		bindReorderDeniedHint(container);
 		const projectKey = args.project || "no-project";
 		const taskKey = hasMulti(args.task)
 			? `:${normalizeMulti(args.task).join(",")}`
@@ -448,6 +471,8 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				// Tree: gutter DnD only — toolbar ↑↓ nudge is sibling-flat and wrong here.
 				toolbarMove: false,
 			},
+			canReorderRow: canReorderTaskRow,
+			onValidateRowReorder: validateTaskRowReorder,
 			onRowReorder: createOnRowReorder(),
 			// Client source-tree sort (dinext_common sort layer) — not AG flat sort.
 			sort: {
@@ -482,14 +507,18 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				floatingFiltersHeight: 28,
 				enableBrowserTooltips: true,
 				getRowClass: (params) => {
+					const classes = [];
+					if (!canReorderTaskRow({ row: params.data })) {
+						classes.push("tree-gantt-row--reorder-denied");
+					}
 					const ids = getState(container).relatedTaskIds;
 					if (
 						ids?.has?.(String(params.data?.id || "")) &&
 						params.data?.id
 					) {
-						return "tree-gantt-row--related";
+						classes.push("tree-gantt-row--related");
 					}
-					return undefined;
+					return classes.length ? classes : undefined;
 				},
 			},
 			...(fullscreen ? { fullscreen } : {}),

@@ -10,6 +10,9 @@ import json
 import frappe
 from frappe.utils import cint, getdate
 
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.write import TaskFieldWrite
+
 
 ALLOWED_FIELDS = frozenset(
 	{
@@ -54,7 +57,7 @@ def _date_str(value):
 	return str(getdate(value))
 
 
-def _persist_task(task_id: str, values: dict) -> None:
+def _persist_task(task_id: str, values: dict):
 	"""Persist via Document.save() so ERPNext validate + DocType events run.
 
 	Avoid db.set_value: skips ISS-2026-02606 date sync, PWA, status/Issue mirrors,
@@ -63,6 +66,25 @@ def _persist_task(task_id: str, values: dict) -> None:
 	doc = frappe.get_doc("Task", task_id)
 	doc.update(values)
 	doc.save()
+	return doc
+
+
+def _write_flags(docs: list) -> dict[str, dict]:
+	"""can_write / can_write_fields after save. Same TaskFieldWrite as get_children."""
+	rows = []
+	for doc in docs:
+		row = TaskRow.from_task(doc.as_dict())
+		row["can_read"] = 1
+		row["can_write"] = 1
+		rows.append(row)
+	TaskFieldWrite.attach(rows)
+	return {
+		row["id"]: {
+			"can_write": 1 if row.get("can_write") else 0,
+			"can_write_fields": row["can_write_fields"],
+		}
+		for row in rows
+	}
 
 
 def collect_date_side_effect_rows(task_ids: list[str]) -> list[dict]:
@@ -122,13 +144,14 @@ def save_cells(changes=None) -> dict:
 
 	updated = 0
 	date_task_ids: list[str] = []
+	saved_docs = []
 	for task_id, values in by_id.items():
-		_persist_task(task_id, values)
+		saved_docs.append(_persist_task(task_id, values))
 		updated += 1
 		if DATE_FIELDS.intersection(values):
 			date_task_ids.append(task_id)
 
-	result: dict = {"updated": updated}
+	result: dict = {"updated": updated, "write": _write_flags(saved_docs)}
 	if date_task_ids:
 		result["rows"] = collect_date_side_effect_rows(date_task_ids)
 	return result

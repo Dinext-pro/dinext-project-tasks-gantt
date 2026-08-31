@@ -2,7 +2,16 @@
  * Task Relation.type Select options + short display badge.
  * Canonical values stay English; Frappe Select shows __(value).
  */
-import { resolveSelectOption } from "../select-value.js";
+function mapSelectKey(raw, options) {
+	if (typeof DinextTable?.parseSelectValue === "function") {
+		return DinextTable.parseSelectValue(raw, options);
+	}
+	if (raw == null || raw === "") {
+		return null;
+	}
+	const s = String(raw).trim();
+	return options.includes(s) ? s : null;
+}
 
 export const RELATION_TYPE_VALUES = [
 	"FS (Finish → Start)",
@@ -43,7 +52,7 @@ export function resolveRelationType(raw) {
 	if (options.includes(s)) {
 		return s;
 	}
-	const mapped = resolveSelectOption(s, options);
+	const mapped = mapSelectKey(s, options);
 	if (mapped && options.includes(mapped)) {
 		return mapped;
 	}

@@ -7,7 +7,7 @@
  */
 import { el } from "../../format.js";
 import { ensureAssignUserInfo } from "../../../api.js";
-import { rowCanWrite } from "../../save.js";
+import { fieldCanEdit } from "../../save.js";
 import { getColumnsPage, getOnAssignSaved } from "../context.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { openAssignDialog } from "./dialog.js";
@@ -145,8 +145,31 @@ function openAssign(row, params) {
 	});
 }
 
+/** Gantt popup / other hosts: same PWA dialog as assign cell dblclick. */
+export function openAssignForTask(table, taskId) {
+	if (!table?.api || !taskId) {
+		return;
+	}
+	const id = String(taskId);
+	let node = null;
+	table.api.forEachNode((n) => {
+		if (!node && n?.data && String(n.data.id) === id) {
+			node = n;
+		}
+	});
+	if (!node?.data) {
+		return;
+	}
+	openAssign(node.data, {
+		node,
+		api: table.api,
+		context: { dinextTable: table },
+		column: { getColId: () => "assign" },
+	});
+}
+
 function wireAssignActions(wrap, params, row, avatarsEl) {
-	if (!row.can_write) {
+	if (!fieldCanEdit(row, "assign")) {
 		return;
 	}
 	wrap.classList.add("tree-gantt-assign--editable");
@@ -217,7 +240,7 @@ export function assignColumn() {
 		field: "assign",
 		headerName: __("Resp."),
 		...fixedCol(TREE_COL_WIDTH.assign),
-		edit: (row) => rowCanWrite(row),
+		edit: (row) => fieldCanEdit(row, "assign"),
 		suppressClickEdit: true,
 		sortable: false,
 		cellDataType: false,
