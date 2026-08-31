@@ -14,6 +14,7 @@ import {
 	applyRelationArrowGeometry,
 	bindRelationArrowGeometry,
 } from "./arrows.js";
+import { openAssignForTask } from "../table/columns/assign/index.js";
 
 /** Skip frappe.require after first load — execute() always frappe.dom.freeze. */
 let assetsPromise = null;
@@ -67,29 +68,71 @@ async function loadHolidays(project) {
 	}
 }
 
-function showPopup(ctx) {
-	ctx.set_title(ctx.task.name);
-	const start = moment(ctx.task.start).format("MMM D");
-	const end = moment(ctx.task.end).format("MMM D");
-	const progress = Math.floor((Number(ctx.task.progress) || 0) * 100) / 100;
-	ctx.set_subtitle(`${start} - ${end}<br/>${__("Progress")}: ${progress}%`);
+function formatPopupDate(value) {
+	if (!value) {
+		return "";
+	}
+	const iso =
+		value instanceof Date
+			? frappe.datetime?.obj_to_str?.(value) || moment(value).format("YYYY-MM-DD")
+			: String(value).slice(0, 10);
+	if (typeof frappe.datetime?.str_to_user === "function") {
+		return frappe.datetime.str_to_user(iso);
+	}
+	return moment(iso)
+		.locale(frappe.boot?.lang || "en")
+		.format("D MMM");
+}
 
-	const assign = ctx.task.row?.assign;
-	if (Array.isArray(assign) && assign.length) {
+function assignPopupInnerHtml(row) {
+	const assign = Array.isArray(row?.assign)
+		? row.assign.filter(Boolean)
+		: [];
+	if (assign.length) {
 		try {
 			const group = frappe.avatar_group(assign, 5, { filterable: false });
 			const node = Array.isArray(group) ? group[0] : group;
-			ctx.set_details(
-				`<div class="gantt-assign-avatars">${node?.outerHTML || ""}</div>`
-			);
+			if (node?.outerHTML) {
+				return node.outerHTML;
+			}
 		} catch (e) {
-			ctx.set_details(`<div class="gantt-assign-avatars"></div>`);
+			/* fall through to assign icon */
 		}
-	} else {
-		ctx.set_details(
-			`<div class="gantt-assign-avatars">${frappe.utils.icon("assign", "md")}</div>`
-		);
 	}
+	return frappe.utils.icon("assign", "md") || "+";
+}
+
+function hideGanttPopup(ctx) {
+	ctx?.chart?.popup?.hide?.();
+	ctx.get_details?.()?.closest?.(".popup-wrapper")?.classList.add("hide");
+}
+
+function showPopup(ctx, state) {
+	ctx.set_title(ctx.task.name);
+	const start = formatPopupDate(ctx.task.start);
+	const end = formatPopupDate(ctx.task.end);
+	const progress = Math.floor((Number(ctx.task.progress) || 0) * 100) / 100;
+	ctx.set_subtitle(`${start} - ${end}<br/>${__("Progress")}: ${progress}%`);
+
+	const row = ctx.task.row;
+	ctx.set_details(
+		`<div class="gantt-assign-avatars">${assignPopupInnerHtml(row)}</div>`
+	);
+	const details = ctx.get_details?.();
+	const assignEl = details?.querySelector?.(".gantt-assign-avatars");
+	if (!assignEl) {
+		return;
+	}
+	if (!row?.can_write) {
+		return;
+	}
+	assignEl.classList.add("gantt-assign-avatars--action");
+	assignEl.addEventListener("click", (ev) => {
+		ev.preventDefault();
+		ev.stopPropagation();
+		hideGanttPopup(ctx);
+		openAssignForTask(state?.table, ctx.task.id);
+	});
 }
 
 function buildOptions(holidays, state) {
@@ -107,7 +150,7 @@ function buildOptions(holidays, state) {
 		arrow_curve: 3,
 		move_dependencies: false,
 		popup_on: "click",
-		popup: showPopup,
+		popup: (ctx) => showPopup(ctx, state),
 		on_double_click: (task) => {
 			if (task?.id) {
 				frappe.set_route("Form", "Task", task.id);

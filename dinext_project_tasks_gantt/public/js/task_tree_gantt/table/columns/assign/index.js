@@ -145,6 +145,29 @@ function openAssign(row, params) {
 	});
 }
 
+/** Gantt popup / other hosts: same PWA dialog as assign cell dblclick. */
+export function openAssignForTask(table, taskId) {
+	if (!table?.api || !taskId) {
+		return;
+	}
+	const id = String(taskId);
+	let node = null;
+	table.api.forEachNode((n) => {
+		if (!node && n?.data && String(n.data.id) === id) {
+			node = n;
+		}
+	});
+	if (!node?.data) {
+		return;
+	}
+	openAssign(node.data, {
+		node,
+		api: table.api,
+		context: { dinextTable: table },
+		column: { getColId: () => "assign" },
+	});
+}
+
 function wireAssignActions(wrap, params, row, avatarsEl) {
 	if (!row.can_write) {
 		return;

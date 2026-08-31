@@ -244,7 +244,7 @@ body[data-route^="Tree/Task/"] .main-section {
 }
 
 .task-tree-gantt-resize:hover {
-	background-color: var(--bg-dark-gray);
+	background-color: var(--gray-500, #98a1a9);
 }
 
 .task-tree-gantt-resize::after {
@@ -260,7 +260,7 @@ body[data-route^="Tree/Task/"] .main-section {
 }
 
 .task-tree-gantt-resize:hover::after {
-	background-color: var(--bg-dark-gray);
+	background-color: var(--gray-500, #98a1a9);
 }
 
 .task-tree-gantt-table-host,
@@ -519,12 +519,24 @@ body[data-route^="Tree/Task/"] .main-section {
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover,
-.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select {
-	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--hover,
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select,
+.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--select {
+	background-image: none;
+	background-color: color-mix(
+		in srgb,
+		var(--text-color) 10%,
+		var(--card-bg, var(--fg-color, #fff))
+	) !important;
 }
 
-.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select {
-	background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select,
+.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--select {
+	background-color: color-mix(
+		in srgb,
+		var(--text-color) 16%,
+		var(--card-bg, var(--fg-color, #fff))
+	) !important;
 }
 
 /* Related outline: skip pin seam so pinned + center read as one row. */
@@ -621,7 +633,8 @@ body[data-route^="Tree/Task/"] .main-section {
 
 [data-theme="dark"] .task-tree-gantt-resize:hover,
 [data-theme="dark"] .task-tree-gantt-resize:hover::after {
-	background-color: var(--primary, #2490ef);
+	background-color: #e8e8e8;
+	color: #111;
 }
 
 .task-tree-gantt-table-host.dinext-table,
