@@ -13,25 +13,38 @@ function statusColor(status) {
 	}
 }
 
-function fallbackDate(row) {
-	return (
-		row.exp_start_date ||
-		row.modified ||
-		row.creation ||
-		frappe.datetime.get_today()
-	);
+/** Visible exp_* on the row after strip — not today/creation. */
+export function ganttDatesVisible(row) {
+	return !!(row?.exp_start_date || row?.exp_end_date);
 }
 
-export function rowToGanttTask(row) {
-	const startDay = row.exp_start_date || fallbackDate(row);
-	const endDay = row.exp_end_date || startDay;
+function placeholderDay(rows) {
+	for (const row of rows || []) {
+		const day = row.exp_start_date || row.exp_end_date;
+		if (day) {
+			return day;
+		}
+	}
+	return frappe.datetime.get_today();
+}
+
+/**
+ * Prod V2 `_get_task`: bar from exp_start_date / exp_end_date (either).
+ * Both empty → no bar (lib still needs dates for row alignment; mark invalid).
+ */
+export function rowToGanttTask(row, dummyDay) {
+	const startDay = row.exp_start_date || null;
+	const endDay = row.exp_end_date || null;
+	const hasBar = !!(startDay || endDay);
+	const start = startDay || endDay || dummyDay;
+	const end = endDay || startDay || dummyDay;
 	const milestone = !!row.is_milestone;
 
 	return {
 		id: row.id,
 		name: row.subject || row.id,
-		start: `${startDay} 00:00:00`,
-		end: `${endDay}${milestone ? " 00:00:00" : " 23:59:59"}`,
+		start: `${start} 00:00:00`,
+		end: `${end}${milestone || !endDay ? " 00:00:00" : " 23:59:59"}`,
 		progress: Number(row.progress) || 0,
 		dependencies: (row.relations || [])
 			.map((r) => r.predecessor)
@@ -40,6 +53,7 @@ export function rowToGanttTask(row) {
 		custom_class: row.priority || "",
 		color: statusColor(row.status),
 		color_progress: "var(--bg-green)",
+		invalid: !hasBar,
 		row,
 	};
 }
@@ -59,5 +73,7 @@ export function collectVisibleRows(table) {
 }
 
 export function rowsToGanttTasks(rows) {
-	return (rows || []).map(rowToGanttTask);
+	const list = rows || [];
+	const dummy = placeholderDay(list);
+	return list.map((row) => rowToGanttTask(row, dummy));
 }

@@ -9,7 +9,7 @@ from typing import Any
 
 import frappe
 
-from dinext_project_tasks_gantt.task_tree_gantt.get_children import get_children as run_get_children
+from dinext_project_tasks_gantt.task_tree_gantt.get_data import get_children as run_get_children
 from dinext_project_tasks_gantt.task_tree_gantt.models import (
 	GetChildrenFormInput,
 	GetChildrenRow,

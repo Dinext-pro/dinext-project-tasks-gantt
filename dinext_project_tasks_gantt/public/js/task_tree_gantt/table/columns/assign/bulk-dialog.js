@@ -3,6 +3,7 @@
  * Toolbar N>1 prefers dialog-multi.js.
  */
 import { fetchProjectTeamUsers, normalizeUsers } from "./persist.js";
+import { fieldCanEdit } from "../../save.js";
 import { getColumnsPage } from "../context.js";
 
 function parseDialogUsers(raw) {
@@ -28,7 +29,7 @@ function projectFromPage() {
  * }} opts
  */
 export async function openBulkAssignDialog({ rows, project, onConfirm }) {
-	const writable = (rows || []).filter((r) => r?.id && r.can_write);
+	const writable = (rows || []).filter((r) => fieldCanEdit(r, "assign"));
 	if (!writable.length) {
 		frappe.show_alert({
 			message: __("No writable tasks selected"),

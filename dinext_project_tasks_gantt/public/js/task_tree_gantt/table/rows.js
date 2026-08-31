@@ -1,7 +1,8 @@
 export function toTableRow(row) {
 	return {
 		id: row.id,
-		subject: row.subject || "",
+		subject:
+			row.can_read === 0 ? row.subject || row.id || "" : row.subject || "",
 		assign: Array.isArray(row.assign) ? row.assign : [],
 		assign_pwa: Array.isArray(row.assign_pwa) ? row.assign_pwa : [],
 		assign_todo_only: Array.isArray(row.assign_todo_only)
@@ -13,9 +14,9 @@ export function toTableRow(row) {
 		exp_end_date: row.exp_end_date || null,
 		expected_time: row.expected_time ?? null,
 		duration: row.duration ?? null,
-		progress: row.progress ?? 0,
+		progress: row.progress == null || row.progress === "" ? null : row.progress,
 		// AG checkbox (cellDataType boolean) needs true/false, not 1/0
-		custom_include: !!row.custom_include,
+		custom_include: row.custom_include == null ? null : !!row.custom_include,
 		type: row.task_type_label || row.task_type || "",
 		user_tags: row.user_tags || "",
 		is_milestone: row.is_milestone ? 1 : 0,
@@ -26,7 +27,11 @@ export function toTableRow(row) {
 			: [],
 		parent_task: row.parent_task || null,
 		custom_tree_order: row.custom_tree_order ?? 0,
+		can_read: row.can_read === 0 || row.can_read === false ? 0 : 1,
 		can_write: row.can_write ? 1 : 0,
+		can_write_fields: Array.isArray(row.can_write_fields)
+			? row.can_write_fields
+			: undefined,
 		confirm: row.confirm ? 1 : 0,
 		owner: row.owner || null,
 		hasChildren: !!row.has_children,
