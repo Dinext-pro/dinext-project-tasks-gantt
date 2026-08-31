@@ -4,7 +4,7 @@
  * - reparent → Task.parent_task via Document.save + sibling orders
  *   (destination + former parent lists from DinextTable move payload)
  */
-import { applySideEffectDateRows } from "../table/save.js";
+import { applySideEffectDateRows, rowCanRead, rowCanWrite } from "../table/save.js";
 
 /** Path id → Task name (last segment). */
 export function taskNameFromRowId(rowId) {
@@ -55,6 +55,13 @@ export async function persistTaskRowReorder({ move, table }) {
 		fail(__("Not permitted"));
 	}
 
+	const sourceRow =
+		table?.findSourceRow?.(rowId) ||
+		table?.findSourceRow?.(move.newRowId);
+	if (sourceRow && (!rowCanRead(sourceRow) || !rowCanWrite(sourceRow))) {
+		fail(__("Not permitted"));
+	}
+
 	const orderedIds = toTaskNames(orderedLocalRowIds);
 	if (!orderedIds.length || !orderedIds.includes(taskName)) {
 		fail(__("Task reorder: missing sibling order"));
@@ -62,6 +69,12 @@ export async function persistTaskRowReorder({ move, table }) {
 
 	const parentTask = taskNameFromRowId(toParentRowId) || "";
 	const reparent = fromParentRowId !== toParentRowId;
+	if (reparent && toParentRowId) {
+		const parentRow = table?.findSourceRow?.(toParentRowId);
+		if (parentRow && !rowCanRead(parentRow)) {
+			fail(__("Not permitted"));
+		}
+	}
 	const fromOrderedIds = reparent ? toTaskNames(fromOrderedLocalRowIds) : [];
 
 	frappe.dom.freeze(__("Updating {0}", [__("Task")]));

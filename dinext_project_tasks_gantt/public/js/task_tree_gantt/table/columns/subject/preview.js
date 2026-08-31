@@ -424,6 +424,7 @@ export function wireSubjectPreview(wrap, row) {
 		return;
 	}
 
+	bindRouteCacheInvalidation();
 	wrap.dataset.taskId = taskId;
 
 	const onWrapEnter = (ev) => {
@@ -470,4 +471,21 @@ export function closeSubjectPreview() {
 	hoverKey = null;
 	closeActivePreview();
 	stopPointerTracking();
+}
+
+let routeInvalidateBound = false;
+
+/** Form save + browser back leaves module cache; next hover must refetch. */
+function bindRouteCacheInvalidation() {
+	if (routeInvalidateBound) return;
+
+	routeInvalidateBound = true;
+	window.addEventListener("popstate", () => {
+		invalidateSubjectDescriptionCache();
+		closeSubjectPreview();
+	});
+	$(document).on("page-change.treeGanttSubjectPreview", () => {
+		invalidateSubjectDescriptionCache();
+		closeSubjectPreview();
+	});
 }

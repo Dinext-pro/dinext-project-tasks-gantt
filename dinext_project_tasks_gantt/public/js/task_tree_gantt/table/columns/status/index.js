@@ -1,12 +1,13 @@
 /**
- * Column «Статус» — DinextTable: fill on `.ag-cell` via cellClassRules
- * (not child renderer). Renderer = label + click → Frappe Select.
+ * Column «Статус»:
+ * - core `type: select` → option key + fill/paste
+ * - domain `FrappeSelectCellEditor` + colors
  */
 import { el, slugClass, searchableTranslated } from "../../format.js";
 import { fieldCanEdit } from "../../save.js";
+import { FrappeSelectCellEditor } from "../frappe-select-editor.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
-import { startStatusInlineEdit } from "./edit.js";
-import { parseStatusValue } from "./options.js";
+import { getStatusOptions } from "./options.js";
 
 const STATUS_SLUGS = [
 	"completed",
@@ -43,34 +44,6 @@ export function statusCellClassRules() {
 	return rules;
 }
 
-function wireEdit(wrap, params, row) {
-	if (!fieldCanEdit(row, "status")) {
-		return;
-	}
-	wrap.classList.add("tree-gantt-status--editable");
-	wrap.title = [wrap.title, __("Double-click to edit")].filter(Boolean).join(" — ");
-	// Single click → selection / fill-handle; dblclick → Select.
-	wrap.addEventListener("dblclick", (ev) => {
-		ev.preventDefault();
-		ev.stopPropagation();
-		void startStatusInlineEdit({ wrap, row, params });
-	});
-}
-
-function startStatusFromEvent(event) {
-	const wrap = event?.event?.target
-		?.closest?.(".ag-cell")
-		?.querySelector?.(".tree-gantt-status-cell");
-	if (!wrap) {
-		return;
-	}
-	void startStatusInlineEdit({
-		wrap,
-		row: event.data || event.node?.data || {},
-		params: event,
-	});
-}
-
 export function renderStatus(params) {
 	const row = params.data || {};
 	const value = row.status || params.value || "";
@@ -79,7 +52,9 @@ export function renderStatus(params) {
 	wrap.textContent = label;
 	wrap.title = label;
 	wrap.dataset.status = value;
-	wireEdit(wrap, params, row);
+	if (fieldCanEdit(row, "status")) {
+		wrap.classList.add("tree-gantt-status--editable");
+	}
 	return wrap;
 }
 
@@ -88,12 +63,14 @@ export function statusColumn() {
 		field: "status",
 		headerName: __("Status"),
 		...fixedCol(TREE_COL_WIDTH.status),
+		type: "select",
 		edit: (row) => fieldCanEdit(row, "status"),
-		suppressClickEdit: true,
-		onActiveClickEdit: startStatusFromEvent,
+		cellEditor: FrappeSelectCellEditor,
+		cellEditorParams: {
+			values: (params) => getStatusOptions(params.data),
+		},
 		cellRenderer: renderStatus,
 		valueFormatter: (params) => statusLabel(params.value),
-		valueParser: parseStatusValue,
 		cellClass: statusCellClass,
 		cellClassRules: statusCellClassRules(),
 		filterValueGetter: (row) => searchableTranslated(row?.status),

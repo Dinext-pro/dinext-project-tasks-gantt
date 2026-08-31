@@ -2,6 +2,7 @@
  * Assign via Project Workload Assignment dialog (product path).
  * No AssignmentDialog fallback — PWA is required on this site.
  */
+import { fieldCanEdit } from "../../save.js";
 
 /**
  * @param {{
@@ -11,7 +12,7 @@
  * }} opts
  */
 export function openAssignDialog({ row, project = null, onSaved }) {
-	if (!row?.id || !row.can_write) {
+	if (!fieldCanEdit(row, "assign")) {
 		return;
 	}
 	if (typeof start_pwa_dialog !== "function") {

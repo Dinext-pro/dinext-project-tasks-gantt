@@ -3,6 +3,7 @@
  * N=1 → existing start_pwa_dialog. N>1 → start_pwa_multi_dialog (not ToDo pills).
  */
 import { ensureAssignUserInfo } from "../../../api.js";
+import { fieldCanEdit } from "../../save.js";
 import { getColumnsPage } from "../context.js";
 import { openAssignDialog } from "./dialog.js";
 import { openBulkAssignDialog } from "./bulk-dialog.js";
@@ -24,7 +25,7 @@ function writableChecked(table) {
 	for (const rowId of checkedIds) {
 		const node = table.api?.getRowNode?.(String(rowId));
 		const row = node?.data || table.findSourceRow?.(rowId);
-		if (!row?.id || !row.can_write || !node) {
+		if (!fieldCanEdit(row, "assign") || !node) {
 			continue;
 		}
 		out.push({ rowId, node, row });
@@ -84,7 +85,7 @@ export function commitBulkAssignDelta(table, delta) {
 	for (const rowId of checkedIds) {
 		const node = table.api?.getRowNode?.(String(rowId));
 		const row = node?.data || table.findSourceRow?.(rowId);
-		if (!row?.id || !row.can_write || !node) {
+		if (!fieldCanEdit(row, "assign") || !node) {
 			continue;
 		}
 		const oldValue = normalizeUsers(row.assign);
@@ -183,7 +184,7 @@ export function bulkAssignToolbarItem() {
 			'<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M8 9.5a3 3 0 1 0-3-3 3 3 0 0 0 3 3z"/><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M2.5 13.5c.6-2 2.4-3 5.5-3s4.9 1 5.5 3"/><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M12.5 3.5v4M10.5 5.5h4"/></svg>',
 		disabled: ({ table }) => {
 			const rows = table?.getCheckedRows?.() || [];
-			return !rows.some((r) => r?.can_write);
+			return !rows.some((r) => fieldCanEdit(r, "assign"));
 		},
 		onClick: ({ table }) => {
 			const items = writableChecked(table);
