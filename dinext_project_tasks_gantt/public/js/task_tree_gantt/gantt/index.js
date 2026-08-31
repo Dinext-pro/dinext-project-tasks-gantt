@@ -8,13 +8,14 @@ import {
 import { expandAllRows } from "../table/index.js";
 import { collectVisibleRows, rowsToGanttTasks } from "./tasks.js";
 import { setupScrollSync, setupToolbarOffsetSync } from "./sync.js";
-import { clearGanttDateTimers, createGanttDateChangeHandler } from "./dates.js";
+import { bindGanttDateDragGuard, clearGanttDateTimers, createGanttDateChangeHandler } from "./dates.js";
 import { applyRelatedGanttPaint, setupHoverSync, taskIdFromAgRow } from "./hover.js";
 import {
 	applyRelationArrowGeometry,
 	bindRelationArrowGeometry,
 } from "./arrows.js";
 import { openAssignForTask } from "../table/columns/assign/index.js";
+import { deniedTitle, fieldCanEdit } from "../table/save.js";
 
 /** Skip frappe.require after first load — execute() always frappe.dom.freeze. */
 let assetsPromise = null;
@@ -123,7 +124,9 @@ function showPopup(ctx, state) {
 	if (!assignEl) {
 		return;
 	}
-	if (!row?.can_write) {
+	if (!fieldCanEdit(row, "assign")) {
+		assignEl.classList.add("tree-gantt-cell--write-denied");
+		assignEl.title = deniedTitle(row, "assign");
 		return;
 	}
 	assignEl.classList.add("gantt-assign-avatars--action");
@@ -339,6 +342,7 @@ async function runGanttUpdate(state) {
 	if (state.gantt?.refresh && state.ganttEl.querySelector?.(".gantt")) {
 		state.gantt.refresh(tasks);
 		bindSync(state);
+		bindGanttDateDragGuard(state);
 		return state.gantt;
 	}
 
@@ -350,6 +354,7 @@ async function runGanttUpdate(state) {
 		buildOptions(state.holidays || [], state)
 	);
 	bindSync(state);
+	bindGanttDateDragGuard(state);
 	return state.gantt;
 }
 

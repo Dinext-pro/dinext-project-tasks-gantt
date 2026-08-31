@@ -28,13 +28,53 @@ const TASK_FIELDS = new Set([
 
 const EDITABLE_FIELDS = new Set([...TASK_FIELDS, "assign", "relations"]);
 
+/** Column id → Task fieldname. Inverse of server TaskRow.ALIASES mismatches only. */
+const COLUMN_TO_DOCTYPE = {
+	task_type: "type",
+	task_type_label: "type",
+	assign: "_assign",
+	assign_pwa: "_assign",
+	assign_todo_only: "_assign",
+	relations: "custom_relations",
+	user_tags: "_user_tags",
+};
+
+export function toDocTypeField(field) {
+	return COLUMN_TO_DOCTYPE[field] || field;
+}
+
+export function rowCanRead(row) {
+	if (!row?.id) return false;
+	if (row.can_read === 0 || row.can_read === false) return false;
+	return true;
+}
+
 export function rowCanWrite(row) {
 	if (!row?.id) return false;
 	return row.can_write === 1 || row.can_write === true;
 }
 
+/**
+ * Gate before editor / gantt date-drag starts.
+ * can_write_fields missing (old backend) → previous whitelist + can_write.
+ */
 export function fieldCanEdit(row, field) {
-	return EDITABLE_FIELDS.has(field) && rowCanWrite(row);
+	if (!rowCanRead(row)) return false;
+	if (!rowCanWrite(row)) return false;
+	const allowed = row.can_write_fields;
+	if (Array.isArray(allowed)) {
+		return allowed.includes(toDocTypeField(field));
+	}
+	return EDITABLE_FIELDS.has(field);
+}
+
+/** Native title / SVG <title> when click/drag is gated. */
+export function writeDeniedTitle() {
+	return __("Not permitted");
+}
+
+export function deniedTitle(row, field) {
+	return fieldCanEdit(row, field) ? "" : writeDeniedTitle();
 }
 
 /** Task name — not tree `_rowId` path. */
@@ -121,19 +161,19 @@ function rejectSelectValue(fieldLabel, value) {
 
 export function onValidateCells({ changes }) {
 	for (const change of changes) {
-		if (!EDITABLE_FIELDS.has(change.field)) {
-			frappe.show_alert({
-				message: __("Field {0} is not editable", [change.field]),
-				indicator: "orange",
-			});
-			return false;
-		}
-		if (!rowCanWrite(change.row)) {
+		if (!rowCanRead(change.row) || !rowCanWrite(change.row)) {
 			frappe.show_alert({
 				message: __("Not permitted to write Task {0}", [
 					taskIdFromChange(change),
 				]),
 				indicator: "red",
+			});
+			return false;
+		}
+		if (!fieldCanEdit(change.row, change.field)) {
+			frappe.show_alert({
+				message: __("Field {0} is not editable", [change.field]),
+				indicator: "orange",
 			});
 			return false;
 		}
@@ -232,6 +272,24 @@ export async function saveCells(payload, { table } = {}) {
 	try {
 		const message = await apiSaveCells(payload);
 		applySideEffectDateRows(table, message?.rows);
+		const write = message?.write;
+		if (write && table) {
+			const flagChanges = [];
+			for (const id of Object.keys(write)) {
+				const flags = write[id];
+				flagChanges.push({
+					id,
+					field: "can_write",
+					value: flags.can_write,
+				});
+				flagChanges.push({
+					id,
+					field: "can_write_fields",
+					value: flags.can_write_fields,
+				});
+			}
+			table.applyExternalCellValues?.(flagChanges);
+		}
 		const savedIds = new Set(
 			payload.map((p) => p.id).filter(Boolean).map(String)
 		);

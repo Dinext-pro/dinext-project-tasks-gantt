@@ -7,7 +7,7 @@
  */
 import { el } from "../../format.js";
 import { ensureAssignUserInfo } from "../../../api.js";
-import { rowCanWrite } from "../../save.js";
+import { fieldCanEdit } from "../../save.js";
 import { getColumnsPage, getOnAssignSaved } from "../context.js";
 import { fixedCol, TREE_COL_WIDTH } from "../widths.js";
 import { openAssignDialog } from "./dialog.js";
@@ -169,7 +169,7 @@ export function openAssignForTask(table, taskId) {
 }
 
 function wireAssignActions(wrap, params, row, avatarsEl) {
-	if (!row.can_write) {
+	if (!fieldCanEdit(row, "assign")) {
 		return;
 	}
 	wrap.classList.add("tree-gantt-assign--editable");
@@ -240,7 +240,7 @@ export function assignColumn() {
 		field: "assign",
 		headerName: __("Resp."),
 		...fixedCol(TREE_COL_WIDTH.assign),
-		edit: (row) => rowCanWrite(row),
+		edit: (row) => fieldCanEdit(row, "assign"),
 		suppressClickEdit: true,
 		sortable: false,
 		cellDataType: false,
