@@ -4,6 +4,7 @@ import { hasMulti, multiPayload, normalizeMulti } from "../filters/defaults.js";
 import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/check.js";
 import { refreshPlanFact } from "./columns/plan_fact/limits.js";
 import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
+import { dateVisibilityToolbarItems } from "./columns/dates/visibility.js";
 import { addRootTaskToolbarItem } from "./columns/subject/actions.js";
 import { getColumns } from "./columns/index.js";
 import {
@@ -460,7 +461,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				lockPinned: true,
 				// "rows" → delete (+ move when rowReorder on). Add Child stays domain item.
 				presets: ["history", "tree", "rows", "fullscreen"],
-				items: [addRootTaskToolbarItem(), bulkAssignToolbarItem()],
+				items: [
+					addRootTaskToolbarItem(),
+					bulkAssignToolbarItem(),
+					...dateVisibilityToolbarItems(),
+				],
 			},
 			onBeforeDeleteRows: createOnBeforeDeleteRows(),
 			onDeleteRows: createOnDeleteRows(),

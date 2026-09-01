@@ -3,6 +3,7 @@
 
 from unittest.mock import patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from dinext_project_tasks_gantt.task_tree_gantt import save_cells as mod
@@ -47,6 +48,20 @@ class TestSaveCellsWriteFlags(FrappeTestCase):
 			flags = mod._write_flags([FakeDoc("T1", subject="Hi", status="Open")])
 		self.assertEqual(flags["T1"]["can_write"], 0)
 		self.assertEqual(flags["T1"]["can_write_fields"], [])
+
+	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission")
+	def test_save_cells_requires_read_and_write(self, perm, persist):
+		def hp(doctype, ptype="read", doc=None, *args, **kwargs):
+			# Role write without read: doctype write ok, document read denied.
+			if doc is None:
+				return ptype == "write"
+			return ptype == "write"
+
+		perm.side_effect = hp
+		with self.assertRaises(frappe.PermissionError):
+			mod.save_cells([{"id": "T1", "field": "subject", "value": "Bye"}])
+		persist.assert_not_called()
 
 	@patch.object(mod, "_persist_task")
 	@patch("frappe.has_permission", return_value=True)

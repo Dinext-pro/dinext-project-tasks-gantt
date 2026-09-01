@@ -24,6 +24,8 @@ class TaskTreeQuery:
 			"priority",
 			"exp_start_date",
 			"exp_end_date",
+			"act_start_date",
+			"act_end_date",
 			"expected_time",
 			"progress",
 			"creation",
@@ -117,11 +119,13 @@ class TaskTreeQuery:
 		tag,
 		parent_by_name: dict[str, str],
 		readable_ids: set[str],
+		*,
+		ignore_read: bool = False,
 	):
 		"""None = no keep filter. Else match ids + ancestors (empty set = no rows).
 
-		Matches only readable tasks. Ancestor walk uses full parent map so
-		unreadable parents stay in the tree as stubs.
+		Matches only readable tasks unless ignore_read (write-without-read).
+		Ancestor walk uses full parent map so unreadable parents stay as stubs.
 		"""
 		need_attr = cls.attr_filters_on(status, priority, assign_filter, tag)
 		if not task_names and not need_attr:
@@ -133,7 +137,8 @@ class TaskTreeQuery:
 				return set()
 			parts.append(TaskTreeAcl.ids_with_ancestors(parent_by_name, match))
 		if need_attr:
-			rows = frappe.get_list(
+			fetch = frappe.get_all if ignore_read else frappe.get_list
+			rows = fetch(
 				"Task",
 				filters={"project": project, "docstatus": ("<", 2)},
 				fields=["name", "parent_task", "status", "priority", "_assign", "_user_tags"],
@@ -163,11 +168,15 @@ class TaskTreeQuery:
 		        status, priority, assign, tag: optional str or list (OR inside field; empty = off)
 		        sort_field, sort_order, limit: optional
 
-		Read: only tasks the user may read, plus unreadable ancestors as stubs
-		(`can_read=0`) so the tree shape stays. No reparent. Field values without
-		read (permlevel) are blanked; stubs keep only tree keys.
+		Read: tasks the user may list, plus unreadable ancestors as stubs
+		(`can_read=0`) so the tree shape stays. Edit only if document
+		`has_permission(read)` AND `has_permission(write)` — write without
+		read is display-only (values as-is). Role write without role read:
+		show project rows with values, `can_write=0`.
 		"""
-		if not frappe.has_permission("Task", "read"):
+		role_read = TaskTreeAcl.role_can_read()
+		role_write = TaskTreeAcl.role_can_write()
+		if not role_read and not role_write:
 			frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
 
 		project = cls.param(kwargs, "project")
@@ -186,8 +195,12 @@ class TaskTreeQuery:
 		limit = cls.param(kwargs, "limit")
 
 		parent_by_name = TaskTreeAcl.task_parent_map(project)
-		readable_ids = TaskTreeAcl.readable_task_ids(project)
-		visible_ids = TaskTreeAcl.visible_task_ids(readable_ids, parent_by_name)
+		readable_ids = TaskTreeAcl.readable_task_ids(project) if role_read else set()
+		write_without_read = bool(role_write and not role_read)
+		if write_without_read:
+			visible_ids = TaskTreeAcl.write_without_read_ids(parent_by_name)
+		else:
+			visible_ids = TaskTreeAcl.visible_task_ids(readable_ids, parent_by_name)
 		if not visible_ids:
 			return []
 
@@ -231,7 +244,8 @@ class TaskTreeQuery:
 			assign_filter,
 			tag,
 			parent_by_name,
-			readable_ids,
+			readable_ids if role_read else visible_ids,
+			ignore_read=write_without_read,
 		)
 		if keep_ids is not None:
 			if not keep_ids:
@@ -259,15 +273,21 @@ class TaskTreeQuery:
 		raw_rows = query.run(as_dict=True)
 		rows = [TaskRow.from_task(r) for r in raw_rows]
 		TaskTreeAcl.mark_access(rows, readable_ids)
-		readable_rows = [row for row in rows if row["can_read"]]
+		content_rows = (
+			rows
+			if write_without_read
+			else [row for row in rows if row["can_read"]]
+		)
 		permitted = TaskRow.permitted_fieldnames()
-		if "type" in permitted:
-			TaskRowAttach.type_labels(readable_rows)
-		if "custom_relations" in permitted:
-			TaskRowAttach.relations(readable_rows)
-		if "_assign" in permitted:
-			TaskRowAttach.assign_sources(readable_rows)
-			TaskRowAttach.publish_assign_user_info(readable_rows)
-		TaskRow.apply_field_read_strip(rows, permitted)
+		if write_without_read or "type" in permitted:
+			TaskRowAttach.type_labels(content_rows)
+		if write_without_read or "custom_relations" in permitted:
+			TaskRowAttach.relations(content_rows)
+		if write_without_read or "_assign" in permitted:
+			TaskRowAttach.assign_sources(content_rows)
+			TaskRowAttach.publish_assign_user_info(content_rows)
+		TaskRow.apply_field_read_strip(
+			rows, permitted, keep_unreadable_values=write_without_read
+		)
 		TaskFieldWrite.attach(rows, permitted)
 		return rows
