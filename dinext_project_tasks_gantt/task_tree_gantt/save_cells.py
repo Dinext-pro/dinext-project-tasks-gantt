@@ -135,7 +135,9 @@ def save_cells(changes=None) -> dict:
 		field = item.get("field")
 		if not task_id or field not in ALLOWED_FIELDS:
 			frappe.throw(frappe._("Invalid field: {0}").format(field or "?"))
-		if not frappe.has_permission("Task", "write", task_id):
+		if not frappe.has_permission("Task", "read", task_id) or not frappe.has_permission(
+			"Task", "write", task_id
+		):
 			frappe.throw(
 				frappe._("Not permitted to write Task {0}").format(task_id),
 				frappe.PermissionError,

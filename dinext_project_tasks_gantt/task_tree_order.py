@@ -146,7 +146,9 @@ def reorder_siblings(
 	if not task or task not in ordered_ids:
 		frappe.throw(frappe._("Invalid reorder payload"))
 
-	if not frappe.has_permission("Task", "write", task):
+	if not frappe.has_permission("Task", "read", task) or not frappe.has_permission(
+		"Task", "write", task
+	):
 		frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
 
 	meta = frappe.get_meta("Task")

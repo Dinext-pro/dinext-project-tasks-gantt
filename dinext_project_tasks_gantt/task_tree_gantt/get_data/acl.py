@@ -10,6 +10,14 @@ import frappe
 
 class TaskTreeAcl:
 	@classmethod
+	def role_can_read(cls) -> bool:
+		return bool(frappe.has_permission("Task", "read"))
+
+	@classmethod
+	def role_can_write(cls) -> bool:
+		return bool(frappe.has_permission("Task", "write"))
+
+	@classmethod
 	def readable_task_ids(cls, project: str) -> set[str]:
 		"""Task names the current user may read (User Permission, if_owner, hooks)."""
 		names = frappe.get_list(
@@ -55,6 +63,11 @@ class TaskTreeAcl:
 		return cls.ids_with_ancestors(parent_by_name, readable_ids)
 
 	@classmethod
+	def write_without_read_ids(cls, parent_by_name: dict[str, str]) -> set[str]:
+		"""Role write=1 read=0: show whole project (values as-is, no edit)."""
+		return set(parent_by_name)
+
+	@classmethod
 	def intersect_keep_sets(cls, *sets):
 		"""None = filter off. Intersect active sets. Empty set = no rows."""
 		active = [s for s in sets if s is not None]
@@ -66,13 +79,27 @@ class TaskTreeAcl:
 		return out
 
 	@classmethod
+	def doc_can_edit(cls, task_id: str) -> bool:
+		"""Edit only if this document has read AND write. Write without read is display-only.
+
+		Role DocPerm can be write=1 read=0 (or if_owner read that does not apply).
+		get_list may still return the Task (select + permission_query). Form values stay
+		visible; cells must not be editable.
+		"""
+		return bool(
+			frappe.has_permission("Task", "read", task_id)
+			and frappe.has_permission("Task", "write", task_id)
+		)
+
+	@classmethod
 	def mark_access(cls, rows: list[dict], readable_ids: set[str]) -> None:
+		"""can_read = in get_list (values visible). can_write = document read AND write."""
 		for row in rows:
 			can_read = 1 if row["id"] in readable_ids else 0
 			row["can_read"] = can_read
 			if can_read:
-				row["can_write"] = 1 if frappe.has_permission("Task", "write", row["id"]) else 0
+				row["can_write"] = 1 if cls.doc_can_edit(row["id"]) else 0
 			else:
-				# Unreadable ancestor stub: keep tree shape, no edit, always expandable.
 				row["can_write"] = 0
-				row["has_children"] = True
+				if cls.role_can_read():
+					row["has_children"] = True
