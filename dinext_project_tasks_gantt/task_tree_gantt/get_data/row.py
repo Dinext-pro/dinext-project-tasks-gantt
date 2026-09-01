@@ -108,9 +108,13 @@ class TaskRow:
 		for df in meta.fields:
 			if (df.permlevel or 0) in levels and df.fieldname:
 				allowed.add(df.fieldname)
-		# _assign is optional (not in Task meta.fields). Same permlevel-0 read rule.
-		if 0 in levels and not meta.has_field("_assign"):
-			allowed.add("_assign")
+		# _assign / _user_tags are optional (not in Task meta.fields).
+		# Same permlevel-0 read rule as get_permitted_fields optional_fields.
+		if 0 in levels:
+			if not meta.has_field("_assign"):
+				allowed.add("_assign")
+			if not meta.has_field("_user_tags"):
+				allowed.add("_user_tags")
 		return allowed
 
 	@classmethod

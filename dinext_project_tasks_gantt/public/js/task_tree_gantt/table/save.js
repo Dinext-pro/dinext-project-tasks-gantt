@@ -26,8 +26,6 @@ const TASK_FIELDS = new Set([
 	"custom_include",
 ]);
 
-const EDITABLE_FIELDS = new Set([...TASK_FIELDS, "assign", "relations"]);
-
 /** Column id → Task fieldname. Inverse of server TaskRow.ALIASES mismatches only. */
 const COLUMN_TO_DOCTYPE = {
 	task_type: "type",
@@ -54,18 +52,13 @@ export function rowCanWrite(row) {
 	return row.can_write === 1 || row.can_write === true;
 }
 
-/**
- * Gate before editor / gantt date-drag starts.
- * can_write_fields missing (old backend) → previous whitelist + can_write.
- */
+/** Gate before editor / gantt date-drag. Backend always sends can_write_fields. */
 export function fieldCanEdit(row, field) {
 	if (!rowCanRead(row)) return false;
 	if (!rowCanWrite(row)) return false;
 	const allowed = row.can_write_fields;
-	if (Array.isArray(allowed)) {
-		return allowed.includes(toDocTypeField(field));
-	}
-	return EDITABLE_FIELDS.has(field);
+	if (!Array.isArray(allowed)) return false;
+	return allowed.includes(toDocTypeField(field));
 }
 
 /** Native title / SVG <title> when click/drag is gated. */

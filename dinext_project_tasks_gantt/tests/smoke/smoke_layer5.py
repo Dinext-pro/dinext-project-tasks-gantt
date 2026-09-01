@@ -96,6 +96,8 @@ def _door_pwa_multi_dialog_bulk_method() -> None:
 	)
 	_ok("pwa_multi_dialog_no_pwe", "pwe_rows" not in src)
 	_ok("pwa_multi_dialog_no_task_dates_col", 'fieldname: "task_dates"' not in src)
+	_ok("pwa_multi_dialog_intersection", "intersectAssigneeSets" in src)
+	_ok("pwa_multi_dialog_no_union_open", "unique union of PWA" not in src)
 
 
 def _document_hook_order() -> None:
