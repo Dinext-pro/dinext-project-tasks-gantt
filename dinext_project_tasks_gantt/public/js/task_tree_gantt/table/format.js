@@ -21,8 +21,8 @@ export function slugClass(value) {
 }
 
 /**
- * Frappe _user_tags: leading comma, then tags.
- * Tree: split(",").slice(1, limit+1).
+ * Frappe _user_tags: leading comma, then tags (`",alpha,beta"`).
+ * Also accept a plain csv / single tag without the leading comma.
  */
 export function parseTags(raw, limit = null) {
 	if (!raw) {
@@ -32,9 +32,8 @@ export function parseTags(raw, limit = null) {
 		const tags = raw.map(String).map((s) => s.trim()).filter(Boolean);
 		return limit == null ? tags : tags.slice(0, limit);
 	}
-	const parts = String(raw).split(",");
-	const tags = parts
-		.slice(1)
+	const tags = String(raw)
+		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
 	return limit == null ? tags : tags.slice(0, limit);

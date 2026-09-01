@@ -33,10 +33,10 @@
 	 * show_pending: make_tree skips — otherwise two parallel reload/get_children.
 	 */
 	async function refreshOnShow(page) {
-		const applied = await page.__task_tree_gantt_apply_route?.();
-		if (!applied) {
-			await page.__task_tree_gantt_on_show?.();
-		}
+		// Route project from Project Form must win over localStorage.
+		// Always reload after apply — field.change is muted and does not emit.
+		await page.__task_tree_gantt_apply_route?.();
+		await page.__task_tree_gantt_on_show?.();
 	}
 
 	function bindPageLifecycle(page) {
@@ -76,7 +76,8 @@
 			if (page.__task_tree_gantt_show_pending) {
 				return;
 			}
-			void page.__task_tree_gantt_on_show?.();
+			// Classic tree applied route_options here (TreeFactory.on_show).
+			void refreshOnShow(page);
 		};
 		treeview.rebuild_tree = function () {
 			const me = this;
@@ -124,7 +125,7 @@
 			return;
 		}
 		if (page.__task_tree_gantt_mounted) {
-			await page.__task_tree_gantt_apply_route?.();
+			await refreshOnShow(page);
 			return;
 		}
 		page.__task_tree_gantt_mounted = true;
