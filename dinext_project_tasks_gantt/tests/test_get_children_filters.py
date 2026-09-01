@@ -9,6 +9,49 @@ from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
 
 
 class TestGetChildrenAttrFilters(FrappeTestCase):
+	def test_write_without_read_ids_is_all_project_names(self):
+		parent = {"a": "", "b": "a", "c": ""}
+		self.assertEqual(TaskTreeAcl.write_without_read_ids(parent), {"a", "b", "c"})
+
+	def test_mark_access_write_without_read_no_edit(self):
+		from unittest.mock import patch
+
+		rows = [{"id": "leaf", "has_children": False}]
+		with patch.object(TaskTreeAcl, "role_can_read", return_value=False):
+			TaskTreeAcl.mark_access(rows, set())
+		self.assertEqual(rows[0]["can_read"], 0)
+		self.assertEqual(rows[0]["can_write"], 0)
+		self.assertFalse(rows[0]["has_children"])
+
+	def test_mark_access_doc_write_without_doc_read_no_edit(self):
+		"""get_list visible + doc write, but no doc read → values, no edit.
+
+		Kozlov / TASK-2026-00140: role read+write True, get_doc_permissions
+		read=0 write=1 (if_owner read does not apply).
+		"""
+		from unittest.mock import patch
+
+		rows = [{"id": "TASK-1", "has_children": False}]
+
+		def hp(doctype, ptype=None, doc=None, **kwargs):
+			if doc:
+				return ptype == "write"
+			return True
+
+		with patch("frappe.has_permission", side_effect=hp):
+			TaskTreeAcl.mark_access(rows, {"TASK-1"})
+		self.assertEqual(rows[0]["can_read"], 1)
+		self.assertEqual(rows[0]["can_write"], 0)
+
+	def test_mark_access_doc_read_and_write_can_edit(self):
+		from unittest.mock import patch
+
+		rows = [{"id": "TASK-1", "has_children": False}]
+		with patch("frappe.has_permission", return_value=True):
+			TaskTreeAcl.mark_access(rows, {"TASK-1"})
+		self.assertEqual(rows[0]["can_read"], 1)
+		self.assertEqual(rows[0]["can_write"], 1)
+
 	def test_ids_with_ancestors_keeps_chain_not_unrelated_groups(self):
 		parent = {"leaf": "mid", "mid": "root", "root": "", "other-group": ""}
 		keep = TaskTreeAcl.ids_with_ancestors(parent, {"leaf"})
@@ -180,6 +223,25 @@ class TestGetChildrenAttrFilters(FrappeTestCase):
 		self.assertEqual(row["relations"], [])
 		self.assertIsNone(row["owner"])
 		self.assertTrue(TaskRow.STUB_KEEP_KEYS <= set(row))
+
+	def test_strip_write_without_read_keeps_values(self):
+		row = {
+			"id": "leaf",
+			"subject": "shown",
+			"status": "Open",
+			"exp_start_date": "2026-09-01",
+			"assign": ["u@x.com"],
+			"can_read": 0,
+			"can_write": 0,
+			"parent_task": None,
+		}
+		TaskRow.apply_field_read_strip(
+			[row], {"subject"}, keep_unreadable_values=True
+		)
+		self.assertEqual(row["subject"], "shown")
+		self.assertEqual(row["status"], "Open")
+		self.assertEqual(row["exp_start_date"], "2026-09-01")
+		self.assertEqual(row["assign"], ["u@x.com"])
 
 	def test_strip_readable_nulls_fields_not_in_permitted(self):
 		row = {

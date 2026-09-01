@@ -57,6 +57,38 @@ def _door_save_cells_uses_document_save() -> None:
 	)
 
 
+def _door_gantt_date_visibility_toolbar() -> None:
+	"""Code door: Plan/Actual date checkboxes + actual columns stay read-only."""
+	root = Path(frappe.get_app_path("dinext_project_tasks_gantt"))
+	visibility = (
+		root / "public/js/task_tree_gantt/table/columns/dates/visibility.js"
+	).read_text(encoding="utf-8")
+	dates = (
+		root / "public/js/task_tree_gantt/table/columns/dates/index.js"
+	).read_text(encoding="utf-8")
+	_ok(
+		"gantt_dates_actual_checkbox",
+		'id: "tree-gantt-dates-actual"' in visibility
+		and '__("Fact")' in visibility,
+	)
+	_ok(
+		"gantt_dates_plan_checkbox",
+		'id: "tree-gantt-dates-plan"' in visibility and '__("Plan")' in visibility,
+	)
+	_ok(
+		"gantt_actual_dates_readonly",
+		"act_start_date" in dates
+		and "act_end_date" in dates
+		and "edit: false" in dates,
+	)
+	_ok(
+		"gantt_plan_dates_editable",
+		"custom_planned_start_date" in dates
+		and "custom_planned_end_date" in dates
+		and "fieldCanEdit" in dates,
+	)
+
+
 def _door_gantt_assign_seed_task_dates() -> None:
 	"""Code door: gantt assign persist seeds task_dates: 1 + app bulk method."""
 	path = (
@@ -456,6 +488,7 @@ def run():
 		]
 	)
 	_door_save_cells_uses_document_save()
+	_door_gantt_date_visibility_toolbar()
 	_door_gantt_assign_seed_task_dates()
 	_door_pwa_dialog_bulk_method()
 	_door_pwa_multi_dialog_bulk_method()

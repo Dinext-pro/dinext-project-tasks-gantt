@@ -4,7 +4,14 @@
  */
 import { deniedTitle } from "../save.js";
 import { assignColumn } from "./assign/index.js";
-import { expEndColumn, expStartColumn } from "./dates/index.js";
+import {
+	actualEndColumn,
+	actualStartColumn,
+	expEndColumn,
+	expStartColumn,
+	plannedEndColumn,
+	plannedStartColumn,
+} from "./dates/index.js";
 import { durationColumn } from "./duration.js";
 import { includeColumn } from "./include.js";
 import { planFactColumn } from "./plan_fact/index.js";
@@ -66,8 +73,12 @@ export function getColumns() {
 		planFactColumn(),
 		statusColumn(),
 		priorityColumn(),
+		plannedStartColumn(),
+		plannedEndColumn(),
 		expStartColumn(),
 		expEndColumn(),
+		actualStartColumn(),
+		actualEndColumn(),
 		durationColumn(),
 		progressColumn(),
 		includeColumn(),

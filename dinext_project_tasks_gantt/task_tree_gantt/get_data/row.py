@@ -128,10 +128,21 @@ class TaskRow:
 		return None
 
 	@classmethod
-	def apply_field_read_strip(cls, rows: list[dict], permitted: set[str]) -> None:
-		"""Null fields the user may not read. Stubs: all content gone, tree keys stay."""
+	def apply_field_read_strip(
+		cls,
+		rows: list[dict],
+		permitted: set[str],
+		*,
+		keep_unreadable_values: bool = False,
+	) -> None:
+		"""Null fields the user may not read. Stubs: all content gone, tree keys stay.
+
+		keep_unreadable_values: Role write without read — show values, no edit.
+		"""
 		for row in rows:
 			if not row.get("can_read"):
+				if keep_unreadable_values:
+					continue
 				for key in list(row.keys()):
 					if key not in cls.STUB_KEEP_KEYS:
 						row[key] = cls.blank_value(key)
