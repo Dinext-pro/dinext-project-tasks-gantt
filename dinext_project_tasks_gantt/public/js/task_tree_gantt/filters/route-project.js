@@ -17,9 +17,15 @@ export function takeRouteProject() {
 
 /**
  * Apply incoming route project onto page filter + args.
+ * Mute field.change during set — pre-writing args.project would skip emit,
+ * and Link set_value can briefly clear the input (legacy lastProject restore).
+ * Caller always reloads after this.
  * @param {object} page
  * @param {object} args mutable filter args (setupFilters closure)
- * @param {{ onProject?: (project: string) => void }} [hooks]
+ * @param {{
+ *   onProject?: (project: string) => void,
+ *   mute?: (fn: () => Promise<void>|void) => Promise<void>|void,
+ * }} [hooks]
  * @returns {Promise<boolean>} true if filter value changed
  */
 export async function applyRouteProject(page, args, hooks = {}) {
@@ -29,15 +35,26 @@ export async function applyRouteProject(page, args, hooks = {}) {
 	}
 
 	const field = page.fields_dict.project;
-	const current = field.get_value?.() || args.project || "";
+	const current = String(field.get_value?.() || args.project || "").trim();
 	args.project = project;
 	localStorage.setItem(projectStorageKey(), project);
 	hooks.onProject?.(project);
 
-	if (current === project) {
-		return false;
+	const paint = async () => {
+		// Classic Task tree: set_input so the Link shows the new project immediately.
+		if (typeof field.set_input === "function") {
+			field.set_input(project);
+		}
+		if (typeof field.set_value === "function") {
+			await field.set_value(project);
+		}
+	};
+
+	if (typeof hooks.mute === "function") {
+		await hooks.mute(paint);
+	} else {
+		await paint();
 	}
 
-	await field.set_value(project);
-	return true;
+	return current !== project;
 }

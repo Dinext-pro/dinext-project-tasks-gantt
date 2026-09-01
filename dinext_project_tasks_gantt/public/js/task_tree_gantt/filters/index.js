@@ -190,6 +190,15 @@ export async function setupFilters({ page, onChange }) {
 			applyRouteProject(page, args, {
 				onProject: (project) => {
 					lastProject = project;
+					void setPageTitle(page, project);
+				},
+				mute: async (fn) => {
+					muteChange = true;
+					try {
+						await fn();
+					} finally {
+						muteChange = false;
+					}
 				},
 			}),
 	};

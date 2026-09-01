@@ -25,7 +25,7 @@ export function renderTags(params) {
 	}
 	const wrap = el("div", "tree-gantt-tags");
 	for (const tag of tags) {
-		const pill = el("span", "tree-gantt-tag-pill ellipsis", tag);
+		const pill = el("span", "tag-pill tree-gantt-tag-pill ellipsis", tag);
 		pill.title = tag;
 		try {
 			const palette = frappe.get_palette?.(tag);
@@ -56,6 +56,7 @@ export function tagsColumn() {
 		...fixedCol(TREE_COL_WIDTH.user_tags),
 		sortable: false,
 		edit: false,
+		cellDataType: false,
 		cellRenderer: renderTags,
 		cellClass: "dinext-table-cell--align-center",
 		filterValueGetter: (row) => parseTags(row?.user_tags).join(" "),
