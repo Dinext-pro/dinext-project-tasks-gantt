@@ -250,6 +250,7 @@ class TestGetChildrenAttrFilters(FrappeTestCase):
 	def test_permitted_includes_optional_assign_and_relations(self):
 		permitted = TaskRow.permitted_fieldnames()
 		self.assertIn("_assign", permitted)
+		self.assertIn("_user_tags", permitted)
 		self.assertIn("custom_relations", permitted)
 
 	def test_strip_uses_alias_fieldnames(self):
@@ -271,3 +272,14 @@ class TestGetChildrenAttrFilters(FrappeTestCase):
 		self.assertEqual(row["assign"], [])
 		self.assertEqual(row["assign_pwa"], [])
 		self.assertEqual(row["relations"], [])
+
+	def test_strip_blanks_user_tags_without_optional_field(self):
+		row = {
+			"id": "leaf",
+			"subject": "ok",
+			"user_tags": ",alpha",
+			"can_read": 1,
+		}
+		TaskRow.apply_field_read_strip([row], {"subject"})
+		self.assertEqual(row["subject"], "ok")
+		self.assertEqual(row["user_tags"], "")
