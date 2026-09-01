@@ -20,10 +20,19 @@ const TASK_FIELDS = new Set([
 	"subject",
 	"status",
 	"priority",
+	"custom_planned_start_date",
+	"custom_planned_end_date",
 	"exp_start_date",
 	"exp_end_date",
 	"expected_time",
 	"custom_include",
+]);
+
+const SAVE_DATE_FIELDS = new Set([
+	"custom_planned_start_date",
+	"custom_planned_end_date",
+	"exp_start_date",
+	"exp_end_date",
 ]);
 
 /** Column id → Task fieldname. Inverse of server TaskRow.ALIASES mismatches only. */
@@ -123,7 +132,7 @@ function normalizeSaveValue(field, value) {
 	if (field === "custom_include") {
 		return value ? 1 : 0;
 	}
-	if (field === "exp_start_date" || field === "exp_end_date") {
+	if (SAVE_DATE_FIELDS.has(field)) {
 		return toFrappeDate(value);
 	}
 	if (field === "expected_time") {
@@ -183,7 +192,7 @@ export function onValidateCells({ changes }) {
 		if (change.field === "priority" && !isValidPriorityValue(change.newValue)) {
 			return rejectSelectValue(__("Priority"), change.newValue);
 		}
-		if (change.field === "exp_start_date" || change.field === "exp_end_date") {
+		if (SAVE_DATE_FIELDS.has(change.field)) {
 			const raw = change.newValue;
 			if (raw != null && raw !== "" && !toFrappeDate(raw)) {
 				frappe.show_alert({

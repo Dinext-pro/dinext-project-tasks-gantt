@@ -944,7 +944,7 @@ body.task-tree-gantt-resizing {
 	height: 100%;
 }
 
-/* Cell: pointer. Avatars: cell (+) — click opens dialog. */
+/* Cell + avatars: pointer — click/dblclick opens dialog. */
 .tree-gantt-assign--editable {
 	cursor: pointer;
 }
@@ -955,6 +955,16 @@ body.task-tree-gantt-resizing {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	width: 100%;
+	min-height: 100%;
+}
+
+/* Beat DinextTable `.ag-cell { cursor: text }` on the filled/clickable cell. */
+.task-tree-gantt-table-host.dinext-table
+	.ag-cell[col-id="relations"]:has(.tree-gantt-relations--clickable):not(
+		.tree-gantt-cell--write-denied
+	) {
+	cursor: pointer;
 }
 
 /* Relations cell popover (mini-table) */
@@ -1045,8 +1055,16 @@ body.task-tree-gantt-resizing {
 }
 
 .tree-gantt-assign-avatars--action,
-.tree-gantt-assign-avatars--action .avatar {
-	cursor: cell;
+.tree-gantt-assign-avatars--action .avatar,
+.tree-gantt-assign-avatars--action .avatar-frame {
+	cursor: pointer;
+}
+
+.task-tree-gantt-table-host.dinext-table
+	.ag-cell[col-id="assign"]:has(.tree-gantt-assign--editable):not(
+		.tree-gantt-cell--write-denied
+	) {
+	cursor: pointer;
 }
 
 .task-tree-gantt-table-host .ag-cell[col-id="assign"] {
@@ -1114,11 +1132,14 @@ body.task-tree-gantt-resizing {
 	gap: 4px;
 	overflow: hidden;
 	width: 100%;
-	min-height: 18px;
+	height: 100%;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="user_tags"] {
 	overflow: hidden;
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="user_tags"] > .ag-cell-wrapper,
@@ -1127,16 +1148,30 @@ body.task-tree-gantt-resizing {
 	align-items: center;
 	justify-content: center;
 	width: 100%;
-	min-height: 18px;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
 }
 
-.tree-gantt-tag-pill {
-	display: inline-block;
+/*
+ * Frappe .tag-pill is height:24px / width:60px / padding:3px 10px.
+ * That sits text at the top of the pill in a 28px AG row. Override layout only.
+ */
+.task-tree-gantt-table-host.dinext-table .tree-gantt-tag-pill.tag-pill {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	height: 18px;
+	width: auto;
 	max-width: 72px;
 	padding: 0 6px;
 	border-radius: 8px;
 	font-size: var(--text-xs, 11px);
 	line-height: 18px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	vertical-align: middle;
 	background: var(--bg-light-gray, #e8e8e8);
 	cursor: pointer;
 }
@@ -1197,7 +1232,12 @@ body.task-tree-gantt-resizing {
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied,
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .ag-checkbox,
 .task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .ag-checkbox-input-wrapper,
-.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .ag-input-field-input {
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .ag-input-field-input,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .tree-gantt-assign,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .tree-gantt-assign-avatars,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .avatar,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .avatar-frame,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .tree-gantt-relations {
 	cursor: not-allowed;
 }
 
@@ -1244,6 +1284,8 @@ body.task-tree-gantt-resizing {
  * Pin 11px on cell + wrappers + input (high specificity + !important) so Desk
  * .form-control / .input-with-feedback / .bold cannot enlarge or bold the text.
  */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"].ag-cell-inline-editing,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="status"].ag-cell-inline-editing,
@@ -1283,8 +1325,12 @@ body.task-tree-gantt-resizing {
 	line-height: 1.2 !important;
 }
 
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
 .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.form-control,
@@ -1389,14 +1435,22 @@ body.task-tree-gantt-resizing {
 }
 
 /* dates — center, compact (Tree details-cell parity) */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"],
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"],
-.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"] {
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_start_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_end_date"] {
 	font-size: var(--text-xs, 11px);
 	text-align: center;
 }
 
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"] > .ag-cell-wrapper,
 .task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"] > .ag-cell-wrapper,
-.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"] > .ag-cell-wrapper {
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_start_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_end_date"] > .ag-cell-wrapper {
 	justify-content: center;
 	width: 100%;
 }
