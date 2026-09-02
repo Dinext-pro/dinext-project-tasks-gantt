@@ -439,8 +439,17 @@ body[data-route^="Tree/Task/"] .main-section {
 	visibility: hidden;
 }
 
+.task-tree-gantt-chart .gantt-assign-avatars {
+	display: flex;
+	align-items: center;
+}
+
 .task-tree-gantt-chart .gantt-assign-avatars--action {
 	cursor: pointer;
+}
+
+.task-tree-gantt-chart .gantt-assign-avatars:hover .avatar-group.overlap .avatar:not(:first-child) {
+	margin-left: var(--margin-xs);
 }
 
 .task-tree-gantt-chart .gantt-assign-avatars.tree-gantt-cell--write-denied,

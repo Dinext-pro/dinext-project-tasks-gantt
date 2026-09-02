@@ -1,9 +1,11 @@
 # Copyright (c) 2026, Dinext and contributors
 # For license information, please see license.txt
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.acl import TaskTreeAcl
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.attach import TaskRowAttach
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.query import TaskTreeQuery
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
 
@@ -33,13 +35,25 @@ class TestGetChildrenAttrFilters(FrappeTestCase):
 
 		rows = [{"id": "TASK-1", "has_children": False}]
 
-		def hp(doctype, ptype=None, doc=None, **kwargs):
-			if doc:
-				return ptype == "write"
-			return True
-
-		with patch("frappe.has_permission", side_effect=hp):
-			TaskTreeAcl.mark_access(rows, {"TASK-1"})
+		original_user = frappe.session.user
+		frappe.set_user("batch-acl-test@example.com")
+		try:
+			with (
+				patch.object(TaskTreeAcl, "_shared_rights", return_value={}),
+				patch.object(
+					frappe.permissions,
+					"get_role_permissions",
+					return_value=frappe._dict(
+						has_if_owner_enabled=True,
+						read=0,
+						write=1,
+						if_owner={"read": 0, "write": 0},
+					),
+				),
+			):
+				TaskTreeAcl.mark_access(rows, {"TASK-1"})
+		finally:
+			frappe.set_user(original_user)
 		self.assertEqual(rows[0]["can_read"], 1)
 		self.assertEqual(rows[0]["can_write"], 0)
 
@@ -160,6 +174,46 @@ class TestGetChildrenAttrFilters(FrappeTestCase):
 		self.assertTrue(TaskTreeQuery.attr_filters_on(None, ["High"], None, None))
 		self.assertTrue(TaskTreeQuery.attr_filters_on(None, None, ["user@example.com"], None))
 		self.assertTrue(TaskTreeQuery.attr_filters_on(None, None, None, ["alpha"]))
+
+	def test_attr_filter_reuses_permission_rows(self):
+		from unittest.mock import patch
+
+		attr_rows = [
+			{
+				"name": "leaf",
+				"parent_task": "root",
+				"status": "Working",
+				"priority": "High",
+				"_assign": None,
+				"_user_tags": None,
+			}
+		]
+		with patch("frappe.get_list") as fetch:
+			keep = TaskTreeQuery.keep_ids_for_filters(
+				"PROJECT",
+				None,
+				["Working"],
+				None,
+				None,
+				None,
+				{"root": "", "leaf": "root"},
+				{"leaf"},
+				attr_rows=attr_rows,
+			)
+
+		fetch.assert_not_called()
+		self.assertEqual(keep, {"root", "leaf"})
+
+	def test_assign_sources_skips_pwa_lookup_without_assignees(self):
+		from unittest.mock import patch
+
+		rows = [{"id": "TASK-1", "assign": []}]
+		with patch("frappe.db.exists") as exists:
+			TaskRowAttach.assign_sources(rows)
+
+		exists.assert_not_called()
+		self.assertEqual(rows[0]["assign_pwa"], [])
+		self.assertEqual(rows[0]["assign_todo_only"], [])
 
 	def test_visible_keeps_unreadable_ancestors_not_unrelated(self):
 		parent = {

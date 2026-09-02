@@ -8,12 +8,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import frappe
-from frappe.model import display_fieldtypes
-from frappe.utils import cint
+from frappe.model import display_fieldtypes, table_fields
+from frappe.utils import cint, cstr
 
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
 
 SKIP_FIELDTYPES = frozenset(display_fieldtypes)
+_WORKFLOW_UNSET = object()
 
 # _assign is optional (not in Task meta.fields). Same write rules as other fields.
 _OPTIONAL_ASSIGN = SimpleNamespace(
@@ -48,7 +49,14 @@ class _EvalDoc:
 
 class TaskFieldWrite:
 	@classmethod
-	def attach(cls, rows: list[dict], permitted: set[str] | None = None) -> None:
+	def attach(
+		cls,
+		rows: list[dict],
+		permitted: set[str] | None = None,
+		*,
+		workflow=_WORKFLOW_UNSET,
+		state_by_id: dict[str, str] | None = None,
+	) -> None:
 		"""Set can_write_fields on each row. Stubs / ACL-RO skip compute."""
 		candidates: list[dict] = []
 		for row in rows:
@@ -61,9 +69,18 @@ class TaskFieldWrite:
 
 		if permitted is None:
 			permitted = TaskRow.permitted_fieldnames()
-		workflow = cls.active_workflow()
+		if workflow is _WORKFLOW_UNSET:
+			workflow = cls.active_workflow()
 		roles = set(frappe.get_roles())
-		state_by_id = cls.workflow_states(workflow, [row["id"] for row in candidates])
+		if state_by_id is None:
+			state_by_id = {}
+		else:
+			state_by_id = dict(state_by_id)
+		missing_state_ids = [
+			row["id"] for row in candidates if row["id"] not in state_by_id
+		]
+		if missing_state_ids:
+			state_by_id.update(cls.workflow_states(workflow, missing_state_ids))
 		meta = frappe.get_meta("Task")
 		write_levels = set(meta.get_permlevel_access("write"))
 		for row in candidates:
@@ -130,8 +147,11 @@ class TaskFieldWrite:
 		return data
 
 	@classmethod
-	def depends_on_read_only(cls, expr, doc_values: dict) -> bool:
-		"""True → field is read-only. Missing refs / eval fail → read-only (safer)."""
+	def eval_depends_on(cls, expr, doc_values: dict, *, on_fail: bool) -> bool:
+		"""Form depends_on / read_only_depends_on / mandatory_depends_on.
+
+		on_fail: value when the ref is missing or eval errors.
+		"""
 		if expr is True or expr is False:
 			return bool(expr)
 		expr = str(expr).strip()
@@ -145,13 +165,68 @@ class TaskFieldWrite:
 					)
 				)
 			except Exception:
-				return True
+				return on_fail
 		if expr not in doc_values:
-			return True
+			return on_fail
 		value = doc_values[expr]
 		if isinstance(value, (list, tuple)):
 			return bool(value)
 		return bool(value)
+
+	@classmethod
+	def depends_on_read_only(cls, expr, doc_values: dict) -> bool:
+		"""True → field is read-only. Missing refs / eval fail → read-only (safer)."""
+		return cls.eval_depends_on(expr, doc_values, on_fail=True)
+
+	@classmethod
+	def field_is_mandatory(cls, df, doc_values: dict) -> bool:
+		"""Same order as Desk ``is_docfield_mandatory``: depends_on wins over reqd."""
+		depends = getattr(df, "mandatory_depends_on", None)
+		if depends:
+			return cls.eval_depends_on(depends, doc_values, on_fail=False)
+		return bool(cint(getattr(df, "reqd", 0)))
+
+	@classmethod
+	def value_missing(cls, value) -> bool:
+		if value is None:
+			return True
+		if isinstance(value, (list, tuple)):
+			return not value
+		if isinstance(value, str) and not cstr(value).strip():
+			return True
+		return False
+
+	@classmethod
+	def missing_mandatory_labels(cls, meta, doc_values: dict) -> list[str]:
+		"""Labels of parent fields that are required and empty after the change."""
+		missing: list[str] = []
+		for df in meta.fields:
+			fieldtype = getattr(df, "fieldtype", None)
+			if fieldtype in SKIP_FIELDTYPES or fieldtype in table_fields:
+				continue
+			if not cls.field_is_mandatory(df, doc_values):
+				continue
+			fieldname = getattr(df, "fieldname", None)
+			if not fieldname:
+				continue
+			if cls.value_missing(doc_values.get(fieldname)):
+				label = getattr(df, "label", None) or fieldname
+				missing.append(str(label))
+		return missing
+
+	@classmethod
+	def assert_mandatory(cls, doc) -> None:
+		"""Whole-doc check like form Save. Cell save can trip a *other* field."""
+		meta = frappe.get_meta(doc.doctype)
+		doc_values = doc.as_dict()
+		missing = cls.missing_mandatory_labels(meta, doc_values)
+		if not missing:
+			return
+		message = frappe._("Mandatory fields required in {0}").format(
+			frappe._(doc.doctype)
+		)
+		message += "<br><br><ul><li>" + "</li><li>".join(missing) + "</ul>"
+		frappe.throw(message, frappe.MandatoryError)
 
 	@classmethod
 	def field_writable(cls, df, write_levels: set, doc_values: dict) -> bool:
