@@ -14,6 +14,8 @@ def _df(
 	read_only=0,
 	read_only_depends_on=None,
 	mandatory_depends_on=None,
+	depends_on=None,
+	hidden=0,
 	reqd=0,
 	fieldtype="Data",
 	label=None,
@@ -24,6 +26,8 @@ def _df(
 		read_only=read_only,
 		read_only_depends_on=read_only_depends_on,
 		mandatory_depends_on=mandatory_depends_on,
+		depends_on=depends_on,
+		hidden=hidden,
 		reqd=reqd,
 		fieldtype=fieldtype,
 		label=label or fieldname,
@@ -129,6 +133,43 @@ class TestGetChildrenWriteFlags(FrappeTestCase):
 			),
 			[],
 		)
+
+	def test_static_hidden_field_not_writable(self):
+		meta = FakeMeta([_df("subject"), _df("status", hidden=1)])
+		row = {"id": "T1", "subject": "Hi", "status": "Open", "can_read": 1, "can_write": 1}
+		self.assertEqual(
+			TaskFieldWrite.hidden_fields(meta, row, permitted={"subject", "status"}),
+			["status"],
+		)
+		fields = TaskFieldWrite.writable_fields(
+			meta, row, write_levels={0}, permitted={"subject", "status"}
+		)
+		self.assertIn("subject", fields)
+		self.assertNotIn("status", fields)
+
+	def test_depends_on_hides_when_expr_false(self):
+		meta = FakeMeta(
+			[
+				_df("status"),
+				_df(
+					"exp_end_date",
+					depends_on='eval:doc.status=="Open"',
+					label="Expected End Date",
+				),
+			]
+		)
+		hidden = TaskFieldWrite.hidden_fields(
+			meta,
+			{"id": "T1", "status": "Completed", "exp_end_date": "2026-01-01"},
+			permitted={"status", "exp_end_date"},
+		)
+		self.assertEqual(hidden, ["exp_end_date"])
+		shown = TaskFieldWrite.hidden_fields(
+			meta,
+			{"id": "T1", "status": "Open", "exp_end_date": "2026-01-01"},
+			permitted={"status", "exp_end_date"},
+		)
+		self.assertEqual(shown, [])
 
 	def test_read_only_depends_on_missing_field_excluded(self):
 		meta = FakeMeta(

@@ -2,7 +2,7 @@
  * Column defs aggregator. Per-column files live beside this index.
  * Import as `./columns/index.js` — no sibling table/columns.js.
  */
-import { deniedTitle } from "../save.js";
+import { deniedTitle, fieldIsHidden } from "../save.js";
 import { assignColumn } from "./assign/index.js";
 import {
 	actualEndColumn,
@@ -27,6 +27,36 @@ import { typeColumn } from "./type.js";
  * Cursor class + native title from existing `edit` callback.
  * Subject skips title — hover preview fights native tooltip.
  */
+function withHiddenMask(col) {
+	if (!col.field) {
+		return col;
+	}
+	const field = col.field;
+	const prevGetter = col.valueGetter;
+	const prevRenderer = col.cellRenderer;
+	const next = {
+		...col,
+		valueGetter: (params) => {
+			if (fieldIsHidden(params.data, field)) {
+				return null;
+			}
+			if (typeof prevGetter === "function") {
+				return prevGetter(params);
+			}
+			return params.data?.[field];
+		},
+	};
+	if (typeof prevRenderer === "function") {
+		next.cellRenderer = (params) => {
+			if (fieldIsHidden(params.data, field)) {
+				return "";
+			}
+			return prevRenderer(params);
+		};
+	}
+	return next;
+}
+
 function withWriteDeniedHint(col) {
 	if (typeof col.edit !== "function" || !col.field) {
 		return col;
@@ -84,5 +114,5 @@ export function getColumns() {
 		includeColumn(),
 		typeColumn(),
 		tagsColumn(),
-	].map(withWriteDeniedHint);
+	].map((col) => withWriteDeniedHint(withHiddenMask(col)));
 }
