@@ -137,3 +137,33 @@ class TestGetChildrenWriteFlags(FrappeTestCase):
 			TaskFieldWrite.workflow_locks(row, workflow, {"Task Manager"}, {})
 		)
 		self.assertFalse(TaskFieldWrite.workflow_locks(row, None, {"Employee"}, {}))
+
+	def test_attach_reuses_loaded_workflow_state(self):
+		from unittest.mock import patch
+
+		workflow = SimpleNamespace(
+			workflow_state_field="workflow_state",
+			states=[SimpleNamespace(state="Pending", allow_edit="Task Manager")],
+		)
+		row = {
+			"id": "T1",
+			"subject": "Hi",
+			"can_read": 1,
+			"can_write": 1,
+		}
+		meta = FakeMeta([_df("subject")])
+		with (
+			patch.object(TaskFieldWrite, "workflow_states") as state_query,
+			patch("frappe.get_roles", return_value=["Employee"]),
+			patch("frappe.get_meta", return_value=meta),
+		):
+			TaskFieldWrite.attach(
+				[row],
+				{"subject"},
+				workflow=workflow,
+				state_by_id={"T1": "Pending"},
+			)
+
+		state_query.assert_not_called()
+		self.assertEqual(row["can_write"], 0)
+		self.assertEqual(row["can_write_fields"], [])
