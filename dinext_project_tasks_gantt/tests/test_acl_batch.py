@@ -34,7 +34,6 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 
 		with self.as_user("user@example.com"):
 			with (
-				patch.object(TaskTreeAcl, "_supports_batch_edit_check", return_value=True),
 				patch.object(TaskTreeAcl, "_shared_rights", return_value={}),
 				patch.object(
 					frappe.permissions,
@@ -53,7 +52,6 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 		)
 		with self.as_user("user@example.com"):
 			with (
-				patch.object(TaskTreeAcl, "_supports_batch_edit_check", return_value=True),
 				patch.object(
 					TaskTreeAcl,
 					"_shared_rights",
@@ -69,24 +67,108 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 
 		self.assertEqual(editable, {"SHARED"})
 
-	def test_relevant_user_permission_uses_exact_fallback(self):
+	def test_editable_ids_stays_on_batch_when_supports_check_false(self):
+		"""False batch gate / parent-link UP / unknown hook: still role+share."""
 		rows = [
 			{"id": "YES", "owner": "Administrator"},
 			{"id": "NO", "owner": "Administrator"},
 		]
+
+		def role_permissions(_meta, user=None, is_owner=None):
+			return frappe._dict(
+				has_if_owner_enabled=True,
+				read=1,
+				write=0,
+				if_owner={"read": int(is_owner), "write": int(is_owner)},
+			)
+
 		with self.as_user("user@example.com"):
 			with (
 				patch.object(TaskTreeAcl, "_supports_batch_edit_check", return_value=False),
 				patch.object(
-					TaskTreeAcl,
-					"doc_can_edit",
-					side_effect=lambda task_id: task_id == "YES",
-				) as exact,
+					frappe.permissions,
+					"get_user_permissions",
+					return_value={
+						"Company": {"Dinord": {}},
+						"Employee": {"HR-EMP-00007": {}},
+					},
+				),
+				patch.object(
+					frappe,
+					"get_hooks",
+					return_value={"Task": ["custom.app.unknown_hook"]},
+				),
+				patch.object(TaskTreeAcl, "doc_can_edit") as exact,
+				patch.object(TaskTreeAcl, "_shared_rights", return_value={}),
+				patch.object(
+					frappe.permissions,
+					"get_role_permissions",
+					side_effect=role_permissions,
+				),
 			):
 				editable = TaskTreeAcl.editable_task_ids(rows, {"YES", "NO"})
 
 		self.assertEqual(editable, {"YES"})
-		self.assertEqual(exact.call_count, 2)
+		exact.assert_not_called()
+
+	def test_parent_link_user_permissions_are_not_relevant(self):
+		with patch.object(
+			frappe.permissions,
+			"get_user_permissions",
+			return_value={"Company": {"Dinord": {}}, "Employee": {"HR-EMP-00007": {}}},
+		):
+			self.assertFalse(
+				TaskTreeAcl._has_relevant_user_permissions("user@example.com")
+			)
+
+	def test_child_only_user_permission_is_relevant(self):
+		meta = frappe.get_meta("Task")
+		parent_links = {"Task"}
+		parent_links.update(
+			df.options
+			for df in meta.get_link_fields()
+			if df.options and not df.ignore_user_permissions
+		)
+		child_only = set()
+		for table_df in meta.get_table_fields():
+			child_meta = frappe.get_meta(table_df.options)
+			child_only.update(
+				df.options
+				for df in child_meta.get_link_fields()
+				if df.options
+				and not df.ignore_user_permissions
+				and df.options not in parent_links
+			)
+		if not child_only:
+			self.skipTest("No child-only Task link")
+		allow = next(iter(child_only))
+		with patch.object(
+			frappe.permissions,
+			"get_user_permissions",
+			return_value={allow: {"X": {}}},
+		):
+			self.assertTrue(
+				TaskTreeAcl._has_relevant_user_permissions("user@example.com")
+			)
+
+	def test_company_employee_up_keeps_batch_path(self):
+		with (
+			patch.object(
+				frappe.permissions,
+				"get_user_permissions",
+				return_value={"Company": {"Dinord": {}}, "Employee": {"HR-EMP-00007": {}}},
+			),
+			patch.object(
+				frappe,
+				"get_hooks",
+				return_value={
+					"*": ["doctype_permission.doctype_permission.utils.has_permission"]
+				},
+			),
+		):
+			self.assertTrue(
+				TaskTreeAcl._supports_batch_edit_check("user@example.com")
+			)
 
 	def test_mark_access_computes_batch_once(self):
 		rows = [

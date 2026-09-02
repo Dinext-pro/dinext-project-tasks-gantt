@@ -179,30 +179,41 @@ class TaskTreeAcl:
 
 	@classmethod
 	def _has_relevant_user_permissions(cls, user: str) -> bool:
-		"""True when list membership cannot replace full document UP checks."""
+		"""True when child-table-only UP may diverge from Frappe document write.
+
+		Parent Task link UPs (Company, Project, Task, …) already filter
+		`get_list` / `readable_ids`. Diagnostic only — not a runtime branch.
+		"""
 		user_permissions = frappe.permissions.get_user_permissions(user)
 		if not user_permissions:
 			return False
 
 		meta = frappe.get_meta("Task")
-		link_doctypes = {"Task"}
-		link_doctypes.update(
+		parent_links = {"Task"}
+		parent_links.update(
 			df.options
 			for df in meta.get_link_fields()
 			if df.options and not df.ignore_user_permissions
 		)
+		child_only = set()
 		for table_df in meta.get_table_fields():
 			child_meta = frappe.get_meta(table_df.options)
-			link_doctypes.update(
+			child_only.update(
 				df.options
 				for df in child_meta.get_link_fields()
-				if df.options and not df.ignore_user_permissions
+				if df.options
+				and not df.ignore_user_permissions
+				and df.options not in parent_links
 			)
-		return bool(link_doctypes.intersection(user_permissions))
+		return bool(child_only.intersection(user_permissions))
 
 	@classmethod
 	def _supports_batch_edit_check(cls, user: str) -> bool:
-		"""Use fast path only when all document-level checks are reproducible."""
+		"""True when in-memory write matches Frappe document has_permission.
+
+		Unknown has_permission hooks or child-table-only UP may diverge.
+		Diagnostic only — editable_task_ids always uses the batch path.
+		"""
 		hooks = frappe.get_hooks("has_permission")
 		methods = set(hooks.get("Task", [])) | set(hooks.get("*", []))
 		if methods - cls._BATCHED_CONTROLLER_HOOKS:
@@ -238,12 +249,11 @@ class TaskTreeAcl:
 
 	@classmethod
 	def editable_task_ids(cls, rows: list[dict], readable_ids: set[str]) -> set[str]:
-		"""Document read+write for a Task batch, with exact fallback.
+		"""Document read+write for a Task batch. Never loads documents.
 
 		`readable_ids` already passed Frappe list permissions and the Dinext
-		DocType Permission query. Role/owner and DocShare checks are then
-		computed in memory. Relevant User Permissions or unknown controller
-		hooks fall back to Frappe's per-document implementation.
+		DocType Permission query. Role/owner and DocShare checks are
+		computed in memory.
 		"""
 		candidates = [row for row in rows if row["id"] in readable_ids]
 		if not candidates:
@@ -252,8 +262,6 @@ class TaskTreeAcl:
 		user = frappe.session.user
 		if user == "Administrator":
 			return {row["id"] for row in candidates}
-		if not cls._supports_batch_edit_check(user):
-			return {row["id"] for row in candidates if cls.doc_can_edit(row["id"])}
 
 		task_ids = [row["id"] for row in candidates]
 		shared = cls._shared_rights(task_ids, user)

@@ -35,22 +35,20 @@ class TestGetChildrenAttrFilters(FrappeTestCase):
 
 		rows = [{"id": "TASK-1", "has_children": False}]
 
-		def hp(doctype, ptype=None, doc=None, **kwargs):
-			if doc:
-				return ptype == "write"
-			return True
-
 		original_user = frappe.session.user
 		frappe.set_user("batch-acl-test@example.com")
 		try:
 			with (
-				patch("frappe.has_permission", side_effect=hp),
-				patch(
-					"frappe.get_doc",
-					return_value=frappe._dict(doctype="Task", name="TASK-1"),
-				),
+				patch.object(TaskTreeAcl, "_shared_rights", return_value={}),
 				patch.object(
-					TaskTreeAcl, "_supports_batch_edit_check", return_value=False
+					frappe.permissions,
+					"get_role_permissions",
+					return_value=frappe._dict(
+						has_if_owner_enabled=True,
+						read=0,
+						write=1,
+						if_owner={"read": 0, "write": 0},
+					),
 				),
 			):
 				TaskTreeAcl.mark_access(rows, {"TASK-1"})
