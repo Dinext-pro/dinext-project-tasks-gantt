@@ -53,4 +53,5 @@ def reorder_siblings(**kwargs) -> ReorderSiblingsResponse:
 		parent_task=form_input.get("parent_task"),
 		ordered_ids=form_input.get("ordered_ids"),
 		from_ordered_ids=form_input.get("from_ordered_ids"),
+		append_only=form_input.get("append_only"),
 	)
