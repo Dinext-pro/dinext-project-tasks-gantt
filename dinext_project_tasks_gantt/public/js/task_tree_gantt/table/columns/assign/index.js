@@ -28,7 +28,7 @@ function todoOnlySet(row) {
 	return new Set(normalizeUsers(row?.assign_todo_only));
 }
 
-function renderAvatars(users, row) {
+export function renderAvatars(users, row) {
 	const list = el(
 		"div",
 		"list-assignments tree-gantt-assign-avatars avatar-group overlap"
