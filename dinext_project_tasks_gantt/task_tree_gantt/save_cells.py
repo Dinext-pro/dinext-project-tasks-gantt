@@ -65,6 +65,7 @@ def _persist_task(task_id: str, values: dict):
 	"""
 	doc = frappe.get_doc("Task", task_id)
 	doc.update(values)
+	TaskFieldWrite.assert_not_writing_hidden(doc, values)
 	TaskFieldWrite.assert_mandatory(doc)
 	doc.save()
 	return doc
@@ -83,6 +84,7 @@ def _write_flags(docs: list) -> dict[str, dict]:
 		row["id"]: {
 			"can_write": 1 if row.get("can_write") else 0,
 			"can_write_fields": row["can_write_fields"],
+			"hidden_fields": row.get("hidden_fields") or [],
 		}
 		for row in rows
 	}

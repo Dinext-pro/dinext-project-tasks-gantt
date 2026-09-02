@@ -1,3 +1,5 @@
+import { fieldIsHidden } from "../table/save.js";
+
 function statusColor(status) {
 	switch (status) {
 		case "Pending Review":
@@ -15,7 +17,9 @@ function statusColor(status) {
 
 /** Visible exp_* on the row after strip — not today/creation. */
 export function ganttDatesVisible(row) {
-	return !!(row?.exp_start_date || row?.exp_end_date);
+	const start = fieldIsHidden(row, "exp_start_date") ? null : row?.exp_start_date;
+	const end = fieldIsHidden(row, "exp_end_date") ? null : row?.exp_end_date;
+	return !!(start || end);
 }
 
 function placeholderDay(rows) {
@@ -33,8 +37,12 @@ function placeholderDay(rows) {
  * Both empty → no bar (lib still needs dates for row alignment; mark invalid).
  */
 export function rowToGanttTask(row, dummyDay) {
-	const startDay = row.exp_start_date || null;
-	const endDay = row.exp_end_date || null;
+	const startDay = fieldIsHidden(row, "exp_start_date")
+		? null
+		: row.exp_start_date || null;
+	const endDay = fieldIsHidden(row, "exp_end_date")
+		? null
+		: row.exp_end_date || null;
 	const hasBar = !!(startDay || endDay);
 	const start = startDay || endDay || dummyDay;
 	const end = endDay || startDay || dummyDay;

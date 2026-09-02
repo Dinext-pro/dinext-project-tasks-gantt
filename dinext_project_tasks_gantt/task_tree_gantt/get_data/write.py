@@ -23,6 +23,9 @@ _OPTIONAL_ASSIGN = SimpleNamespace(
 	permlevel=0,
 	read_only=0,
 	read_only_depends_on=None,
+	mandatory_depends_on=None,
+	depends_on=None,
+	hidden=0,
 )
 
 
@@ -57,14 +60,8 @@ class TaskFieldWrite:
 		workflow=_WORKFLOW_UNSET,
 		state_by_id: dict[str, str] | None = None,
 	) -> None:
-		"""Set can_write_fields on each row. Stubs / ACL-RO skip compute."""
-		candidates: list[dict] = []
-		for row in rows:
-			if not row.get("can_read") or not row.get("can_write"):
-				row["can_write_fields"] = []
-			else:
-				candidates.append(row)
-		if not candidates:
+		"""Set can_write_fields + hidden_fields. Hidden is computed for every row."""
+		if not rows:
 			return
 
 		if permitted is None:
@@ -76,14 +73,23 @@ class TaskFieldWrite:
 			state_by_id = {}
 		else:
 			state_by_id = dict(state_by_id)
-		missing_state_ids = [
-			row["id"] for row in candidates if row["id"] not in state_by_id
+		writable_ids = [
+			row["id"]
+			for row in rows
+			if row.get("can_read") and row.get("can_write")
 		]
+		missing_state_ids = [i for i in writable_ids if i not in state_by_id]
 		if missing_state_ids:
 			state_by_id.update(cls.workflow_states(workflow, missing_state_ids))
 		meta = frappe.get_meta("Task")
 		write_levels = set(meta.get_permlevel_access("write"))
-		for row in candidates:
+		for row in rows:
+			row["hidden_fields"] = cls.hidden_fields(
+				meta, row, permitted=permitted
+			)
+			if not row.get("can_read") or not row.get("can_write"):
+				row["can_write_fields"] = []
+				continue
 			if cls.workflow_locks(row, workflow, roles, state_by_id):
 				row["can_write"] = 0
 				row["can_write_fields"] = []
@@ -137,7 +143,13 @@ class TaskFieldWrite:
 		data: dict = {}
 		for key, value in row.items():
 			fieldname = TaskRow.ALIASES.get(key, key)
-			if fieldname in {"can_read", "can_write", "has_children", "can_write_fields"}:
+			if fieldname in {
+				"can_read",
+				"can_write",
+				"has_children",
+				"can_write_fields",
+				"hidden_fields",
+			}:
 				continue
 			if fieldname == "id":
 				data.setdefault("name", value)
@@ -229,11 +241,63 @@ class TaskFieldWrite:
 		frappe.throw(message, frappe.MandatoryError)
 
 	@classmethod
+	def field_is_hidden(cls, df, doc_values: dict) -> bool:
+		"""Static ``hidden`` or form ``depends_on`` (shown only when expr is true)."""
+		if cint(getattr(df, "hidden", 0)):
+			return True
+		depends = getattr(df, "depends_on", None)
+		if depends:
+			return not cls.eval_depends_on(depends, doc_values, on_fail=False)
+		return False
+
+	@classmethod
+	def hidden_fields(
+		cls,
+		meta,
+		row: dict,
+		permitted: set[str] | None = None,
+	) -> list[str]:
+		if permitted is None:
+			permitted = TaskRow.permitted_fieldnames()
+		doc_values = cls.row_doc_values(row, permitted)
+		out: list[str] = []
+		for df in meta.fields:
+			fieldtype = getattr(df, "fieldtype", None)
+			if fieldtype in SKIP_FIELDTYPES or fieldtype in table_fields:
+				continue
+			fieldname = getattr(df, "fieldname", None)
+			if not fieldname:
+				continue
+			if cls.field_is_hidden(df, doc_values):
+				out.append(fieldname)
+		if not any(df.fieldname == "_assign" for df in meta.fields):
+			if cls.field_is_hidden(_OPTIONAL_ASSIGN, doc_values):
+				out.append("_assign")
+		return out
+
+	@classmethod
+	def assert_not_writing_hidden(cls, doc, fieldnames) -> None:
+		"""Reject cell writes to fields hidden on the resulting doc."""
+		meta = frappe.get_meta(doc.doctype)
+		doc_values = doc.as_dict()
+		blocked = []
+		for fieldname in fieldnames:
+			df = meta.get_field(fieldname)
+			if not df:
+				continue
+			if cls.field_is_hidden(df, doc_values):
+				blocked.append(getattr(df, "label", None) or fieldname)
+		if blocked:
+			frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
+
+	@classmethod
 	def field_writable(cls, df, write_levels: set, doc_values: dict) -> bool:
 		fieldname = getattr(df, "fieldname", None)
 		if not fieldname:
 			return False
 		if getattr(df, "fieldtype", None) in SKIP_FIELDTYPES:
+			return False
+		if cls.field_is_hidden(df, doc_values):
 			return False
 		if (df.permlevel or 0) not in write_levels:
 			return False

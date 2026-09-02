@@ -61,10 +61,17 @@ export function rowCanWrite(row) {
 	return row.can_write === 1 || row.can_write === true;
 }
 
+export function fieldIsHidden(row, field) {
+	const hidden = row?.hidden_fields;
+	if (!Array.isArray(hidden)) return false;
+	return hidden.includes(toDocTypeField(field));
+}
+
 /** Gate before editor / gantt date-drag. Backend always sends can_write_fields. */
 export function fieldCanEdit(row, field) {
 	if (!rowCanRead(row)) return false;
 	if (!rowCanWrite(row)) return false;
+	if (fieldIsHidden(row, field)) return false;
 	const allowed = row.can_write_fields;
 	if (!Array.isArray(allowed)) return false;
 	return allowed.includes(toDocTypeField(field));
@@ -288,6 +295,11 @@ export async function saveCells(payload, { table } = {}) {
 					id,
 					field: "can_write_fields",
 					value: flags.can_write_fields,
+				});
+				flagChanges.push({
+					id,
+					field: "hidden_fields",
+					value: flags.hidden_fields || [],
 				});
 			}
 			table.applyExternalCellValues?.(flagChanges);

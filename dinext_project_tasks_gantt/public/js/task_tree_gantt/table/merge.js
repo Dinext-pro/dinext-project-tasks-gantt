@@ -32,6 +32,7 @@ const ROW_FIELDS = [
 	"can_read",
 	"can_write",
 	"can_write_fields",
+	"hidden_fields",
 	"confirm",
 	"owner",
 	"hasChildren",
