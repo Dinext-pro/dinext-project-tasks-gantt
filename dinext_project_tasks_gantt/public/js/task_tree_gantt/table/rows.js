@@ -36,6 +36,7 @@ export function toTableRow(row) {
 		can_write_fields: Array.isArray(row.can_write_fields)
 			? row.can_write_fields
 			: undefined,
+		hidden_fields: Array.isArray(row.hidden_fields) ? row.hidden_fields : [],
 		confirm: row.confirm ? 1 : 0,
 		owner: row.owner || null,
 		hasChildren: !!row.has_children,
