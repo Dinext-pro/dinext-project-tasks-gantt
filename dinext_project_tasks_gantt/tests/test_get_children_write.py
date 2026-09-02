@@ -8,13 +8,25 @@ from frappe.tests.utils import FrappeTestCase
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.write import TaskFieldWrite
 
 
-def _df(fieldname, permlevel=0, read_only=0, read_only_depends_on=None, fieldtype="Data"):
+def _df(
+	fieldname,
+	permlevel=0,
+	read_only=0,
+	read_only_depends_on=None,
+	mandatory_depends_on=None,
+	reqd=0,
+	fieldtype="Data",
+	label=None,
+):
 	return SimpleNamespace(
 		fieldname=fieldname,
 		permlevel=permlevel,
 		read_only=read_only,
 		read_only_depends_on=read_only_depends_on,
+		mandatory_depends_on=mandatory_depends_on,
+		reqd=reqd,
 		fieldtype=fieldtype,
+		label=label or fieldname,
 	)
 
 
@@ -65,6 +77,58 @@ class TestGetChildrenWriteFlags(FrappeTestCase):
 		)
 		self.assertIn("subject", fields)
 		self.assertNotIn("progress", fields)
+
+	def test_mandatory_depends_on_completed_requires_end_date(self):
+		meta = FakeMeta(
+			[
+				_df("status"),
+				_df(
+					"exp_end_date",
+					mandatory_depends_on='eval:doc.status=="Completed"',
+					label="Expected End Date",
+				),
+			]
+		)
+		empty = {"status": "Completed", "exp_end_date": None}
+		self.assertEqual(
+			TaskFieldWrite.missing_mandatory_labels(meta, empty),
+			["Expected End Date"],
+		)
+		filled = {"status": "Completed", "exp_end_date": "2026-09-02"}
+		self.assertEqual(TaskFieldWrite.missing_mandatory_labels(meta, filled), [])
+		open_empty = {"status": "Open", "exp_end_date": None}
+		self.assertEqual(TaskFieldWrite.missing_mandatory_labels(meta, open_empty), [])
+
+	def test_static_reqd_empty_is_missing(self):
+		meta = FakeMeta([_df("subject", reqd=1, label="Subject")])
+		self.assertEqual(
+			TaskFieldWrite.missing_mandatory_labels(meta, {"subject": ""}),
+			["Subject"],
+		)
+		self.assertEqual(
+			TaskFieldWrite.missing_mandatory_labels(meta, {"subject": "Hi"}),
+			[],
+		)
+
+	def test_mandatory_depends_on_wins_over_reqd(self):
+		meta = FakeMeta(
+			[
+				_df("status"),
+				_df(
+					"exp_end_date",
+					reqd=1,
+					mandatory_depends_on='eval:doc.status=="Completed"',
+					label="Expected End Date",
+				),
+			]
+		)
+		# Form: depends_on set → reqd ignored. Open + empty is ok.
+		self.assertEqual(
+			TaskFieldWrite.missing_mandatory_labels(
+				meta, {"status": "Open", "exp_end_date": None}
+			),
+			[],
+		)
 
 	def test_read_only_depends_on_missing_field_excluded(self):
 		meta = FakeMeta(
