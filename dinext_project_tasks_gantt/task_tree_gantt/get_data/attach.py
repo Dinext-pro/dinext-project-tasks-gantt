@@ -42,31 +42,31 @@ class TaskRowAttach:
 		names = [row["id"] for row in rows if row.get("id")]
 		by_parent: dict[str, list] = {name: [] for name in names}
 		if names:
-			for rel in frappe.get_all(
-				"Task Relation",
-				filters={"parent": ("in", names), "is_active": 1},
-				fields=["name", "parent", "predecessor", "type", "buffer_days", "project"],
-			):
+			TaskRelation = frappe.qb.DocType("Task Relation")
+			PredecessorTask = frappe.qb.DocType("Task").as_("predecessor_task")
+			relations = (
+				frappe.qb.from_(TaskRelation)
+				.left_join(PredecessorTask)
+				.on(PredecessorTask.name == TaskRelation.predecessor)
+				.select(
+					TaskRelation.name,
+					TaskRelation.parent,
+					TaskRelation.predecessor,
+					TaskRelation.type,
+					TaskRelation.buffer_days,
+					TaskRelation.project,
+					PredecessorTask.subject.as_("predecessor_subject"),
+				)
+				.where(TaskRelation.parent.isin(names))
+				.where(TaskRelation.is_active == 1)
+				.orderby(TaskRelation.modified, order=frappe.qb.desc)
+			).run(as_dict=True)
+			for rel in relations:
 				by_parent.setdefault(rel["parent"], []).append(rel)
-
-		pred_ids = {
-			rel["predecessor"]
-			for rels in by_parent.values()
-			for rel in rels
-			if rel.get("predecessor")
-		}
-		subjects: dict[str, str] = {}
-		if pred_ids:
-			for task in frappe.get_all(
-				"Task",
-				filters={"name": ("in", list(pred_ids))},
-				fields=["name", "subject"],
-			):
-				subjects[task["name"]] = task.get("subject") or ""
 
 		for rels in by_parent.values():
 			for rel in rels:
-				rel["predecessor_subject"] = subjects.get(rel.get("predecessor"), "")
+				rel["predecessor_subject"] = rel.get("predecessor_subject") or ""
 
 		for row in rows:
 			row["relations"] = by_parent.get(row["id"], [])
@@ -90,12 +90,14 @@ class TaskRowAttach:
 	@classmethod
 	def assign_sources(cls, rows: list[dict]) -> None:
 		"""Split assign into PWA-backed vs Open-ToDo-only (for avatar chrome)."""
-		task_ids = [row["id"] for row in rows if row.get("id")]
-		pwa_by_task: dict[str, set[str]] = {tid: set() for tid in task_ids}
-		if task_ids and frappe.db.exists("DocType", "Project Workload Assignment"):
+		assigned_task_ids = [
+			row["id"] for row in rows if row.get("id") and row.get("assign")
+		]
+		pwa_by_task: dict[str, set[str]] = {tid: set() for tid in assigned_task_ids}
+		if assigned_task_ids and frappe.db.exists("DocType", "Project Workload Assignment"):
 			for rec in frappe.get_all(
 				"Project Workload Assignment",
-				filters={"task": ("in", task_ids)},
+				filters={"task": ("in", assigned_task_ids)},
 				fields=["task", "user"],
 				limit_page_length=0,
 			):

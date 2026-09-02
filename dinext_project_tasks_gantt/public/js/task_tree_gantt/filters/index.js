@@ -148,6 +148,7 @@ export async function setupFilters({ page, onChange }) {
 		fieldname: "limit",
 		fieldtype: "Int",
 		label: __("Limit"),
+		hidden: 1,
 		change() {
 			const raw = this.get_value();
 			const next =
