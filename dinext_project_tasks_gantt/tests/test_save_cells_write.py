@@ -70,14 +70,18 @@ class TestSaveCellsWriteFlags(FrappeTestCase):
 		with self.assertRaises(frappe.MandatoryError):
 			mod.save_cells([{"id": "T1", "field": "status", "value": "Completed"}])
 
+	@patch.object(TaskFieldWrite, "assert_not_writing_hidden")
 	@patch.object(TaskFieldWrite, "assert_mandatory")
 	@patch("frappe.get_doc")
-	def test_persist_asserts_mandatory_before_save(self, get_doc, assert_mand):
+	def test_persist_asserts_mandatory_before_save(
+		self, get_doc, assert_mand, assert_hidden
+	):
 		doc = FakeDoc("T1", subject="Hi", status="Open")
 		doc.update = lambda values: None
 		doc.save = lambda: None
 		get_doc.return_value = doc
 		mod._persist_task("T1", {"status": "Completed"})
+		assert_hidden.assert_called_once_with(doc, {"status": "Completed"})
 		assert_mand.assert_called_once_with(doc)
 
 	@patch.object(mod, "_persist_task")
@@ -90,3 +94,5 @@ class TestSaveCellsWriteFlags(FrappeTestCase):
 		self.assertIn("can_write", out["write"]["T1"])
 		self.assertIn("can_write_fields", out["write"]["T1"])
 		self.assertIsInstance(out["write"]["T1"]["can_write_fields"], list)
+		self.assertIn("hidden_fields", out["write"]["T1"])
+		self.assertIsInstance(out["write"]["T1"]["hidden_fields"], list)

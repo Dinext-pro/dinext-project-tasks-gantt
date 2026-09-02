@@ -40,6 +40,7 @@ class GetChildrenRow(TypedDict, total=False):
 	can_read: int
 	can_write: int
 	can_write_fields: list[str]
+	hidden_fields: list[str]
 	has_children: bool
 	_assign: Any
 	custom_include: int
@@ -77,6 +78,7 @@ class SaveCellsWriteFlags(TypedDict):
 
 	can_write: int
 	can_write_fields: list[str]
+	hidden_fields: list[str]
 
 
 class SaveCellsResponse(TypedDict, total=False):
