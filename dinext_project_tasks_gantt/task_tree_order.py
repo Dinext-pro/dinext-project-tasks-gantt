@@ -133,23 +133,17 @@ def reorder_siblings(
 	parent_task: str | None = None,
 	ordered_ids: list | str | None = None,
 	from_ordered_ids: list | str | None = None,
-	append_only: int | bool | None = None,
 ):
 	"""Move/reorder Task in tree.
 
 	- Same parent: only rewrite ``custom_tree_order`` for ``ordered_ids``.
 	- New parent: ``Document.save`` for ``parent_task``, then order destination
 	  siblings; optionally reindex former siblings via ``from_ordered_ids``.
-	- ``append_only`` (sort-locked UI): reparent + append dest tree-order; do
-	  not bake the visible sorted sibling list into ``custom_tree_order``.
 	"""
 	ordered_ids = _parse_ids(ordered_ids)
 	from_ordered_ids = _parse_ids(from_ordered_ids)
-	append_only = bool(cint(append_only))
 
-	if not task:
-		frappe.throw(frappe._("Invalid reorder payload"))
-	if not append_only and task not in ordered_ids:
+	if not task or task not in ordered_ids:
 		frappe.throw(frappe._("Invalid reorder payload"))
 
 	if not frappe.has_permission("Task", "read", task) or not frappe.has_permission(
@@ -169,24 +163,18 @@ def reorder_siblings(
 		new_parent = _norm_parent(parent_task)
 
 	reparented = old_parent != new_parent
-	if append_only:
-		if not reparented:
-			frappe.throw(frappe._("Cannot change display order while sorted"))
-		project = frappe.db.get_value("Task", task, "project")
-		order = next_tree_order(project, new_parent)
+	if reparented:
 		_reparent_task(task, new_parent)
-		frappe.db.set_value("Task", task, ORDER_FIELD, order, update_modified=False)
-	else:
-		if reparented:
-			_reparent_task(task, new_parent)
-		_apply_sibling_order(ordered_ids, new_parent)
-		if reparented and from_ordered_ids:
-			if task in from_ordered_ids:
-				frappe.throw(frappe._("Moved task must not appear in source sibling order"))
-			_apply_sibling_order(from_ordered_ids, old_parent)
+
+	_apply_sibling_order(ordered_ids, new_parent)
+
+	if reparented and from_ordered_ids:
+		if task in from_ordered_ids:
+			frappe.throw(frappe._("Moved task must not appear in source sibling order"))
+		_apply_sibling_order(from_ordered_ids, old_parent)
 
 	result = {
-		"updated": 1 if append_only else len(ordered_ids) + (len(from_ordered_ids) if reparented else 0),
+		"updated": len(ordered_ids) + (len(from_ordered_ids) if reparented else 0),
 		"reparented": 1 if reparented else 0,
 		"parent_task": new_parent,
 	}

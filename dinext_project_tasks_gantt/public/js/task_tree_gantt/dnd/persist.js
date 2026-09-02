@@ -76,8 +76,6 @@ export async function persistTaskRowReorder({ move, table }) {
 		}
 	}
 	const fromOrderedIds = reparent ? toTaskNames(fromOrderedLocalRowIds) : [];
-	const appendOnly =
-		reparent && typeof table?.isSortActive === "function" && table.isSortActive();
 
 	frappe.dom.freeze(__("Updating {0}", [__("Task")]));
 	try {
@@ -88,7 +86,6 @@ export async function persistTaskRowReorder({ move, table }) {
 				parent_task: parentTask,
 				ordered_ids: orderedIds,
 				from_ordered_ids: fromOrderedIds,
-				append_only: appendOnly ? 1 : 0,
 			}
 		);
 		if (reparent) {
