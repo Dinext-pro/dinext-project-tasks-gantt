@@ -14,6 +14,7 @@ from frappe.utils import cint
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
 
 SKIP_FIELDTYPES = frozenset(display_fieldtypes)
+_WORKFLOW_UNSET = object()
 
 # _assign is optional (not in Task meta.fields). Same write rules as other fields.
 _OPTIONAL_ASSIGN = SimpleNamespace(
@@ -48,7 +49,14 @@ class _EvalDoc:
 
 class TaskFieldWrite:
 	@classmethod
-	def attach(cls, rows: list[dict], permitted: set[str] | None = None) -> None:
+	def attach(
+		cls,
+		rows: list[dict],
+		permitted: set[str] | None = None,
+		*,
+		workflow=_WORKFLOW_UNSET,
+		state_by_id: dict[str, str] | None = None,
+	) -> None:
 		"""Set can_write_fields on each row. Stubs / ACL-RO skip compute."""
 		candidates: list[dict] = []
 		for row in rows:
@@ -61,9 +69,18 @@ class TaskFieldWrite:
 
 		if permitted is None:
 			permitted = TaskRow.permitted_fieldnames()
-		workflow = cls.active_workflow()
+		if workflow is _WORKFLOW_UNSET:
+			workflow = cls.active_workflow()
 		roles = set(frappe.get_roles())
-		state_by_id = cls.workflow_states(workflow, [row["id"] for row in candidates])
+		if state_by_id is None:
+			state_by_id = {}
+		else:
+			state_by_id = dict(state_by_id)
+		missing_state_ids = [
+			row["id"] for row in candidates if row["id"] not in state_by_id
+		]
+		if missing_state_ids:
+			state_by_id.update(cls.workflow_states(workflow, missing_state_ids))
 		meta = frappe.get_meta("Task")
 		write_levels = set(meta.get_permlevel_access("write"))
 		for row in candidates:

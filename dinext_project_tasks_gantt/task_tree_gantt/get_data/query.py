@@ -121,6 +121,8 @@ class TaskTreeQuery:
 		readable_ids: set[str],
 		*,
 		ignore_read: bool = False,
+		scope_bounds: tuple[int, int] | None = None,
+		attr_rows: list[dict] | None = None,
 	):
 		"""None = no keep filter. Else match ids + ancestors (empty set = no rows).
 
@@ -137,13 +139,26 @@ class TaskTreeQuery:
 				return set()
 			parts.append(TaskTreeAcl.ids_with_ancestors(parent_by_name, match))
 		if need_attr:
-			fetch = frappe.get_all if ignore_read else frappe.get_list
-			rows = fetch(
-				"Task",
-				filters={"project": project, "docstatus": ("<", 2)},
-				fields=["name", "parent_task", "status", "priority", "_assign", "_user_tags"],
-				limit_page_length=0,
-			)
+			rows = attr_rows
+			if rows is None:
+				fetch = frappe.get_all if ignore_read else frappe.get_list
+				filters = {"project": project, "docstatus": ("<", 2)}
+				if scope_bounds:
+					filters["lft"] = (">", scope_bounds[0])
+					filters["rgt"] = ("<", scope_bounds[1])
+				rows = fetch(
+					"Task",
+					filters=filters,
+					fields=[
+						"name",
+						"parent_task",
+						"status",
+						"priority",
+						"_assign",
+						"_user_tags",
+					],
+					limit_page_length=0,
+				)
 			match_ids = {
 				r["name"]
 				for r in rows
@@ -194,8 +209,28 @@ class TaskTreeQuery:
 		sort_order = (cls.param(kwargs, "sort_order") or "asc").lower()
 		limit = cls.param(kwargs, "limit")
 
-		parent_by_name = TaskTreeAcl.task_parent_map(project)
-		readable_ids = TaskTreeAcl.readable_task_ids(project) if role_read else set()
+		scope_bounds = None
+		if parent_task and not all_tasks:
+			parent_by_name, scope_bounds = TaskTreeAcl.task_descendant_scope(
+				project, parent_task
+			)
+			if scope_bounds is None and parent_task not in parent_by_name:
+				return []
+		else:
+			parent_by_name = TaskTreeAcl.task_parent_map(project)
+		need_attr = cls.attr_filters_on(status, priority, assign_filter, tag)
+		attr_rows = None
+		if role_read and need_attr:
+			attr_rows = TaskTreeAcl.readable_task_rows(
+				project,
+				["name", "parent_task", "status", "priority", "_assign", "_user_tags"],
+				scope_bounds,
+			)
+			readable_ids = {row["name"] for row in attr_rows}
+		elif role_read:
+			readable_ids = TaskTreeAcl.readable_task_ids(project, scope_bounds)
+		else:
+			readable_ids = set()
 		write_without_read = bool(role_write and not role_read)
 		if write_without_read:
 			visible_ids = TaskTreeAcl.write_without_read_ids(parent_by_name)
@@ -207,7 +242,16 @@ class TaskTreeQuery:
 		Task = frappe.qb.DocType("Task")
 		assign_col = frappe.qb.Field("_assign")
 		tags_col = frappe.qb.Field("_user_tags")
-		has_tree_order = frappe.get_meta("Task").has_field("custom_tree_order")
+		task_meta = frappe.get_meta("Task")
+		has_tree_order = task_meta.has_field("custom_tree_order")
+		workflow = TaskFieldWrite.active_workflow()
+		workflow_state_field = (
+			workflow.workflow_state_field
+			if workflow
+			and workflow.workflow_state_field
+			and task_meta.has_field(workflow.workflow_state_field)
+			else None
+		)
 
 		select_cols = [Task.name, Task.is_group, Task.type, assign_col, tags_col]
 		for field in TaskRow.COPY_FIELDS:
@@ -216,6 +260,8 @@ class TaskTreeQuery:
 			select_cols.append(getattr(Task, field))
 		if has_tree_order:
 			select_cols.append(Task.custom_tree_order)
+		if workflow_state_field and workflow_state_field not in TaskRow.COPY_FIELDS:
+			select_cols.append(getattr(Task, workflow_state_field))
 
 		query = (
 			frappe.qb.from_(Task)
@@ -246,13 +292,25 @@ class TaskTreeQuery:
 			parent_by_name,
 			readable_ids if role_read else visible_ids,
 			ignore_read=write_without_read,
+			scope_bounds=scope_bounds,
+			attr_rows=attr_rows,
 		)
 		if keep_ids is not None:
 			if not keep_ids:
 				return []
-			query = query.where(Task.name.isin(list(keep_ids)))
+			allowed_ids = keep_ids
 		else:
-			query = query.where(Task.name.isin(list(visible_ids)))
+			allowed_ids = visible_ids
+		if not all_tasks:
+			slice_ids = {
+				name
+				for name, parent in parent_by_name.items()
+				if parent == parent_task or (not parent_task and not parent)
+			}
+			allowed_ids &= slice_ids
+		if not allowed_ids:
+			return []
+		query = query.where(Task.name.isin(list(allowed_ids)))
 
 		if sort_field in cls.ALLOWED_SORT_FIELDS and (
 			sort_field != "custom_tree_order" or has_tree_order
@@ -271,8 +329,13 @@ class TaskTreeQuery:
 			query = query.limit(cint(limit))
 
 		raw_rows = query.run(as_dict=True)
+		workflow_state_by_id = (
+			{row["name"]: row.get(workflow_state_field) for row in raw_rows}
+			if workflow_state_field
+			else {}
+		)
 		rows = [TaskRow.from_task(r) for r in raw_rows]
-		TaskTreeAcl.mark_access(rows, readable_ids)
+		TaskTreeAcl.mark_access(rows, readable_ids, role_read=role_read)
 		content_rows = (
 			rows
 			if write_without_read
@@ -289,5 +352,10 @@ class TaskTreeQuery:
 		TaskRow.apply_field_read_strip(
 			rows, permitted, keep_unreadable_values=write_without_read
 		)
-		TaskFieldWrite.attach(rows, permitted)
+		TaskFieldWrite.attach(
+			rows,
+			permitted,
+			workflow=workflow,
+			state_by_id=workflow_state_by_id,
+		)
 		return rows
