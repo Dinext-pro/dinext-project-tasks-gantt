@@ -79,13 +79,25 @@ function bindReorderDeniedHint(container) {
 		if (!handle || !container.contains(handle)) {
 			return;
 		}
+		const table = getState(container).table;
+		const sortLocked =
+			container.classList.contains("dinext-table--row-reorder-sort-locked") ||
+			!!table?.isRowReorderSortLocked?.();
 		const denied = handle
 			.closest(".ag-row")
 			?.classList.contains("tree-gantt-row--reorder-denied");
-		const tip = denied ? writeDeniedTitle() : __("Move");
+		const tip = sortLocked
+			? (table?.getRowReorderSortLockTooltip?.() || __("Clear sort to move a task"))
+			: denied
+				? writeDeniedTitle()
+				: __("Move");
 		if (handle.getAttribute("title") !== tip) {
 			handle.setAttribute("title", tip);
 			handle.setAttribute("aria-label", tip);
+		}
+		const host = handle.parentElement;
+		if (host?.classList.contains("dinext-table-row-reorder-handle-host")) {
+			host.setAttribute("title", tip);
 		}
 	});
 }
@@ -475,6 +487,8 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				allowTree: "reparent",
 				// Tree: gutter DnD only — toolbar ↑↓ nudge is sibling-flat and wrong here.
 				toolbarMove: false,
+				blockWhenSorted: true,
+				blockWhenSortedTooltip: "Clear sort to move a task",
 			},
 			canReorderRow: canReorderTaskRow,
 			onValidateRowReorder: validateTaskRowReorder,

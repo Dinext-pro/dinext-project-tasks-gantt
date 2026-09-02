@@ -65,6 +65,23 @@ class TestSaveCellsWriteFlags(FrappeTestCase):
 
 	@patch.object(mod, "_persist_task")
 	@patch("frappe.has_permission", return_value=True)
+	def test_save_cells_stops_when_mandatory_fails(self, _perm, persist):
+		persist.side_effect = frappe.MandatoryError("Expected End Date")
+		with self.assertRaises(frappe.MandatoryError):
+			mod.save_cells([{"id": "T1", "field": "status", "value": "Completed"}])
+
+	@patch.object(TaskFieldWrite, "assert_mandatory")
+	@patch("frappe.get_doc")
+	def test_persist_asserts_mandatory_before_save(self, get_doc, assert_mand):
+		doc = FakeDoc("T1", subject="Hi", status="Open")
+		doc.update = lambda values: None
+		doc.save = lambda: None
+		get_doc.return_value = doc
+		mod._persist_task("T1", {"status": "Completed"})
+		assert_mand.assert_called_once_with(doc)
+
+	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission", return_value=True)
 	def test_save_cells_response_write_keyed_by_name(self, _perm, persist):
 		persist.return_value = FakeDoc("T1", subject="Hi", status="Open")
 		out = mod.save_cells([{"id": "T1", "field": "subject", "value": "Bye"}])

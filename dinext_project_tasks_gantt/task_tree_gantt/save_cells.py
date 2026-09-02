@@ -65,6 +65,7 @@ def _persist_task(task_id: str, values: dict):
 	"""
 	doc = frappe.get_doc("Task", task_id)
 	doc.update(values)
+	TaskFieldWrite.assert_mandatory(doc)
 	doc.save()
 	return doc
 

@@ -193,6 +193,7 @@
 "Dependency conflict","Конфликт зависимостей",""
 "Double-click to assign","Двойной клик для назначения",""
 "Double-click to edit","Двойной клик для редактирования",""
+"Clear sort to move a task","Для перемещения задачи сбросьте сортировку",""
 "Click to highlight related tasks","Клик — выделить связанные задачи",""
 "Duplicate relation exists","Такая связь уже существует",""
 "Field {0} is not editable","Поле {0} нельзя редактировать",""
