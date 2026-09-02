@@ -94,7 +94,6 @@ class ReorderSiblingsFormInput(TypedDict, total=False):
 	parent_task: str | None
 	ordered_ids: list[str] | str | None
 	from_ordered_ids: list[str] | str | None
-	append_only: int | bool | None
 
 
 class ReorderSiblingsResponse(TypedDict, total=False):
