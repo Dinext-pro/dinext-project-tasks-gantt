@@ -14,7 +14,7 @@ import {
 	applyRelationArrowGeometry,
 	bindRelationArrowGeometry,
 } from "./arrows.js";
-import { openAssignForTask } from "../table/columns/assign/index.js";
+import { openAssignForTask, renderAvatars } from "../table/columns/assign/index.js";
 import { deniedTitle, fieldCanEdit } from "../table/save.js";
 
 /** Skip frappe.require after first load — execute() always frappe.dom.freeze. */
@@ -85,22 +85,15 @@ function formatPopupDate(value) {
 		.format("D MMM");
 }
 
-function assignPopupInnerHtml(row) {
-	const assign = Array.isArray(row?.assign)
+function fillAssignPopup(assignEl, row) {
+	const users = Array.isArray(row?.assign)
 		? row.assign.filter(Boolean)
 		: [];
-	if (assign.length) {
-		try {
-			const group = frappe.avatar_group(assign, 5, { filterable: false });
-			const node = Array.isArray(group) ? group[0] : group;
-			if (node?.outerHTML) {
-				return node.outerHTML;
-			}
-		} catch (e) {
-			/* fall through to assign icon */
-		}
+	if (!users.length) {
+		assignEl.innerHTML = frappe.utils.icon("assign", "md") || "+";
+		return;
 	}
-	return frappe.utils.icon("assign", "md") || "+";
+	assignEl.appendChild(renderAvatars(users, row));
 }
 
 function hideGanttPopup(ctx) {
@@ -116,14 +109,13 @@ function showPopup(ctx, state) {
 	ctx.set_subtitle(`${start} - ${end}<br/>${__("Progress")}: ${progress}%`);
 
 	const row = ctx.task.row;
-	ctx.set_details(
-		`<div class="gantt-assign-avatars">${assignPopupInnerHtml(row)}</div>`
-	);
+	ctx.set_details(`<div class="gantt-assign-avatars"></div>`);
 	const details = ctx.get_details?.();
 	const assignEl = details?.querySelector?.(".gantt-assign-avatars");
 	if (!assignEl) {
 		return;
 	}
+	fillAssignPopup(assignEl, row);
 	if (!fieldCanEdit(row, "assign")) {
 		assignEl.classList.add("tree-gantt-cell--write-denied");
 		assignEl.title = deniedTitle(row, "assign");
