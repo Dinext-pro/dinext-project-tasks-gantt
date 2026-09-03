@@ -170,11 +170,12 @@ class TaskFieldWrite:
 		if not expr:
 			return False
 		if expr.startswith("eval:"):
+			code = expr[5:].strip()
+			if not code:
+				return on_fail
 			try:
 				return bool(
-					frappe.safe_eval(
-						expr[5:], None, {"doc": _EvalDoc(doc_values), "parent": None}
-					)
+					frappe.safe_eval(code, None, {"doc": _EvalDoc(doc_values), "parent": None})
 				)
 			except Exception:
 				return on_fail
