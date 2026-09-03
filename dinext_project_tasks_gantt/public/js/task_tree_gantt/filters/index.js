@@ -5,7 +5,11 @@ import {
 	normalizeMulti,
 	taskMultiSelectOptions,
 } from "./defaults.js";
-import { applyRouteProject, takeRouteProject } from "./route-project.js";
+import {
+	applyRouteProject,
+	syncProjectQuery,
+	takeRouteProject,
+} from "./route-project.js";
 
 /**
  * @returns {Promise<{
@@ -119,6 +123,7 @@ export async function setupFilters({ page, onChange }) {
 			}
 			lastProject = value;
 			localStorage.setItem(projectStorageKey(), value);
+			syncProjectQuery(value);
 			void setPageTitle(page, value);
 			emit();
 		},
@@ -161,6 +166,7 @@ export async function setupFilters({ page, onChange }) {
 
 	if (args.project && page.fields_dict.project) {
 		await page.fields_dict.project.set_value(args.project);
+		syncProjectQuery(args.project);
 		void setPageTitle(page, args.project);
 	}
 
