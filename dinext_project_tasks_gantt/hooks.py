@@ -54,7 +54,8 @@ required_apps = ["dinext_common", "doctype_permission", "dinext_projects"]
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_js = "/assets/dinext_project_tasks_gantt/js/dinext_project_tasks_gantt.js"
+# `dinext.fieldRules` registry (Task form adapter + Task Tree consume it; owner apps register).
+app_include_js = ["field_rules.bundle.js"]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/dinext_project_tasks_gantt/css/dinext_project_tasks_gantt.css"
@@ -75,6 +76,7 @@ doctype_js = {
 	"Task": [
 		"public/js/task_progress_trend_styles.js",
 		"public/js/task_progress_trend.js",
+		"public/js/task_field_rules_form.js",
 	],
 	"Project": [
 		"public/js/burndown_navigation.js",

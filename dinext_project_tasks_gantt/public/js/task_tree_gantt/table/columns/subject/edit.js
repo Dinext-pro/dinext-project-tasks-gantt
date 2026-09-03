@@ -117,6 +117,10 @@ export async function startSubjectInlineEdit({ mainEl, textEl, row, params }) {
 		}
 
 		host._control = null;
+		// Restore DOM here: tree renderer remounts only when value/dep key
+		// changes, so refreshCells alone leaves the editor in place on cancel.
+		host.remove();
+		textEl.style.display = "";
 		delete mainEl.dataset.subjectEditing;
 		params.api?.refreshCells?.({
 			rowNodes: params.node ? [params.node] : undefined,

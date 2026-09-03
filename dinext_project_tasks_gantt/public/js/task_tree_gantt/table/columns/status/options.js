@@ -1,6 +1,9 @@
 /**
- * Tree getStatuses — meta options; confirm + non-owner → drop Completed.
+ * Tree getStatuses — meta options; confirm + non-owner → drop Completed;
+ * then narrowed by `dinext.fieldRules` (status rule may return `options`).
  */
+import { fieldOptions } from "../../field_status.js";
+
 export function getStatusOptions(row) {
 	const field = frappe.meta.get_field("Task", "status") || frappe.meta.get_docfield("Task", "status");
 	const raw = field?.options || "";
@@ -21,7 +24,7 @@ export function getStatusOptions(row) {
 		}
 	}
 
-	return options;
+	return fieldOptions(row, "status", options);
 }
 
 /** Per-row options (Completed rule) for fill/paste/edit validate. */

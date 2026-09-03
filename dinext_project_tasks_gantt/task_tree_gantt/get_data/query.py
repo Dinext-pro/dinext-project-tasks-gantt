@@ -12,6 +12,7 @@ from frappe.utils import cint
 
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.acl import TaskTreeAcl
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.attach import TaskRowAttach
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.meta import TaskTreeMeta
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.write import TaskFieldWrite
 
@@ -188,6 +189,11 @@ class TaskTreeQuery:
 		`has_permission(read)` AND `has_permission(write)` — write without
 		read is display-only (values as-is). Role write without role read:
 		show project rows with values, `can_write=0`.
+
+		Row = the Task document (every permitted scalar field under its DocType
+		name) + client aliases. Field-level UI rules (form-contract expressions) are
+		evaluated by the client; the server publishes `frappe.response["tree_meta"]`
+		(permlevels + workflow) once per response.
 		"""
 		role_read = TaskTreeAcl.role_can_read()
 		role_write = TaskTreeAcl.role_can_write()
@@ -197,6 +203,8 @@ class TaskTreeQuery:
 		project = cls.param(kwargs, "project")
 		if not project:
 			frappe.throw(frappe._("Project is required"))
+		workflow = TaskFieldWrite.active_workflow()
+		TaskTreeMeta.publish(TaskTreeMeta.build(workflow))
 
 		parent_task = cls.param(kwargs, "parent_task")
 		task_names = cls.parse_multi(cls.param(kwargs, "task"))
@@ -240,11 +248,13 @@ class TaskTreeQuery:
 			return []
 
 		Task = frappe.qb.DocType("Task")
-		assign_col = frappe.qb.Field("_assign")
-		tags_col = frappe.qb.Field("_user_tags")
 		task_meta = frappe.get_meta("Task")
 		has_tree_order = task_meta.has_field("custom_tree_order")
-		workflow = TaskFieldWrite.active_workflow()
+		# Role write without read: the user may edit these fields, so show them.
+		permitted = TaskRow.permitted_fieldnames(
+			task_meta, "write" if write_without_read else "read"
+		)
+		select_fields = TaskRow.select_fieldnames(task_meta, permitted)
 		workflow_state_field = (
 			workflow.workflow_state_field
 			if workflow
@@ -252,20 +262,11 @@ class TaskTreeQuery:
 			and task_meta.has_field(workflow.workflow_state_field)
 			else None
 		)
-
-		select_cols = [Task.name, Task.is_group, Task.type, assign_col, tags_col]
-		for field in TaskRow.COPY_FIELDS:
-			if field == "custom_tree_order":
-				continue
-			select_cols.append(getattr(Task, field))
-		if has_tree_order:
-			select_cols.append(Task.custom_tree_order)
-		if workflow_state_field and workflow_state_field not in TaskRow.COPY_FIELDS:
-			select_cols.append(getattr(Task, workflow_state_field))
+		if workflow_state_field and workflow_state_field not in select_fields:
+			select_fields.append(workflow_state_field)
 
 		query = (
-			frappe.qb.from_(Task)
-			.select(*select_cols)
+			cls.select_query(select_fields)
 			.where(Task.docstatus < 2)
 			.where(Task.project == project)
 		)
@@ -334,6 +335,43 @@ class TaskTreeQuery:
 			if workflow_state_field
 			else {}
 		)
+		return cls.build_rows(
+			raw_rows,
+			readable_ids,
+			role_read=role_read,
+			write_without_read=write_without_read,
+			permitted=permitted,
+			meta=task_meta,
+			workflow=workflow,
+			state_by_id=workflow_state_by_id,
+		)
+
+	@classmethod
+	def select_query(cls, fieldnames: list[str]):
+		"""`SELECT <fieldnames> FROM tabTask` — unqualified fields, so `type`, `name`… are safe."""
+		Task = frappe.qb.DocType("Task")
+		return frappe.qb.from_(Task).select(*(frappe.qb.Field(f) for f in fieldnames))
+
+	@classmethod
+	def build_rows(
+		cls,
+		raw_rows: list[dict],
+		readable_ids: set[str],
+		*,
+		role_read: bool,
+		write_without_read: bool = False,
+		permitted: set[str] | None = None,
+		meta=None,
+		workflow=None,
+		state_by_id: dict[str, str] | None = None,
+	) -> list[dict]:
+		"""Raw Task records → API rows: access flags, aliases, attachments, stubs, workflow lock."""
+		if meta is None:
+			meta = frappe.get_meta("Task")
+		if permitted is None:
+			permitted = TaskRow.permitted_fieldnames(
+				meta, "write" if write_without_read else "read"
+			)
 		rows = [TaskRow.from_task(r) for r in raw_rows]
 		TaskTreeAcl.mark_access(rows, readable_ids, role_read=role_read)
 		content_rows = (
@@ -341,21 +379,40 @@ class TaskTreeQuery:
 			if write_without_read
 			else [row for row in rows if row["can_read"]]
 		)
-		permitted = TaskRow.permitted_fieldnames()
-		if write_without_read or "type" in permitted:
+		if "type" in permitted:
 			TaskRowAttach.type_labels(content_rows)
-		if write_without_read or "custom_relations" in permitted:
+		if "custom_relations" in permitted:
 			TaskRowAttach.relations(content_rows)
-		if write_without_read or "_assign" in permitted:
+		if "_assign" in permitted:
 			TaskRowAttach.assign_sources(content_rows)
 			TaskRowAttach.publish_assign_user_info(content_rows)
+		TaskRow.attach_child_tables(content_rows, meta, permitted)
+		# Query selected permitted columns only; this blanks stubs and internal-only
+		# columns (workflow state selected for the lock but not readable).
 		TaskRow.apply_field_read_strip(
 			rows, permitted, keep_unreadable_values=write_without_read
 		)
-		TaskFieldWrite.attach(
-			rows,
-			permitted,
-			workflow=workflow,
-			state_by_id=workflow_state_by_id,
-		)
+		TaskFieldWrite.attach(rows, workflow=workflow, state_by_id=state_by_id)
 		return rows
+
+	@classmethod
+	def rows_for_ids(cls, task_ids: list[str]) -> list[dict]:
+		"""Full rows for Tasks the caller already checked read+write on (save_cells)."""
+		ids = [str(i) for i in task_ids if i]
+		if not ids:
+			return []
+		Task = frappe.qb.DocType("Task")
+		meta = frappe.get_meta("Task")
+		permitted = TaskRow.permitted_fieldnames(meta)
+		raw_rows = (
+			cls.select_query(TaskRow.select_fieldnames(meta, permitted))
+			.where(Task.name.isin(ids))
+		).run(as_dict=True)
+		return cls.build_rows(
+			raw_rows,
+			set(ids),
+			role_read=True,
+			permitted=permitted,
+			meta=meta,
+			workflow=TaskFieldWrite.active_workflow(),
+		)

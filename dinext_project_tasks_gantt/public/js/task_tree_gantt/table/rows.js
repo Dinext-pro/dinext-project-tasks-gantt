@@ -1,5 +1,10 @@
+/**
+ * Server row → grid row. Column ids stay (aliases); the full Task document as
+ * returned by get_children is kept under `_doc` for field_status.js.
+ */
 export function toTableRow(row) {
 	return {
+		_doc: row,
 		id: row.id,
 		subject:
 			row.can_read === 0 ? row.subject || row.id || "" : row.subject || "",
@@ -33,10 +38,6 @@ export function toTableRow(row) {
 		custom_tree_order: row.custom_tree_order ?? 0,
 		can_read: row.can_read === 0 || row.can_read === false ? 0 : 1,
 		can_write: row.can_write ? 1 : 0,
-		can_write_fields: Array.isArray(row.can_write_fields)
-			? row.can_write_fields
-			: undefined,
-		hidden_fields: Array.isArray(row.hidden_fields) ? row.hidden_fields : [],
 		confirm: row.confirm ? 1 : 0,
 		owner: row.owner || null,
 		hasChildren: !!row.has_children,
