@@ -1,18 +1,66 @@
 import { projectStorageKey } from "../constants.js";
 
-/**
- * Project from Project Form → Tree navigation (`frappe.route_options.project`).
- * Consume once (legacy Tree parity).
- * @returns {string|null}
- */
-export function takeRouteProject() {
+function consumeRouteOptionsProject() {
 	const opts = frappe.route_options;
-	if (!opts || !opts.project) {
+	if (!opts || opts.project == null || opts.project === "") {
 		return null;
 	}
 	const project = String(opts.project).trim();
 	opts.project = null;
 	return project || null;
+}
+
+function prevIsProjectForm() {
+	const prev = frappe.get_prev_route?.() || [];
+	return prev[0] === "Form" && prev[1] === "Project";
+}
+
+export function queryProject() {
+	const raw = new URLSearchParams(window.location.search).get("project");
+	const project = raw == null ? "" : String(raw).trim();
+	return project || null;
+}
+
+/**
+ * Keep `?project=` in sync with the page filter.
+ * replaceState — do not retrigger Tree show.
+ * @param {string|null|undefined} project
+ */
+export function syncProjectQuery(project) {
+	const url = new URL(window.location.href);
+	const current = url.searchParams.get("project") || "";
+	const next = String(project || "").trim();
+	if (current === next) {
+		return;
+	}
+	if (next) {
+		url.searchParams.set("project", next);
+	} else {
+		url.searchParams.delete("project");
+	}
+	const nextUrl = url.pathname + url.search + url.hash;
+	window.history.replaceState(window.history.state, "", nextUrl);
+}
+
+/**
+ * Inbound project for Tree.
+ * Always consume leftover `route_options.project` so reports cannot leak later.
+ *
+ * `show`: only Project Form → Task tree (not return from Task / stale `?project=`).
+ * First paint: Project Form, else URL query (bookmark / reload).
+ *
+ * @param {{ fromShow?: boolean }} [opts]
+ * @returns {string|null}
+ */
+export function takeRouteProject(opts = {}) {
+	const fromOpts = consumeRouteOptionsProject();
+	if (opts.fromShow) {
+		return prevIsProjectForm() && fromOpts ? fromOpts : null;
+	}
+	if (prevIsProjectForm() && fromOpts) {
+		return fromOpts;
+	}
+	return queryProject();
 }
 
 /**
@@ -29,8 +77,9 @@ export function takeRouteProject() {
  * @returns {Promise<boolean>} true if filter value changed
  */
 export async function applyRouteProject(page, args, hooks = {}) {
-	const project = takeRouteProject();
+	const project = takeRouteProject({ fromShow: true });
 	if (!project || !page?.fields_dict?.project) {
+		syncProjectQuery(args.project);
 		return false;
 	}
 
@@ -38,6 +87,7 @@ export async function applyRouteProject(page, args, hooks = {}) {
 	const current = String(field.get_value?.() || args.project || "").trim();
 	args.project = project;
 	localStorage.setItem(projectStorageKey(), project);
+	syncProjectQuery(project);
 	hooks.onProject?.(project);
 
 	const paint = async () => {
