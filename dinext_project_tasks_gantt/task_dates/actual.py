@@ -12,11 +12,25 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
+from dinext_project_tasks_gantt.virtual_task.sync.dates import resolve_completed_on
+
 
 PARENT_SYNC_FLAG = "task_actual_dates_parent_sync"
 FORCE_PWA_FLAG = "task_dates_force_pwa_sync"
 SYNC_DEPTH_FLAG = "task_actual_dates_sync_depth"
 MAX_SYNC_DEPTH = 20
+
+
+def apply_completed_on(doc) -> None:
+	"""Fill / cap completed_on when status is Completed. No parent cascade."""
+	if doc.get("status") != "Completed":
+		return
+	flags = getattr(doc, "flags", None)
+	if flags and int(flags.get(PARENT_SYNC_FLAG) or 0):
+		return
+	doc.completed_on = resolve_completed_on(
+		doc.get("act_end_date"), doc.get("completed_on")
+	)
 
 
 def sync_task_actual_dates(doc) -> None:
@@ -26,24 +40,16 @@ def sync_task_actual_dates(doc) -> None:
 	is_parent_sync = int(doc.flags.get(PARENT_SYNC_FLAG) or 0)
 
 	if doc.status == "Completed" and not is_parent_sync:
+		apply_completed_on(doc)
 		# ISS-2025-02315: virtual Task → Completed без act_end_date — факт из completed_on
 		if (
 			doc.get("type") == "Issue"
 			and doc.get("custom_linked_issue")
-			and not act_end_date
+			and not doc.get("act_end_date")
 			and doc.get("completed_on")
 		):
 			doc.act_end_date = doc.completed_on
-			act_end_date = doc.act_end_date
-
-		# ISS-2025-02606: серверный fallback completed_on из act_end_date
-		if act_end_date and not doc.completed_on:
-			doc.completed_on = act_end_date
-
-		if act_end_date and (
-			not doc.completed_on or getdate(doc.completed_on) < getdate(act_end_date)
-		):
-			doc.completed_on = act_end_date
+		act_end_date = doc.get("act_end_date")
 
 	# Факт переписывает прогноз только при расширении периода.
 	if not is_parent_sync:

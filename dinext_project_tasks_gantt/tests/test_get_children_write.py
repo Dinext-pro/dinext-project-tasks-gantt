@@ -103,6 +103,31 @@ class TestGetChildrenWriteFlags(FrappeTestCase):
 		open_empty = {"status": "Open", "exp_end_date": None}
 		self.assertEqual(TaskFieldWrite.missing_mandatory_labels(meta, open_empty), [])
 
+	def test_eval_prefix_allows_spaces_like_form(self):
+		"""Desk uses `eval: doc.x == \"Y\"`. Leading space after eval: is IndentationError in safe_eval."""
+		meta = FakeMeta(
+			[
+				_df("status"),
+				_df(
+					"issue",
+					mandatory_depends_on='eval: doc.status == "Completed"',
+					label="Issue",
+				),
+			]
+		)
+		self.assertEqual(
+			TaskFieldWrite.missing_mandatory_labels(
+				meta, {"status": "Completed", "issue": None}
+			),
+			["Issue"],
+		)
+		self.assertEqual(
+			TaskFieldWrite.missing_mandatory_labels(
+				meta, {"status": "Open", "issue": None}
+			),
+			[],
+		)
+
 	def test_static_reqd_empty_is_missing(self):
 		meta = FakeMeta([_df("subject", reqd=1, label="Subject")])
 		self.assertEqual(
