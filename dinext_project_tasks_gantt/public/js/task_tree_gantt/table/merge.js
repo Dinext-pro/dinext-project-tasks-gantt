@@ -31,11 +31,10 @@ const ROW_FIELDS = [
 	"custom_tree_order",
 	"can_read",
 	"can_write",
-	"can_write_fields",
-	"hidden_fields",
 	"confirm",
 	"owner",
 	"hasChildren",
+	"_doc",
 ];
 
 const GANTT_FIELDS = new Set([
@@ -62,6 +61,10 @@ function sameValue(left, right) {
 	}
 	if (Array.isArray(a) || Array.isArray(b)) {
 		return JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+	}
+	if ((a && typeof a === "object") || (b && typeof b === "object")) {
+		// `_doc`: server document snapshot
+		return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 	}
 	if (typeof a === "boolean" || typeof b === "boolean") {
 		return Boolean(a) === Boolean(b);
@@ -270,6 +273,14 @@ export function applyTreeMerge(table, nextRoots, { deep = false } = {}) {
 	const toggleChanges = acc.fieldChanges.filter((c) => c.field === "hasChildren");
 	if (cellChanges.length) {
 		table.applyExternalCellValues?.(cellChanges);
+		// `_doc` feeds field status (depends_on & co.) — redraw those rows.
+		const docNodes = cellChanges
+			.filter((c) => c.field === "_doc")
+			.map((c) => table.findGridNodeByBusinessId?.(c.id))
+			.filter(Boolean);
+		if (docNodes.length) {
+			table.api?.refreshCells?.({ rowNodes: docNodes, force: true });
+		}
 	}
 	if (toggleChanges.length) {
 		table.applyExternalCellValues?.(toggleChanges);

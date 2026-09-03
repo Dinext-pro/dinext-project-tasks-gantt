@@ -60,7 +60,7 @@ export function priorityColumn() {
 		edit: (row) => fieldCanEdit(row, "priority"),
 		cellEditor: FrappeSelectCellEditor,
 		cellEditorParams: {
-			values: () => getPriorityOptions(),
+			values: (params) => getPriorityOptions(params.data),
 		},
 		cellRenderer: renderPriority,
 		valueFormatter: (params) => priorityLabel(params.value),
