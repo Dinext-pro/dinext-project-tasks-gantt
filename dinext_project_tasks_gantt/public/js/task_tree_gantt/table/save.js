@@ -15,6 +15,16 @@ import {
 	syncTaskRelationsMany,
 } from "./columns/relations/persist.js";
 import { isValidStatusValue } from "./columns/status/options.js";
+import {
+	fieldStatus,
+	missingMandatoryLabels,
+	rowCanRead,
+	rowCanWrite,
+	rowToDoc,
+} from "./field_status.js";
+import { toTableRow } from "./rows.js";
+
+export { rowCanRead, rowCanWrite };
 
 const TASK_FIELDS = new Set([
 	"subject",
@@ -50,31 +60,25 @@ export function toDocTypeField(field) {
 	return COLUMN_TO_DOCTYPE[field] || field;
 }
 
-export function rowCanRead(row) {
-	if (!row?.id) return false;
-	if (row.can_read === 0 || row.can_read === false) return false;
-	return true;
+/** Column id → "Write" | "Read" | "None" via Frappe form primitives (field_status.js). */
+export function columnStatus(row, field) {
+	return fieldStatus(row, toDocTypeField(field));
 }
 
-export function rowCanWrite(row) {
-	if (!row?.id) return false;
-	return row.can_write === 1 || row.can_write === true;
-}
-
+/**
+ * Hidden by `depends_on` (field or its section), permlevel or a field rule —
+ * like the form. Unreadable rows (stubs, role write without read) are not masked.
+ */
 export function fieldIsHidden(row, field) {
-	const hidden = row?.hidden_fields;
-	if (!Array.isArray(hidden)) return false;
-	return hidden.includes(toDocTypeField(field));
+	if (!rowCanRead(row)) return false;
+	return columnStatus(row, field) === "None";
 }
 
-/** Gate before editor / gantt date-drag. Backend always sends can_write_fields. */
+/** Gate before editor / gantt date-drag. */
 export function fieldCanEdit(row, field) {
 	if (!rowCanRead(row)) return false;
 	if (!rowCanWrite(row)) return false;
-	if (fieldIsHidden(row, field)) return false;
-	const allowed = row.can_write_fields;
-	if (!Array.isArray(allowed)) return false;
-	return allowed.includes(toDocTypeField(field));
+	return columnStatus(row, field) === "Write";
 }
 
 /** Native title / SVG <title> when click/drag is gated. */
@@ -168,6 +172,41 @@ function rejectSelectValue(fieldLabel, value) {
 	return false;
 }
 
+/**
+ * Desk Form `check_mandatory` before save_cells: doc = row + pending change;
+ * `reqd` or truthy `mandatory_depends_on` with an empty value blocks the save.
+ * Only Task fields go through save_cells (assign / relations have own paths).
+ */
+export function mandatoryPrecheck(changes) {
+	const byRow = new Map();
+	for (const change of changes || []) {
+		if (!TASK_FIELDS.has(change.field) || !change.row) {
+			continue;
+		}
+		if (!byRow.has(change.row)) {
+			byRow.set(change.row, { ...rowToDoc(change.row) });
+		}
+		byRow.get(change.row)[toDocTypeField(change.field)] = normalizeSaveValue(
+			change.field,
+			change.newValue
+		);
+	}
+	for (const [row, doc] of byRow) {
+		const missing = missingMandatoryLabels(doc);
+		if (missing.length) {
+			frappe.msgprint({
+				message:
+					__("Mandatory fields required in {0}", [__("Task")]) +
+					`: ${row.id}<br><br><ul><li>${missing.join("</li><li>")}</li></ul>`,
+				indicator: "red",
+				title: __("Missing Fields"),
+			});
+			return false;
+		}
+	}
+	return true;
+}
+
 export function onValidateCells({ changes }) {
 	for (const change of changes) {
 		if (!rowCanRead(change.row) || !rowCanWrite(change.row)) {
@@ -196,7 +235,7 @@ export function onValidateCells({ changes }) {
 		if (change.field === "status" && !isValidStatusValue(change.newValue, change.row)) {
 			return rejectSelectValue(__("Status"), change.newValue);
 		}
-		if (change.field === "priority" && !isValidPriorityValue(change.newValue)) {
+		if (change.field === "priority" && !isValidPriorityValue(change.newValue, change.row)) {
 			return rejectSelectValue(__("Priority"), change.newValue);
 		}
 		if (SAVE_DATE_FIELDS.has(change.field)) {
@@ -221,7 +260,7 @@ export function onValidateCells({ changes }) {
 			}
 		}
 	}
-	return true;
+	return mandatoryPrecheck(changes);
 }
 
 function toIsoDate(value) {
@@ -274,6 +313,44 @@ export function applySideEffectDateRows(table, rows) {
 	return table.applyExternalCellValues(changes) > 0;
 }
 
+/**
+ * Apply save_cells `saved` rows (full get_children contract) to the grid:
+ * every table field + `_doc`, so field status is recomputed on server values.
+ * @returns {boolean} true if any value applied
+ */
+export function applySavedRows(table, saved) {
+	if (!table || !saved?.length) {
+		return false;
+	}
+	if (typeof table.applyExternalCellValues !== "function") {
+		return false;
+	}
+	const changes = [];
+	for (const row of saved) {
+		if (!row?.id) {
+			continue;
+		}
+		const tableRow = toTableRow(row);
+		for (const [field, value] of Object.entries(tableRow)) {
+			if (field === "id" || field === "hasChildren") {
+				continue;
+			}
+			changes.push({ id: String(row.id), field, value });
+		}
+	}
+	if (!changes.length) {
+		return false;
+	}
+	const applied = table.applyExternalCellValues(changes) > 0;
+	const nodes = saved
+		.map((row) => table.findGridNodeByBusinessId?.(row.id))
+		.filter(Boolean);
+	if (nodes.length) {
+		table.api?.refreshCells?.({ rowNodes: nodes, force: true });
+	}
+	return applied;
+}
+
 /** Persist cell changes. Shared path for grid (and later gantt drag). */
 export async function saveCells(payload, { table } = {}) {
 	if (!payload?.length) return true;
@@ -281,29 +358,7 @@ export async function saveCells(payload, { table } = {}) {
 	try {
 		const message = await apiSaveCells(payload);
 		applySideEffectDateRows(table, message?.rows);
-		const write = message?.write;
-		if (write && table) {
-			const flagChanges = [];
-			for (const id of Object.keys(write)) {
-				const flags = write[id];
-				flagChanges.push({
-					id,
-					field: "can_write",
-					value: flags.can_write,
-				});
-				flagChanges.push({
-					id,
-					field: "can_write_fields",
-					value: flags.can_write_fields,
-				});
-				flagChanges.push({
-					id,
-					field: "hidden_fields",
-					value: flags.hidden_fields || [],
-				});
-			}
-			table.applyExternalCellValues?.(flagChanges);
-		}
+		applySavedRows(table, message?.saved);
 		const savedIds = new Set(
 			payload.map((p) => p.id).filter(Boolean).map(String)
 		);

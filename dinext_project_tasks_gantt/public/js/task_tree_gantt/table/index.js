@@ -67,6 +67,9 @@ function destroyState(state) {
 		state.table.destroy();
 	}
 	state.table = null;
+	state.loadedProject = null;
+	state.lastMerge = null;
+	state.treeFullyLoaded = false;
 }
 
 function bindReorderDeniedHint(container) {
@@ -379,6 +382,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		return null;
 	}
 
+	// Cached Tree page keeps the old grid. Drop it before fetch or stale rows flash.
+	if (state.table && state.loadedProject && state.loadedProject !== args.project) {
+		destroyState(state);
+	}
+
 	if (!state.table) {
 		showLoading(container);
 	}
@@ -445,6 +453,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			if (merge.sideChanged) {
 				scheduleSideDataRefresh(getArgs, state.table);
 			}
+			state.loadedProject = args.project;
 			return state.table;
 		}
 
@@ -572,6 +581,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		}
 
 		state.lastMerge = { changed: true, ganttChanged: true, sideChanged: true };
+		state.loadedProject = args.project;
 		onTreeChange?.();
 		scheduleSideDataRefresh(getArgs, state.table, rows);
 		return state.table;
