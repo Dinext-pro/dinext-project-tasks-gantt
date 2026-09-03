@@ -8,6 +8,31 @@ import frappe
 from frappe.utils import getdate, today
 
 
+def resolve_completed_on(act_end_date, completed_on_date):
+	"""Completed: fill empty completed_on; never return a future date.
+
+	If act_end exists: pull completed_on up to it, then cap at today.
+	If not: today when empty. act_end itself is not moved (ISS-2026-02662).
+	"""
+	gd = getdate
+	today_s = today()
+	act_end = act_end_date or None
+	completed = completed_on_date or None
+	if act_end == "":
+		act_end = None
+	if completed == "":
+		completed = None
+	out = completed
+	if act_end:
+		if not out or gd(out) < gd(act_end):
+			out = act_end
+	elif not out:
+		out = today_s
+	if out and gd(out) > gd(today_s):
+		out = today_s
+	return out
+
+
 def date_cmp_value(value) -> str:
 	"""Нормализовать дату к YYYY-MM-DD для сравнения в TVTI."""
 	if value in (None, ""):
@@ -26,11 +51,9 @@ def apply_task_actual_dates_logic(target_data, act_start_date, act_end_date, com
 	gd = getdate
 
 	if target_data.get("status") == "Completed":
-		if act_end_date:
-			if not completed_on_date or gd(completed_on_date) < gd(act_end_date):
-				target_data["completed_on"] = act_end_date
-		elif not completed_on_date or gd(completed_on_date) < gd(today()):
-			target_data["completed_on"] = today()
+		target_data["completed_on"] = resolve_completed_on(
+			act_end_date, completed_on_date
+		)
 
 		# ISS-2025-02315: without act_end, completion fact = completed_on
 		if not act_end_date and target_data.get("completed_on"):

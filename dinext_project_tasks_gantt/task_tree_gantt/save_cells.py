@@ -10,6 +10,7 @@ import json
 import frappe
 from frappe.utils import cint, getdate
 
+from dinext_project_tasks_gantt.task_dates.actual import apply_completed_on
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.write import TaskFieldWrite
 
@@ -65,6 +66,7 @@ def _persist_task(task_id: str, values: dict):
 	"""
 	doc = frappe.get_doc("Task", task_id)
 	doc.update(values)
+	apply_completed_on(doc)
 	TaskFieldWrite.assert_not_writing_hidden(doc, values)
 	TaskFieldWrite.assert_mandatory(doc)
 	doc.save()

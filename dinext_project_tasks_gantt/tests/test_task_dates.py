@@ -88,6 +88,63 @@ class TestTaskActualDates(unittest.TestCase):
 		self.assertEqual(str(doc.exp_end_date), "2026-08-20")
 		_cascade.assert_called_once()
 
+	@patch("dinext_project_tasks_gantt.task_dates.actual._cascade_parent_exp_dates")
+	@patch(
+		"dinext_project_tasks_gantt.virtual_task.sync.dates.today",
+		return_value="2026-09-03",
+	)
+	def test_completed_without_act_end_sets_completed_on_today(self, _today, _cascade):
+		doc = _task(
+			status="Completed",
+			act_start_date=None,
+			act_end_date=None,
+			completed_on=None,
+			exp_start_date=None,
+			exp_end_date=None,
+			parent_task=None,
+		)
+		sync_task_actual_dates(doc)
+		self.assertEqual(str(doc.completed_on), "2026-09-03")
+		self.assertIsNone(doc.act_end_date)
+
+	@patch("dinext_project_tasks_gantt.task_dates.actual._cascade_parent_exp_dates")
+	@patch(
+		"dinext_project_tasks_gantt.virtual_task.sync.dates.today",
+		return_value="2026-09-03",
+	)
+	def test_completed_past_act_end_copies_to_completed_on(self, _today, _cascade):
+		doc = _task(
+			status="Completed",
+			act_start_date=None,
+			act_end_date="2026-08-01",
+			completed_on=None,
+			exp_start_date=None,
+			exp_end_date=None,
+			parent_task=None,
+		)
+		sync_task_actual_dates(doc)
+		self.assertEqual(str(doc.completed_on), "2026-08-01")
+		self.assertEqual(str(doc.act_end_date), "2026-08-01")
+
+	@patch("dinext_project_tasks_gantt.task_dates.actual._cascade_parent_exp_dates")
+	@patch(
+		"dinext_project_tasks_gantt.virtual_task.sync.dates.today",
+		return_value="2026-09-03",
+	)
+	def test_completed_future_act_end_caps_completed_on_today(self, _today, _cascade):
+		doc = _task(
+			status="Completed",
+			act_start_date=None,
+			act_end_date="2026-12-31",
+			completed_on=None,
+			exp_start_date="2026-01-01",
+			exp_end_date="2026-01-10",
+			parent_task=None,
+		)
+		sync_task_actual_dates(doc)
+		self.assertEqual(str(doc.completed_on), "2026-09-03")
+		self.assertEqual(str(doc.act_end_date), "2026-12-31")
+
 
 class TestDependTaskDates(unittest.TestCase):
 	def test_noop_when_dates_unchanged(self):
