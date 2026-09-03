@@ -7,8 +7,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from dinext_project_tasks_gantt.task_tree_gantt import save_cells as mod
-from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
-from dinext_project_tasks_gantt.task_tree_gantt.get_data.write import TaskFieldWrite
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.query import TaskTreeQuery
 
 
 class FakeDoc:
@@ -23,42 +22,12 @@ class FakeDoc:
 		return dict(self._data)
 
 
-class TestSaveCellsWriteFlags(FrappeTestCase):
-	def test_stub_can_write_fields_empty(self):
-		row = TaskRow.from_task(FakeDoc("T1").as_dict())
-		row["can_read"] = 0
-		row["can_write"] = 0
-		TaskFieldWrite.attach([row])
-		self.assertEqual(row["can_write_fields"], [])
-
-	def test_ro_can_write_fields_empty(self):
-		row = TaskRow.from_task(FakeDoc("T1", subject="Hi").as_dict())
-		row["can_read"] = 1
-		row["can_write"] = 0
-		TaskFieldWrite.attach([row])
-		self.assertEqual(row["can_write_fields"], [])
-
-	def test_writable_can_write_fields_nonempty(self):
-		flags = mod._write_flags([FakeDoc("T1", subject="Hi", status="Open")])
-		self.assertEqual(flags["T1"]["can_write"], 1)
-		self.assertTrue(flags["T1"]["can_write_fields"])
-		self.assertIn("subject", flags["T1"]["can_write_fields"])
-		self.assertIn("_assign", flags["T1"]["can_write_fields"])
-		self.assertIn("custom_relations", flags["T1"]["can_write_fields"])
-
-	def test_workflow_lock_empties_fields(self):
-		with patch.object(TaskFieldWrite, "workflow_locks", return_value=True):
-			flags = mod._write_flags([FakeDoc("T1", subject="Hi", status="Open")])
-		self.assertEqual(flags["T1"]["can_write"], 0)
-		self.assertEqual(flags["T1"]["can_write_fields"], [])
-
+class TestSaveCellsAuthorization(FrappeTestCase):
 	@patch.object(mod, "_persist_task")
 	@patch("frappe.has_permission")
 	def test_save_cells_requires_read_and_write(self, perm, persist):
 		def hp(doctype, ptype="read", doc=None, *args, **kwargs):
 			# Role write without read: doctype write ok, document read denied.
-			if doc is None:
-				return ptype == "write"
 			return ptype == "write"
 
 		perm.side_effect = hp
@@ -67,52 +36,124 @@ class TestSaveCellsWriteFlags(FrappeTestCase):
 		persist.assert_not_called()
 
 	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission")
+	def test_save_cells_rejects_document_without_write(self, perm, persist):
+		"""Row `can_write=0` case: doctype write ok, document write denied."""
+
+		def hp(doctype, ptype="read", doc=None, *args, **kwargs):
+			return not (doc and ptype == "write")
+
+		perm.side_effect = hp
+		with self.assertRaises(frappe.PermissionError):
+			mod.save_cells([{"id": "T1", "field": "subject", "value": "Bye"}])
+		persist.assert_not_called()
+
+	@patch.object(TaskTreeQuery, "rows_for_ids", return_value=[])
+	@patch.object(mod, "_persist_task")
 	@patch("frappe.has_permission", return_value=True)
-	def test_save_cells_stops_when_mandatory_fails(self, _perm, persist):
+	def test_save_cells_accepts_field_with_js_only_depends_on(self, _perm, persist, _rows):
+		"""`eval:!doc.custom_opportunity` is JS; the server must not evaluate it (ISS root cause)."""
+		if not frappe.get_meta("Task").has_field("custom_include"):
+			self.skipTest("Task.custom_include not on site")
+		frappe.db.savepoint("js_only_depends_on")
+		frappe.make_property_setter(
+			{
+				"doctype": "Task",
+				"fieldname": "custom_include",
+				"property": "depends_on",
+				"value": "eval:!doc.custom_opportunity",
+				"property_type": "Data",
+			},
+			validate_fields_for_doctype=False,
+		)
+		frappe.clear_cache(doctype="Task")
+		try:
+			self.assertEqual(
+				frappe.get_meta("Task").get_field("custom_include").depends_on,
+				"eval:!doc.custom_opportunity",
+			)
+			out = mod.save_cells([{"id": "T1", "field": "custom_include", "value": 1}])
+		finally:
+			frappe.db.rollback(save_point="js_only_depends_on")
+			frappe.clear_cache(doctype="Task")
+		persist.assert_called_once_with("T1", {"custom_include": 1})
+		self.assertEqual(out["updated"], 1)
+
+	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission", return_value=True)
+	def test_save_cells_denies_field_outside_writable_permlevel(self, _perm, persist):
+		with patch.object(mod.TaskRow, "permitted_fieldnames", return_value={"subject"}):
+			with self.assertRaises(frappe.PermissionError):
+				mod.save_cells([{"id": "T1", "field": "status", "value": "Open"}])
+		persist.assert_not_called()
+
+	@patch.object(TaskTreeQuery, "rows_for_ids", return_value=[])
+	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission", return_value=True)
+	def test_save_cells_allows_field_on_writable_permlevel(self, _perm, persist, _rows):
+		with patch.object(mod.TaskRow, "permitted_fieldnames", return_value={"subject", "status"}):
+			out = mod.save_cells([{"id": "T1", "field": "status", "value": "Open"}])
+		persist.assert_called_once_with("T1", {"status": "Open"})
+		self.assertEqual(out["updated"], 1)
+
+	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission", return_value=True)
+	def test_save_cells_propagates_document_mandatory_error(self, _perm, persist):
+		"""reqd / mandatory are Document.save() concerns — surfaced as-is."""
 		persist.side_effect = frappe.MandatoryError("Expected End Date")
 		with self.assertRaises(frappe.MandatoryError):
 			mod.save_cells([{"id": "T1", "field": "status", "value": "Completed"}])
 
-	@patch.object(TaskFieldWrite, "assert_not_writing_hidden")
-	@patch.object(TaskFieldWrite, "assert_mandatory")
-	@patch("frappe.get_doc")
-	def test_persist_asserts_mandatory_before_save(
-		self, get_doc, assert_mand, assert_hidden
-	):
-		doc = FakeDoc("T1", subject="Hi", status="Open")
-		doc.update = lambda values: None
-		doc.save = lambda: None
-		get_doc.return_value = doc
-		mod._persist_task("T1", {"status": "Completed"})
-		assert_hidden.assert_called_once_with(doc, {"status": "Completed"})
-		assert_mand.assert_called_once_with(doc)
 
-	@patch.object(TaskFieldWrite, "assert_not_writing_hidden")
-	@patch.object(TaskFieldWrite, "assert_mandatory")
+class TestPersistTask(FrappeTestCase):
 	@patch("frappe.get_doc")
-	def test_persist_fills_completed_on_before_mandatory(
-		self, get_doc, assert_mand, assert_hidden
-	):
+	def test_persist_updates_fills_completed_on_then_saves(self, get_doc):
 		order = []
 		doc = FakeDoc("T1", subject="Hi", status="Open")
-		doc.update = lambda values: None
-		doc.save = lambda: None
+		doc.update = lambda values: order.append(("update", dict(values)))
+		doc.save = lambda: order.append("save")
 		get_doc.return_value = doc
 		with patch.object(mod, "apply_completed_on", side_effect=lambda d: order.append("fill")):
-			assert_hidden.side_effect = lambda *a, **k: order.append("hidden")
-			assert_mand.side_effect = lambda *a, **k: order.append("mand")
 			mod._persist_task("T1", {"status": "Completed"})
-		self.assertEqual(order, ["fill", "hidden", "mand"])
+		self.assertEqual(order, [("update", {"status": "Completed"}), "fill", "save"])
 
+	def test_no_ui_contract_asserts_in_module(self):
+		for name in ("assert_mandatory", "assert_not_writing_hidden", "_write_flags"):
+			self.assertFalse(hasattr(mod, name), name)
+
+
+class TestSaveCellsResponse(FrappeTestCase):
+	@patch.object(TaskTreeQuery, "rows_for_ids")
 	@patch.object(mod, "_persist_task")
 	@patch("frappe.has_permission", return_value=True)
-	def test_save_cells_response_write_keyed_by_name(self, _perm, persist):
-		persist.return_value = FakeDoc("T1", subject="Hi", status="Open")
+	def test_response_saved_rows_full_contract(self, _perm, persist, rows_for_ids):
+		rows_for_ids.return_value = [
+			{"id": "T1", "name": "T1", "subject": "Bye", "type": None, "can_read": 1, "can_write": 1}
+		]
 		out = mod.save_cells([{"id": "T1", "field": "subject", "value": "Bye"}])
 		self.assertEqual(out["updated"], 1)
-		self.assertIn("T1", out["write"])
-		self.assertIn("can_write", out["write"]["T1"])
-		self.assertIn("can_write_fields", out["write"]["T1"])
-		self.assertIsInstance(out["write"]["T1"]["can_write_fields"], list)
-		self.assertIn("hidden_fields", out["write"]["T1"])
-		self.assertIsInstance(out["write"]["T1"]["hidden_fields"], list)
+		rows_for_ids.assert_called_once_with(["T1"])
+		self.assertEqual(out["saved"][0]["id"], "T1")
+		self.assertNotIn("write", out)
+		self.assertNotIn("rows", out)
+
+	@patch.object(TaskTreeQuery, "rows_for_ids", return_value=[])
+	@patch.object(mod, "collect_date_side_effect_rows", return_value=[{"id": "T1"}])
+	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission", return_value=True)
+	def test_response_rows_only_for_date_changes(self, _perm, _persist, side, _rows):
+		out = mod.save_cells([{"id": "T1", "field": "exp_end_date", "value": "2026-09-03"}])
+		side.assert_called_once_with(["T1"])
+		self.assertEqual(out["rows"], [{"id": "T1"}])
+
+	def test_live_rows_for_ids_full_row(self):
+		task = frappe.db.get_value("Task", {"docstatus": ("<", 2)}, "name")
+		if not task:
+			self.skipTest("no Task on site")
+		rows = TaskTreeQuery.rows_for_ids([task])
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		for key in ("id", "name", "owner", "docstatus", "modified", "type", "task_type", "assign", "can_read", "can_write"):
+			self.assertIn(key, row, key)
+		self.assertEqual(row["can_read"], 1)
+		self.assertNotIn("can_write_fields", row)

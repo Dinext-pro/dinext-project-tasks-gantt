@@ -330,7 +330,7 @@ class TestGetChildrenAttrFilters(FrappeTestCase):
 		)
 		for api_key, fieldname in TaskRow.ALIASES.items():
 			self.assertNotEqual(api_key, fieldname)
-		for field in TaskRow.COPY_FIELDS:
+		for field in TaskRow.SYSTEM_FIELDS + TaskRow.OPTIONAL_ALWAYS:
 			self.assertNotIn(field, TaskRow.ALIASES)
 
 	def test_from_task_copies_matching_fields_and_applies_aliases(self):

@@ -11,8 +11,8 @@ import frappe
 from frappe.utils import cint, getdate
 
 from dinext_project_tasks_gantt.task_dates.actual import apply_completed_on
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.query import TaskTreeQuery
 from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
-from dinext_project_tasks_gantt.task_tree_gantt.get_data.write import TaskFieldWrite
 
 
 ALLOWED_FIELDS = frozenset(
@@ -62,34 +62,27 @@ def _persist_task(task_id: str, values: dict):
 	"""Persist via Document.save() so ERPNext validate + DocType events run.
 
 	Avoid db.set_value: skips ISS-2026-02606 date sync, PWA, status/Issue mirrors,
-	treeview preventive validation, etc.
+	treeview preventive validation, etc. `reqd`, `set_only_once`, workflow and
+	validate hooks are Document.save() concerns — no UI-contract checks here.
 	"""
 	doc = frappe.get_doc("Task", task_id)
 	doc.update(values)
 	apply_completed_on(doc)
-	TaskFieldWrite.assert_not_writing_hidden(doc, values)
-	TaskFieldWrite.assert_mandatory(doc)
 	doc.save()
 	return doc
 
 
-def _write_flags(docs: list) -> dict[str, dict]:
-	"""can_write / can_write_fields after save. Same TaskFieldWrite as get_children."""
-	rows = []
-	for doc in docs:
-		row = TaskRow.from_task(doc.as_dict())
-		row["can_read"] = 1
-		row["can_write"] = 1
-		rows.append(row)
-	TaskFieldWrite.attach(rows)
-	return {
-		row["id"]: {
-			"can_write": 1 if row.get("can_write") else 0,
-			"can_write_fields": row["can_write_fields"],
-			"hidden_fields": row.get("hidden_fields") or [],
-		}
-		for row in rows
-	}
+def _assert_permlevel_writable(fields: set[str]) -> None:
+	"""Field-level authorization: every written field must sit on a writable permlevel."""
+	if not fields:
+		return
+	writable = TaskRow.permitted_fieldnames(permission_type="write")
+	denied = sorted(f for f in fields if f not in writable)
+	if denied:
+		frappe.throw(
+			frappe._("Not permitted to write field(s): {0}").format(", ".join(denied)),
+			frappe.PermissionError,
+		)
 
 
 def collect_date_side_effect_rows(task_ids: list[str]) -> list[dict]:
@@ -123,8 +116,10 @@ def save_cells(changes=None) -> dict:
 
 	changes: list of {id, field, value}
 
-	When exp_* change, also returns `rows` — saved tasks + ancestors with
-	current forecast dates so the tree UI can patch parent bars without reload.
+	Always returns `saved` — full rows (get_children contract) for every saved
+	Task so the client re-evaluates field status on fresh values. When exp_*
+	change, also returns `rows` — saved tasks + ancestors with current forecast
+	dates so the tree UI can patch parent bars without reload.
 	"""
 	if not frappe.has_permission("Task", "write"):
 		frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
@@ -135,6 +130,7 @@ def save_cells(changes=None) -> dict:
 
 	# Group by Task id → field dict
 	by_id: dict[str, dict] = {}
+	fields_written: set[str] = set()
 	for item in items:
 		task_id = item.get("id") or item.get("rowId")
 		field = item.get("field")
@@ -148,17 +144,21 @@ def save_cells(changes=None) -> dict:
 				frappe.PermissionError,
 			)
 		by_id.setdefault(task_id, {})[field] = _normalize_value(field, item.get("value"))
+		fields_written.add(field)
+	_assert_permlevel_writable(fields_written)
 
 	updated = 0
 	date_task_ids: list[str] = []
-	saved_docs = []
 	for task_id, values in by_id.items():
-		saved_docs.append(_persist_task(task_id, values))
+		_persist_task(task_id, values)
 		updated += 1
 		if DATE_FIELDS.intersection(values):
 			date_task_ids.append(task_id)
 
-	result: dict = {"updated": updated, "write": _write_flags(saved_docs)}
+	result: dict = {
+		"updated": updated,
+		"saved": TaskTreeQuery.rows_for_ids(list(by_id)),
+	}
 	if date_task_ids:
 		result["rows"] = collect_date_side_effect_rows(date_task_ids)
 	return result

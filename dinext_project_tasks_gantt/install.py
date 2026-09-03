@@ -31,7 +31,27 @@ def after_install() -> None:
 	register_dinext_hub_items()
 
 
+def report_form_contract_lint() -> list[str]:
+	"""Log Task depends_on-family findings the tree cannot honour. Never raises.
+
+	Manual run: `bench --site <site> execute dinext_project_tasks_gantt.install.report_form_contract_lint`
+	"""
+	from dinext_project_tasks_gantt.form_contract import lint_messages
+
+	try:
+		messages = lint_messages("Task")
+	except Exception:
+		frappe.log_error(title="Task form contract lint failed")
+		return []
+	logger = frappe.logger("dinext_project_tasks_gantt")
+	for message in messages:
+		logger.warning(message)
+		print(f"[form-contract] {message}")
+	return messages
+
+
 def after_migrate() -> None:
 	from dinext_project_tasks_gantt.setup.dinext_hub import register_dinext_hub_items
 
 	register_dinext_hub_items()
+	report_form_contract_lint()

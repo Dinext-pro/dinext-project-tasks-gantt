@@ -156,6 +156,11 @@ export async function mount({ page }) {
 	const reload = async (opts = {}) => {
 		const gen = ++state.mountGen;
 		clearRelatedIds(state);
+		const project = state.getArgs?.()?.project || "";
+		const loaded = state.tableHost?._treeGanttTable?.loadedProject;
+		if (loaded && project && loaded !== project) {
+			destroyGantt(state);
+		}
 		const table = await loadTable(state.tableHost, state.getArgs, {
 			// Coalesced — avoid parallel ensureGantt with mount await below.
 			onTreeChange: () => scheduleGanttRefresh(state),
@@ -226,7 +231,9 @@ export async function mount({ page }) {
 
 	const onShow = async () => {
 		invalidateSubjectDescriptionCache();
-		if (state.table) {
+		const project = state.getArgs?.()?.project || "";
+		const loaded = state.tableHost?._treeGanttTable?.loadedProject;
+		if (state.table && loaded === project) {
 			await ensureGantt(state);
 		}
 		await reload();

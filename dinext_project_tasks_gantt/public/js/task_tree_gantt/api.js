@@ -1,6 +1,8 @@
 import { multiPayload } from "./filters/defaults.js";
+import { setTreeMeta } from "./table/field_status.js";
 
 const GET_CHILDREN = "dinext_project_tasks_gantt.api.get_children";
+const GET_TREE_META = "dinext_project_tasks_gantt.api.get_tree_meta";
 const SAVE_CELLS = "dinext_project_tasks_gantt.api.save_cells";
 const TIMESHEET_LIMITS =
 	"project_workload_assignment.api.calculate_user_timesheet_limits";
@@ -52,7 +54,17 @@ export async function getChildren(args) {
 		},
 	});
 	applyUserInfo(r.user_info);
+	if (r.tree_meta) {
+		setTreeMeta(r.tree_meta);
+	}
 	return r.message || [];
+}
+
+/** Explicit meta fetch (permlevels + workflow); get_children already ships it. */
+export async function getTreeMeta() {
+	const meta = await frappe.xcall(GET_TREE_META);
+	setTreeMeta(meta);
+	return meta;
 }
 
 export async function saveCells(changes) {
