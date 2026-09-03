@@ -16,6 +16,9 @@ class FakeDoc:
 		self.name = name
 		self._data = {"name": name, **fields}
 
+	def get(self, key, default=None):
+		return getattr(self, key, self._data.get(key, default))
+
 	def as_dict(self):
 		return dict(self._data)
 
@@ -83,6 +86,23 @@ class TestSaveCellsWriteFlags(FrappeTestCase):
 		mod._persist_task("T1", {"status": "Completed"})
 		assert_hidden.assert_called_once_with(doc, {"status": "Completed"})
 		assert_mand.assert_called_once_with(doc)
+
+	@patch.object(TaskFieldWrite, "assert_not_writing_hidden")
+	@patch.object(TaskFieldWrite, "assert_mandatory")
+	@patch("frappe.get_doc")
+	def test_persist_fills_completed_on_before_mandatory(
+		self, get_doc, assert_mand, assert_hidden
+	):
+		order = []
+		doc = FakeDoc("T1", subject="Hi", status="Open")
+		doc.update = lambda values: None
+		doc.save = lambda: None
+		get_doc.return_value = doc
+		with patch.object(mod, "apply_completed_on", side_effect=lambda d: order.append("fill")):
+			assert_hidden.side_effect = lambda *a, **k: order.append("hidden")
+			assert_mand.side_effect = lambda *a, **k: order.append("mand")
+			mod._persist_task("T1", {"status": "Completed"})
+		self.assertEqual(order, ["fill", "hidden", "mand"])
 
 	@patch.object(mod, "_persist_task")
 	@patch("frappe.has_permission", return_value=True)
