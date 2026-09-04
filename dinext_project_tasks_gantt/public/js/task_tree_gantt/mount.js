@@ -215,6 +215,7 @@ export async function mount({ page }) {
 		onRelationsFocus: (opts) => {
 			handleRelationsFocus(state, opts);
 		},
+		getTreeTable: () => state.table,
 		// Subject toolbar Add/Delete/Multiple → full reload.
 		onTreeMutate: (opts) => {
 			void reload(opts);

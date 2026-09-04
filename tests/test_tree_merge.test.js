@@ -113,3 +113,27 @@ test("removeIds last child clears hasChildren and expand", () => {
 	assert.equal(root.hasChildren, false);
 	assert.equal(table.expandedIds.has("r1"), false);
 });
+
+test("immediate prune: same source as nextRoots drops child and root", () => {
+	const { applyTreeMerge } = loadMerge();
+	const child = { id: "c1", subject: "gone" };
+	const keep = { id: "k1", subject: "keep" };
+	const root = {
+		id: "r1",
+		subject: "root",
+		hasChildren: true,
+		children: [child, keep],
+	};
+	const goneRoot = { id: "r0", subject: "gone-root" };
+	const table = fakeTable([goneRoot, root]);
+	applyTreeMerge(table, table.sourceData, {
+		deep: false,
+		removeIds: ["c1", "r0"],
+	});
+	assert.equal(
+		table.sourceData.map((r) => r.id).join(),
+		"r1"
+	);
+	assert.equal(root.children.length, 1);
+	assert.equal(root.children[0].id, "k1");
+});
