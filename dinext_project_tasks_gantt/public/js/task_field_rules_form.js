@@ -2,33 +2,35 @@
  * Generic Task form adapter for `dinext.fieldRules` (doctype_js["Task"]).
  *
  * After Frappe's own refresh/dependency pass, every field that has a rule is
- * evaluated on `frm.doc`; the rule may only narrow the form:
+ * evaluated on `frm.doc`. The adapter may only narrow:
  *   status "None" → hidden, "Read" → read_only, `options` → Select options.
- * When a rule returns null the pristine meta property is restored.
+ * `null` / no status / Write = no opinion: do not set read_only/hidden to 0
+ * and do not restore Select options from meta (that would wipe Confirm CS).
  * Re-runs on refresh and on every Task field change (rules are pure and cheap).
  */
+
+function dinextApplyFormPolicy(out, df) {
+	const props = {};
+	if (!out || typeof out !== "object") {
+		return props;
+	}
+	if (out.status === "None") {
+		props.hidden = 1;
+	} else if (out.status === "Read") {
+		props.read_only = 1;
+	}
+	if (Array.isArray(out.options) && df && df.fieldtype === "Select") {
+		props.options = out.options.join("\n");
+	}
+	return props;
+}
+
 (function () {
 	const DOCTYPE = "Task";
-	const PROPS = ["hidden", "read_only", "options"];
 
 	function registry() {
 		const reg = window.dinext && window.dinext.fieldRules;
 		return reg && typeof reg.evaluate === "function" ? reg : null;
-	}
-
-	function pristine(frm, fieldname) {
-		frm.__dinext_field_rules_pristine = frm.__dinext_field_rules_pristine || {};
-		const store = frm.__dinext_field_rules_pristine;
-		if (!store[fieldname]) {
-			const df =
-				(frappe.get_meta(DOCTYPE).fields || []).find((f) => f.fieldname === fieldname) || {};
-			store[fieldname] = {
-				hidden: cint(df.hidden),
-				read_only: cint(df.read_only),
-				options: df.options,
-			};
-		}
-		return store[fieldname];
 	}
 
 	function applyTaskFieldRules(frm) {
@@ -48,19 +50,10 @@
 			if (!field || !field.df) {
 				continue;
 			}
-			const base = pristine(frm, fieldname);
-			const out = reg.evaluate(DOCTYPE, fieldname, frm.doc, ctx) || {};
-			const next = {
-				hidden: base.hidden || out.status === "None" ? 1 : 0,
-				read_only: base.read_only || out.status === "Read" ? 1 : 0,
-				options: Array.isArray(out.options) ? out.options.join("\n") : base.options,
-			};
-			for (const prop of PROPS) {
-				if (prop === "options" && field.df.fieldtype !== "Select") {
-					continue;
-				}
-				if (field.df[prop] !== next[prop]) {
-					frm.set_df_property(fieldname, prop, next[prop]);
+			const props = dinextApplyFormPolicy(reg.evaluate(DOCTYPE, fieldname, frm.doc, ctx), field.df);
+			for (const [prop, value] of Object.entries(props)) {
+				if (field.df[prop] !== value) {
+					frm.set_df_property(fieldname, prop, value);
 				}
 			}
 		}
