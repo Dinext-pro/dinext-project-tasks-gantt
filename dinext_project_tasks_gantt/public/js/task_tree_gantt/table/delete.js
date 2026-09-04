@@ -84,7 +84,9 @@ export function createOnDeleteRows() {
 				});
 			}
 			frappe.utils.play_sound("delete");
-			getOnTreeMutate()?.();
+			getOnTreeMutate()?.({
+				removeIds: ordered.map((row) => row.id).filter(Boolean),
+			});
 			return true;
 		} catch (e) {
 			console.error("[task_tree_gantt] delete tasks", e);

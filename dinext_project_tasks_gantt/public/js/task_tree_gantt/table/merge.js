@@ -109,11 +109,13 @@ function collectFieldChanges(existing, incoming, acc) {
 	}
 }
 
-function mergeLevel(oldList, newList, parentPath, deep, oldById, acc) {
-	const prev = oldList || [];
-	const next = newList || [];
-	const oldIds = prev.map((row) => String(row.id));
-	const newIds = next.map((row) => String(row.id));
+function rowRemoved(row, removeSet) {
+	return !!(row?.id != null && removeSet?.has(String(row.id)));
+}
+
+function mergeLevel(oldList, newList, parentPath, deep, oldById, acc, removeSet) {
+	const rawOld = oldList || [];
+	const next = (newList || []).filter((row) => !rowRemoved(row, removeSet));
 	const merged = [];
 
 	for (const incoming of next) {
@@ -124,21 +126,39 @@ function mergeLevel(oldList, newList, parentPath, deep, oldById, acc) {
 			continue;
 		}
 		collectFieldChanges(existing, incoming, acc);
+		const childPath = parentPath ? `${parentPath}:${id}` : id;
 		if (deep) {
-			const childPath = parentPath ? `${parentPath}:${id}` : id;
 			mergeLevel(
 				existing.children || [],
 				incoming.children || [],
 				childPath,
 				true,
 				oldById,
-				acc
+				acc,
+				removeSet
+			);
+		} else if (removeSet?.size) {
+			// Shallow reload has no child payloads — still drop deleted descendants.
+			mergeLevel(
+				existing.children || [],
+				existing.children || [],
+				childPath,
+				false,
+				oldById,
+				acc,
+				removeSet
 			);
 		}
 		merged.push(existing);
 	}
 
+	const hadRemoved = rawOld.some((row) => rowRemoved(row, removeSet));
+	const oldIds = rawOld
+		.filter((row) => !rowRemoved(row, removeSet))
+		.map((row) => String(row.id));
+	const newIds = merged.map((row) => String(row.id));
 	const structChanged =
+		hadRemoved ||
 		oldIds.length !== newIds.length ||
 		oldIds.some((id, i) => id !== newIds[i]);
 	if (structChanged) {
@@ -257,18 +277,24 @@ function refreshHasChildrenToggles(table, changes) {
 /**
  * @param {object} table DinextTable
  * @param {object[]} nextRoots nested (deep) or flat roots (shallow)
- * @param {{ deep?: boolean }} [opts] deep=false keeps existing children on matched roots
+ * @param {{ deep?: boolean, removeIds?: string[] }} [opts]
+ *   deep=false keeps existing children on matched roots.
+ *   removeIds — drop those Task ids even on a shallow reload (delete).
  * @returns {{ changed: boolean, ganttChanged: boolean, sideChanged: boolean }}
  */
-export function applyTreeMerge(table, nextRoots, { deep = false } = {}) {
+export function applyTreeMerge(table, nextRoots, { deep = false, removeIds } = {}) {
 	const acc = {
 		fieldChanges: [],
 		structureOps: [],
 		ganttChanged: false,
 		sideChanged: false,
 	};
+	const removeSet = new Set((removeIds || []).map(String).filter(Boolean));
+	if (removeSet.size) {
+		table.pruneSortBaseline?.(removeIds);
+	}
 	const oldRoots = table.sourceData || [];
-	mergeLevel(oldRoots, nextRoots || [], null, deep, indexById(oldRoots), acc);
+	mergeLevel(oldRoots, nextRoots || [], null, deep, indexById(oldRoots), acc, removeSet);
 
 	const cellChanges = acc.fieldChanges.filter((c) => c.field !== "hasChildren");
 	const toggleChanges = acc.fieldChanges.filter((c) => c.field === "hasChildren");
@@ -294,9 +320,16 @@ export function applyTreeMerge(table, nextRoots, { deep = false } = {}) {
 	for (const op of ops) {
 		if (!op.parentPath) {
 			syncRootRows(table, op.children);
-		} else {
-			table.setRowChildren?.(op.parentPath, op.children);
+			continue;
 		}
+		if (!op.children.length) {
+			const parent = table.findTreeSourceRow?.(op.parentPath);
+			if (parent) {
+				parent.hasChildren = false;
+			}
+			table.expandedIds?.delete?.(op.parentPath);
+		}
+		table.setRowChildren?.(op.parentPath, op.children);
 	}
 
 	return {

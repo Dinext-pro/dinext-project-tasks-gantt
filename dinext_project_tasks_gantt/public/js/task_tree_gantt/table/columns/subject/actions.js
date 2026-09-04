@@ -40,7 +40,9 @@ export function renameTask(taskId) {
 
 export function deleteTask(taskId) {
 	if (!taskId) return;
-	frappe.model.delete_doc("Task", taskId, () => mutateTree());
+	frappe.model.delete_doc("Task", taskId, () =>
+		mutateTree({ removeIds: [taskId] })
+	);
 }
 
 /**
