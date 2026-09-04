@@ -18,8 +18,14 @@ const FORM_FILE = path.resolve(
 function loadPolicy() {
 	const src = fs.readFileSync(FORM_FILE, "utf8").replace(/\(function \(\) \{[\s\S]*$/, "");
 	const ctx = {};
-	vm.runInNewContext(`${src}\nthis.dinextApplyFormPolicy = dinextApplyFormPolicy;`, ctx);
-	return ctx.dinextApplyFormPolicy;
+	vm.runInNewContext(
+		`${src}
+		this.dinextApplyFormPolicy = dinextApplyFormPolicy;
+		this.dinextPrepareFormRead = dinextPrepareFormRead;
+		this.dinextEnforceFormRead = dinextEnforceFormRead;`,
+		ctx
+	);
+	return ctx;
 }
 
 /** vm context has its own Object prototype — compare by value. */
@@ -27,7 +33,10 @@ function sameJson(actual, expected) {
 	assert.equal(JSON.stringify(actual), JSON.stringify(expected));
 }
 
-const apply = loadPolicy();
+const helpers = loadPolicy();
+const apply = helpers.dinextApplyFormPolicy;
+const prepare = helpers.dinextPrepareFormRead;
+const enforce = helpers.dinextEnforceFormRead;
 const select = { fieldtype: "Select" };
 const data = { fieldtype: "Data" };
 
@@ -50,4 +59,36 @@ test("options only for Select; keep status narrowing", () => {
 		options: "Open\nCompleted",
 	});
 	sameJson(apply({ options: ["Working"] }, select), { options: "Working" });
+});
+
+test("Read clears read_only_depends_on on the form df copy", () => {
+	const df = { fieldtype: "Check", read_only_depends_on: "eval:doc.is_milestone" };
+	const props = prepare(df, apply({ status: "Read" }, df));
+	sameJson(props, { read_only: 1 });
+	assert.equal(df.read_only_depends_on, "");
+});
+
+test("Write / None leave read_only_depends_on alone", () => {
+	const df = { fieldtype: "Check", read_only_depends_on: "eval:doc.is_milestone" };
+	prepare(df, apply({ status: "Write" }, df));
+	assert.equal(df.read_only_depends_on, "eval:doc.is_milestone");
+	prepare(df, apply({ status: "None" }, df));
+	assert.equal(df.read_only_depends_on, "eval:doc.is_milestone");
+});
+
+test("enforce Read: df.read_only 1, Check input disabled, refresh called", () => {
+	let refreshed = 0;
+	const field = {
+		df: { fieldtype: "Check", read_only: 0 },
+		$input: { prop(name, value) { this[name] = value; } },
+		input: { disabled: false },
+		refresh() {
+			refreshed += 1;
+		},
+	};
+	enforce(field);
+	assert.equal(field.df.read_only, 1);
+	assert.equal(field.input.disabled, true);
+	assert.equal(field.$input.disabled, true);
+	assert.equal(refreshed, 1);
 });

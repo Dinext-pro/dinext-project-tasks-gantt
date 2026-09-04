@@ -7,6 +7,12 @@
  * `null` / no status / Write = no opinion: do not set read_only/hidden to 0
  * and do not restore Select options from meta (that would wipe Confirm CS).
  * Re-runs on refresh and on every Task field change (rules are pure and cheap).
+ *
+ * Read must beat Frappe `read_only_depends_on`: `set_df_property` →
+ * `refresh_field` → `layout.refresh_dependency` writes read_only=0 when the
+ * expression is false (Task.custom_include / is_milestone). Tree only narrows
+ * Write→Read; it never writes 0. Form must clear the depends_on copy, set
+ * read_only 1, refresh the control, and disable Check `$input`.
  */
 
 function dinextApplyFormPolicy(out, df) {
@@ -25,12 +31,41 @@ function dinextApplyFormPolicy(out, df) {
 	return props;
 }
 
+/** Stop Frappe from resetting read_only=0 after we lock. Mutates the form df copy. */
+function dinextPrepareFormRead(df, props) {
+	if (df && props && props.read_only === 1) {
+		df.read_only_depends_on = "";
+	}
+	return props;
+}
+
+function dinextEnforceFormRead(field) {
+	if (!field || !field.df) {
+		return;
+	}
+	field.df.read_only = 1;
+	if (typeof field.refresh === "function") {
+		field.refresh();
+	}
+	if (field.df.fieldtype === "Check") {
+		if (field.$input && field.$input.prop) {
+			field.$input.prop("disabled", true);
+		}
+		if (field.input) {
+			field.input.disabled = true;
+		}
+	}
+}
+
 (function () {
 	const DOCTYPE = "Task";
 
 	function registry() {
-		const reg = window.dinext && window.dinext.fieldRules;
-		return reg && typeof reg.evaluate === "function" ? reg : null;
+		const host = window.dinext && window.dinext.fieldRules;
+		if (host && typeof host.flushPending === "function") {
+			host.flushPending();
+		}
+		return host && typeof host.evaluate === "function" ? host : null;
 	}
 
 	function applyTaskFieldRules(frm) {
@@ -50,16 +85,28 @@ function dinextApplyFormPolicy(out, df) {
 			if (!field || !field.df) {
 				continue;
 			}
-			const props = dinextApplyFormPolicy(reg.evaluate(DOCTYPE, fieldname, frm.doc, ctx), field.df);
+			const props = dinextPrepareFormRead(
+				field.df,
+				dinextApplyFormPolicy(reg.evaluate(DOCTYPE, fieldname, frm.doc, ctx), field.df)
+			);
 			for (const [prop, value] of Object.entries(props)) {
-				if (field.df[prop] !== value) {
+				if (field.df[prop] != value) {
 					frm.set_df_property(fieldname, prop, value);
 				}
+			}
+			if (props.read_only === 1) {
+				dinextEnforceFormRead(field);
 			}
 		}
 	}
 
-	const handlers = { refresh: applyTaskFieldRules };
+	function onRefresh(frm) {
+		applyTaskFieldRules(frm);
+		// Confirm CS and refresh_dependency run in the same turn; re-apply after.
+		setTimeout(() => applyTaskFieldRules(frm), 0);
+	}
+
+	const handlers = { refresh: onRefresh };
 	const meta = frappe.get_meta(DOCTYPE);
 	for (const df of (meta && meta.fields) || []) {
 		if (df.fieldname && !frappe.model.no_value_type.includes(df.fieldtype)) {
