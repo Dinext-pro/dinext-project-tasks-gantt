@@ -2,7 +2,13 @@
  * Subject row-toolbar actions — Tree V6 + treeview.get_toolbar parity.
  */
 import { previewPropagation } from "../../../dependencies/preview.js";
-import { getColumnsPage, getOnTreeMutate } from "../context.js";
+import {
+	getColumnsPage,
+	getOnGanttRefresh,
+	getOnTreeMutate,
+	getTreeTable,
+} from "../context.js";
+import { dropRemovedTasks, rememberRemovedIds } from "../../removed.js";
 
 function projectFromPage() {
 	const page = getColumnsPage();
@@ -40,9 +46,16 @@ export function renameTask(taskId) {
 
 export function deleteTask(taskId) {
 	if (!taskId) return;
-	frappe.model.delete_doc("Task", taskId, () =>
-		mutateTree({ removeIds: [taskId] })
-	);
+	// Callback only on success — no optimistic hide. Server refuse → row stays.
+	frappe.model.delete_doc("Task", taskId, () => {
+		rememberRemovedIds([taskId]);
+		const table = getTreeTable();
+		if (table) {
+			dropRemovedTasks(table, [taskId]);
+			getOnGanttRefresh()?.();
+		}
+		mutateTree({ removeIds: [taskId] });
+	});
 }
 
 /**

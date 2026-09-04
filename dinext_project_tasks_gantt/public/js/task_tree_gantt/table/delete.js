@@ -3,6 +3,7 @@
  * ERPNext Task.on_trash blocks parents with children; delete deepest-first.
  */
 import { getOnTreeMutate } from "./columns/context.js";
+import { dropRemovedTasks, forgetRemovedIds, rememberRemovedIds } from "./removed.js";
 
 function canDeleteTask(row) {
 	if (!row?.id) {
@@ -64,7 +65,12 @@ export function createOnBeforeDeleteRows() {
 			frappe.msgprint(__("Not permitted to delete selected task(s)"));
 			return false;
 		}
-		return confirmDelete(rows);
+		const ok = await confirmDelete(rows);
+		if (ok) {
+			// Before optimistic remove — block in-flight expand restore.
+			rememberRemovedIds(rows.map((r) => r.id).filter(Boolean));
+		}
+		return ok;
 	};
 }
 
@@ -73,8 +79,12 @@ export function createOnBeforeDeleteRows() {
  * Hooks: Task.on_trash / after_delete (progress, virtual_task Issue mirror).
  */
 export function createOnDeleteRows() {
-	return async ({ rows }) => {
+	return async ({ rows, table }) => {
 		const ordered = sortDeepestFirst(rows);
+		const removeIds = ordered.map((row) => row.id).filter(Boolean);
+		// Before xcall: block in-flight expand from restoring rows.
+		// Server fail → forget + core revert (row stays).
+		rememberRemovedIds(removeIds);
 		frappe.dom.freeze(__("Deleting…"));
 		try {
 			for (const row of ordered) {
@@ -84,11 +94,13 @@ export function createOnDeleteRows() {
 				});
 			}
 			frappe.utils.play_sound("delete");
+			dropRemovedTasks(table, removeIds);
 			getOnTreeMutate()?.({
-				removeIds: ordered.map((row) => row.id).filter(Boolean),
+				removeIds,
 			});
 			return true;
 		} catch (e) {
+			forgetRemovedIds(removeIds);
 			console.error("[task_tree_gantt] delete tasks", e);
 			frappe.msgprint({
 				title: __("Delete failed"),
