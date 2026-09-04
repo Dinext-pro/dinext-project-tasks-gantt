@@ -21,6 +21,7 @@ export function toTableRow(row) {
 		exp_end_date: row.exp_end_date || null,
 		act_start_date: row.act_start_date || null,
 		act_end_date: row.act_end_date || null,
+		completed_on: row.completed_on || null,
 		expected_time: row.expected_time ?? null,
 		duration: row.duration ?? null,
 		progress: row.progress == null || row.progress === "" ? null : row.progress,

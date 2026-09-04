@@ -27,6 +27,7 @@ ALLOWED_FIELDS = frozenset(
 		"is_milestone",
 		"custom_planned_start_date",
 		"custom_planned_end_date",
+		"completed_on",
 	}
 )
 
