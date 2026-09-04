@@ -353,6 +353,7 @@ function resolveFullscreenOpts(container, shell) {
  *   onFilterChange?: () => void,
  *   fullscreenShell?: HTMLElement | null,
  *   expandRowIds?: string[],
+ *   removeIds?: string[],
  * }} [hooks]
  */
 export async function loadTable(container, getArgs, hooks = {}) {
@@ -370,6 +371,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		onFilterChange,
 		fullscreenShell,
 		expandRowIds,
+		removeIds,
 	} = hooks;
 	const fullscreen = resolveFullscreenOpts(container, fullscreenShell);
 
@@ -426,7 +428,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			}
 			state.table.api?.stopEditing?.();
 			const deep = wantFull || hasMulti(args.task);
-			const merge = applyTreeMerge(state.table, rows, { deep });
+			const merge = applyTreeMerge(state.table, rows, { deep, removeIds });
 			state.lastMerge = merge;
 			if (pathExpand.length) {
 				for (const id of pathExpand) {

@@ -179,6 +179,7 @@ export async function mount({ page }) {
 			// page.main = page-form filters + Tree Gantt shell (WR fullscreen pattern).
 			fullscreenShell: state.fullscreenShell,
 			expandRowIds: opts.expandRowIds,
+			removeIds: opts.removeIds,
 		});
 		if (gen !== state.mountGen) {
 			return;
