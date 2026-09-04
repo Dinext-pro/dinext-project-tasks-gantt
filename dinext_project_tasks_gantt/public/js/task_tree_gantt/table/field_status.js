@@ -29,6 +29,7 @@ const TABLE_DOC_FIELDS = [
 	"exp_end_date",
 	"act_start_date",
 	"act_end_date",
+	"completed_on",
 	"expected_time",
 	"duration",
 	"progress",
