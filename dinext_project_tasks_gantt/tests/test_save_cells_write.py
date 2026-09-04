@@ -104,6 +104,21 @@ class TestSaveCellsAuthorization(FrappeTestCase):
 		with self.assertRaises(frappe.MandatoryError):
 			mod.save_cells([{"id": "T1", "field": "status", "value": "Completed"}])
 
+	@patch.object(TaskTreeQuery, "rows_for_ids", return_value=[])
+	@patch.object(mod, "_persist_task")
+	@patch("frappe.has_permission", return_value=True)
+	def test_save_cells_accepts_completed_on(self, _perm, persist, _rows):
+		out = mod.save_cells(
+			[
+				{"id": "T1", "field": "status", "value": "Completed"},
+				{"id": "T1", "field": "completed_on", "value": "2026-08-01"},
+			]
+		)
+		persist.assert_called_once_with(
+			"T1", {"status": "Completed", "completed_on": "2026-08-01"}
+		)
+		self.assertEqual(out["updated"], 1)
+
 
 class TestPersistTask(FrappeTestCase):
 	@patch("frappe.get_doc")

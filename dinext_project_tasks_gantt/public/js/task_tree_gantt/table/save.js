@@ -15,6 +15,7 @@ import {
 	syncTaskRelationsMany,
 } from "./columns/relations/persist.js";
 import { isValidStatusValue } from "./columns/status/options.js";
+import { applyCompletedOnSideEffects } from "./completed_on.js";
 import {
 	fieldStatus,
 	missingMandatoryLabels,
@@ -36,6 +37,7 @@ const TASK_FIELDS = new Set([
 	"exp_end_date",
 	"expected_time",
 	"custom_include",
+	"completed_on",
 ]);
 
 const SAVE_DATE_FIELDS = new Set([
@@ -43,6 +45,7 @@ const SAVE_DATE_FIELDS = new Set([
 	"custom_planned_end_date",
 	"exp_start_date",
 	"exp_end_date",
+	"completed_on",
 ]);
 
 /** Column id → Task fieldname. Inverse of server TaskRow.ALIASES mismatches only. */
@@ -260,6 +263,12 @@ export function onValidateCells({ changes }) {
 			}
 		}
 	}
+	// After edit gates, before check_mandatory: form-save fill so Completed
+	// is not blocked solely on empty completed_on. Same batch as status.
+	applyCompletedOnSideEffects(changes, {
+		today: frappe.datetime.get_today(),
+		getDoc: rowToDoc,
+	});
 	return mandatoryPrecheck(changes);
 }
 
