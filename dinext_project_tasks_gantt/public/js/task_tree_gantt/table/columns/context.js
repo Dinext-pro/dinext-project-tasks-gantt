@@ -4,6 +4,7 @@ let onAssignSaved = null;
 let onTreeMutate = null;
 let onGanttRefresh = null;
 let onRelationsFocus = null;
+let getTreeTableFn = null;
 
 /** Additive API for column modules. */
 export function setColumnContext({
@@ -12,6 +13,7 @@ export function setColumnContext({
 	onTreeMutate: mutateHook,
 	onGanttRefresh: ganttHook,
 	onRelationsFocus: relationsHook,
+	getTreeTable: tableHook,
 } = {}) {
 	if (page !== undefined) {
 		columnsPage = page || null;
@@ -27,6 +29,9 @@ export function setColumnContext({
 	}
 	if (relationsHook !== undefined) {
 		onRelationsFocus = typeof relationsHook === "function" ? relationsHook : null;
+	}
+	if (tableHook !== undefined) {
+		getTreeTableFn = typeof tableHook === "function" ? tableHook : null;
 	}
 }
 
@@ -48,4 +53,8 @@ export function getOnGanttRefresh() {
 
 export function getOnRelationsFocus() {
 	return onRelationsFocus;
+}
+
+export function getTreeTable() {
+	return getTreeTableFn?.() || null;
 }
