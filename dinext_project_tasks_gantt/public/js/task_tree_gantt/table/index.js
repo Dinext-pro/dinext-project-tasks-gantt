@@ -17,6 +17,14 @@ import {
 	collectRelatedTaskIds,
 } from "./related.js";
 import { applyTreeMerge } from "./merge.js";
+import {
+	clearRemovedIds,
+	dropRemovedTasks,
+	getRemovedIdList,
+	installRemovedIdFilter,
+	rememberRemovedIds,
+	stripRemovedTree,
+} from "./removed.js";
 import { nestRows, toTableRows } from "./rows.js";
 import {
 	changesAffectGantt,
@@ -353,6 +361,7 @@ function resolveFullscreenOpts(container, shell) {
  *   onFilterChange?: () => void,
  *   fullscreenShell?: HTMLElement | null,
  *   expandRowIds?: string[],
+ *   removeIds?: string[],
  * }} [hooks]
  */
 export async function loadTable(container, getArgs, hooks = {}) {
@@ -361,7 +370,6 @@ export async function loadTable(container, getArgs, hooks = {}) {
 	}
 
 	const state = getState(container);
-	const gen = (state.loadGen = (state.loadGen || 0) + 1);
 	const args = readArgs(getArgs);
 	const {
 		onTreeChange,
@@ -370,12 +378,14 @@ export async function loadTable(container, getArgs, hooks = {}) {
 		onFilterChange,
 		fullscreenShell,
 		expandRowIds,
+		removeIds,
 	} = hooks;
 	const fullscreen = resolveFullscreenOpts(container, fullscreenShell);
 
 	clearHostChrome(container);
 
 	if (!args.project) {
+		clearRemovedIds();
 		destroyState(state);
 		delete container._treeGanttTable;
 		showPlaceholder(container, __("Select a project"));
@@ -384,7 +394,18 @@ export async function loadTable(container, getArgs, hooks = {}) {
 
 	// Cached Tree page keeps the old grid. Drop it before fetch or stale rows flash.
 	if (state.table && state.loadedProject && state.loadedProject !== args.project) {
+		clearRemovedIds();
 		destroyState(state);
+	}
+
+	rememberRemovedIds(removeIds);
+	// Bump before prune so an in-flight merge without removeIds aborts.
+	const gen = (state.loadGen = (state.loadGen || 0) + 1);
+	const removed = getRemovedIdList();
+	if (state.table && removed.length) {
+		installRemovedIdFilter(state.table);
+		dropRemovedTasks(state.table, removed);
+		onTreeChange?.();
 	}
 
 	if (!state.table) {
@@ -403,9 +424,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				? snapshotExpandedIds(state.table, expandRowIds)
 				: [...(expandRowIds || [])];
 		const wantFull = Boolean(state.table) && shouldFetchFullTree(state, expanded);
-		const rows = wantFull
-			? await fetchFullTreeRows(getArgs)
-			: await fetchRootRows(getArgs);
+		const rows = stripRemovedTree(
+			wantFull
+				? await fetchFullTreeRows(getArgs)
+				: await fetchRootRows(getArgs)
+		);
 		if (gen !== state.loadGen) {
 			return null;
 		}
@@ -426,7 +449,11 @@ export async function loadTable(container, getArgs, hooks = {}) {
 			}
 			state.table.api?.stopEditing?.();
 			const deep = wantFull || hasMulti(args.task);
-			const merge = applyTreeMerge(state.table, rows, { deep });
+			installRemovedIdFilter(state.table);
+			const merge = applyTreeMerge(state.table, rows, {
+				deep,
+				removeIds: getRemovedIdList(),
+			});
 			state.lastMerge = merge;
 			if (pathExpand.length) {
 				for (const id of pathExpand) {
@@ -566,6 +593,7 @@ export async function loadTable(container, getArgs, hooks = {}) {
 				return ok;
 			},
 		});
+		installRemovedIdFilter(state.table);
 
 		if (gen !== state.loadGen) {
 			destroyState(state);
@@ -614,8 +642,12 @@ export async function expandAllRows(table, getArgs, container) {
 		if (hostState) {
 			hostState.treeFullyLoaded = true;
 		}
-		applyTreeMerge(table, nested, { deep: true });
-		seedExpandedIds(table, collectExpandablePathIds(nested));
+		const tree = stripRemovedTree(nested);
+		applyTreeMerge(table, tree, {
+			deep: true,
+			removeIds: getRemovedIdList(),
+		});
+		seedExpandedIds(table, collectExpandablePathIds(tree));
 		for (const root of table.sourceData || []) {
 			if (root.children?.length) {
 				table.setRowChildren(String(root.id), root.children);
@@ -677,7 +709,10 @@ export async function revealRelatedTasks(table, getArgs, container, originId) {
 	}
 
 	if (fetched) {
-		applyTreeMerge(table, nested, { deep: true });
+		applyTreeMerge(table, stripRemovedTree(nested), {
+			deep: true,
+			removeIds: getRemovedIdList(),
+		});
 		seedExpandedIds(table, snapshotExpandedIds(table, needed));
 		for (const id of needed) {
 			const kids = table.getSourceChildren?.(id) || [];
