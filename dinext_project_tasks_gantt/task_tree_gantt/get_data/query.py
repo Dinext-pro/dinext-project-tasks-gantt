@@ -1,0 +1,418 @@
+# Copyright (c) 2026, Dinext and contributors
+# For license information, please see license.txt
+
+"""Task Tree Gantt get_children: params, filters, query orchestrator."""
+
+from __future__ import annotations
+
+import json
+
+import frappe
+from frappe.utils import cint
+
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.acl import TaskTreeAcl
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.attach import TaskRowAttach
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.meta import TaskTreeMeta
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.row import TaskRow
+from dinext_project_tasks_gantt.task_tree_gantt.get_data.write import TaskFieldWrite
+
+
+class TaskTreeQuery:
+	ALLOWED_SORT_FIELDS = frozenset(
+		{
+			"subject",
+			"status",
+			"priority",
+			"exp_start_date",
+			"exp_end_date",
+			"act_start_date",
+			"act_end_date",
+			"expected_time",
+			"progress",
+			"creation",
+			"modified",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"custom_tree_order",
+		}
+	)
+
+	@classmethod
+	def param(cls, kwargs: dict, key: str, default=None):
+		if key in kwargs and kwargs[key] is not None and kwargs[key] != "":
+			return kwargs[key]
+		# form_dict fallback only for desk debugging; preferred path is explicit kwargs
+		val = frappe.form_dict.get(key)
+		if val is None or val == "":
+			return default
+		return val
+
+	@classmethod
+	def truthy(cls, val) -> bool:
+		if val is None or val == "":
+			return False
+		if isinstance(val, bool):
+			return val
+		return bool(cint(val))
+
+	@classmethod
+	def parse_multi(cls, raw) -> list[str] | None:
+		"""None = filter off. Non-empty list = OR. Empty [] / '[]' / '' = off."""
+		if raw is None or raw == "" or raw is False:
+			return None
+		if isinstance(raw, (list, tuple, set)):
+			vals = [str(x).strip() for x in raw if x not in (None, "")]
+			return vals or None
+		if isinstance(raw, str):
+			s = raw.strip()
+			if not s or s in ("[]", "{}", "null", "None"):
+				return None
+			if s.startswith("["):
+				try:
+					parsed = json.loads(s)
+					if isinstance(parsed, list):
+						vals = [str(x).strip() for x in parsed if x not in (None, "")]
+						return vals or None
+				except (TypeError, ValueError, json.JSONDecodeError):
+					pass
+			return [s]
+		return None
+
+	@classmethod
+	def attr_filters_on(cls, status, priority, assign_filter, tag) -> bool:
+		return bool(
+			cls.parse_multi(status)
+			or cls.parse_multi(priority)
+			or cls.parse_multi(assign_filter)
+			or cls.parse_multi(tag)
+		)
+
+	@classmethod
+	def row_tag_set(cls, raw) -> set[str]:
+		return {p.strip() for p in str(raw or "").split(",") if p.strip()}
+
+	@classmethod
+	def row_matches_attr_filters(cls, row: dict, status, priority, assign_filter, tag) -> bool:
+		status_vals = cls.parse_multi(status)
+		priority_vals = cls.parse_multi(priority)
+		if status_vals and row.get("status") not in status_vals:
+			return False
+		if priority_vals and row.get("priority") not in priority_vals:
+			return False
+		assign_vals = cls.parse_multi(assign_filter)
+		if assign_vals:
+			assigned = set(TaskRow.parse_assign(row.get("_assign")))
+			if not assigned.intersection(assign_vals):
+				return False
+		tag_vals = cls.parse_multi(tag)
+		if tag_vals and not cls.row_tag_set(row.get("_user_tags")).intersection(tag_vals):
+			return False
+		return True
+
+	@classmethod
+	def keep_ids_for_filters(
+		cls,
+		project,
+		task_names,
+		status,
+		priority,
+		assign_filter,
+		tag,
+		parent_by_name: dict[str, str],
+		readable_ids: set[str],
+		*,
+		ignore_read: bool = False,
+		scope_bounds: tuple[int, int] | None = None,
+		attr_rows: list[dict] | None = None,
+	):
+		"""None = no keep filter. Else match ids + ancestors (empty set = no rows).
+
+		Matches only readable tasks unless ignore_read (write-without-read).
+		Ancestor walk uses full parent map so unreadable parents stay as stubs.
+		"""
+		need_attr = cls.attr_filters_on(status, priority, assign_filter, tag)
+		if not task_names and not need_attr:
+			return None
+		parts = []
+		if task_names:
+			match = {name for name in task_names if name in readable_ids}
+			if not match:
+				return set()
+			parts.append(TaskTreeAcl.ids_with_ancestors(parent_by_name, match))
+		if need_attr:
+			rows = attr_rows
+			if rows is None:
+				fetch = frappe.get_all if ignore_read else frappe.get_list
+				filters = {"project": project, "docstatus": ("<", 2)}
+				if scope_bounds:
+					filters["lft"] = (">", scope_bounds[0])
+					filters["rgt"] = ("<", scope_bounds[1])
+				rows = fetch(
+					"Task",
+					filters=filters,
+					fields=[
+						"name",
+						"parent_task",
+						"status",
+						"priority",
+						"_assign",
+						"_user_tags",
+					],
+					limit_page_length=0,
+				)
+			match_ids = {
+				r["name"]
+				for r in rows
+				if r["name"] in readable_ids
+				and cls.row_matches_attr_filters(r, status, priority, assign_filter, tag)
+			}
+			parts.append(
+				TaskTreeAcl.ids_with_ancestors(parent_by_name, match_ids) if match_ids else set()
+			)
+		return TaskTreeAcl.intersect_keep_sets(*parts)
+
+	@classmethod
+	def run(cls, **kwargs) -> list[dict]:
+		"""
+		Return Tree Gantt rows for DinextTable.
+
+		Args:
+		        project: Project name (required)
+		        parent_task: None → project roots; else children of this Task
+		        task: page-form Task filter — selected tasks ∪ ancestors, not children
+		        all_tasks: if true, all tasks in project (ignore parent filter)
+		        status, priority, assign, tag: optional str or list (OR inside field; empty = off)
+		        sort_field, sort_order, limit: optional
+
+		Read: tasks the user may list, plus unreadable ancestors as stubs
+		(`can_read=0`) so the tree shape stays. Edit only if document
+		`has_permission(read)` AND `has_permission(write)` — write without
+		read is display-only (values as-is). Role write without role read:
+		show project rows with values, `can_write=0`.
+
+		Row = the Task document (every permitted scalar field under its DocType
+		name) + client aliases. Field-level UI rules (form-contract expressions) are
+		evaluated by the client; the server publishes `frappe.response["tree_meta"]`
+		(permlevels + workflow) once per response.
+		"""
+		role_read = TaskTreeAcl.role_can_read()
+		role_write = TaskTreeAcl.role_can_write()
+		if not role_read and not role_write:
+			frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
+
+		project = cls.param(kwargs, "project")
+		if not project:
+			frappe.throw(frappe._("Project is required"))
+		workflow = TaskFieldWrite.active_workflow()
+		TaskTreeMeta.publish(TaskTreeMeta.build(workflow))
+
+		parent_task = cls.param(kwargs, "parent_task")
+		task_names = cls.parse_multi(cls.param(kwargs, "task"))
+		all_tasks = cls.truthy(cls.param(kwargs, "all_tasks"))
+		status = cls.parse_multi(cls.param(kwargs, "status"))
+		priority = cls.parse_multi(cls.param(kwargs, "priority"))
+		assign_filter = cls.parse_multi(cls.param(kwargs, "assign"))
+		tag = cls.parse_multi(cls.param(kwargs, "tag"))
+		sort_field = cls.param(kwargs, "sort_field")
+		sort_order = (cls.param(kwargs, "sort_order") or "asc").lower()
+		limit = cls.param(kwargs, "limit")
+
+		scope_bounds = None
+		if parent_task and not all_tasks:
+			parent_by_name, scope_bounds = TaskTreeAcl.task_descendant_scope(
+				project, parent_task
+			)
+			if scope_bounds is None and parent_task not in parent_by_name:
+				return []
+		else:
+			parent_by_name = TaskTreeAcl.task_parent_map(project)
+		need_attr = cls.attr_filters_on(status, priority, assign_filter, tag)
+		attr_rows = None
+		if role_read and need_attr:
+			attr_rows = TaskTreeAcl.readable_task_rows(
+				project,
+				["name", "parent_task", "status", "priority", "_assign", "_user_tags"],
+				scope_bounds,
+			)
+			readable_ids = {row["name"] for row in attr_rows}
+		elif role_read:
+			readable_ids = TaskTreeAcl.readable_task_ids(project, scope_bounds)
+		else:
+			readable_ids = set()
+		write_without_read = bool(role_write and not role_read)
+		if write_without_read:
+			visible_ids = TaskTreeAcl.write_without_read_ids(parent_by_name)
+		else:
+			visible_ids = TaskTreeAcl.visible_task_ids(readable_ids, parent_by_name)
+		if not visible_ids:
+			return []
+
+		Task = frappe.qb.DocType("Task")
+		task_meta = frappe.get_meta("Task")
+		has_tree_order = task_meta.has_field("custom_tree_order")
+		# Role write without read: the user may edit these fields, so show them.
+		permitted = TaskRow.permitted_fieldnames(
+			task_meta, "write" if write_without_read else "read"
+		)
+		select_fields = TaskRow.select_fieldnames(task_meta, permitted)
+		workflow_state_field = (
+			workflow.workflow_state_field
+			if workflow
+			and workflow.workflow_state_field
+			and task_meta.has_field(workflow.workflow_state_field)
+			else None
+		)
+		if workflow_state_field and workflow_state_field not in select_fields:
+			select_fields.append(workflow_state_field)
+
+		query = (
+			cls.select_query(select_fields)
+			.where(Task.docstatus < 2)
+			.where(Task.project == project)
+		)
+
+		if all_tasks:
+			pass
+		elif parent_task:
+			query = query.where(Task.parent_task == parent_task)
+		else:
+			query = query.where(Task.parent_task.isnull() | (Task.parent_task == ""))
+
+		# Page-form Task + attr filters: matches + ancestors (not children of the Task).
+		# Expanding a selected task itself: do not apply the task keep-set.
+		task_keep = task_names
+		if task_names and parent_task and parent_task in task_names and not all_tasks:
+			task_keep = None
+		keep_ids = cls.keep_ids_for_filters(
+			project,
+			task_keep,
+			status,
+			priority,
+			assign_filter,
+			tag,
+			parent_by_name,
+			readable_ids if role_read else visible_ids,
+			ignore_read=write_without_read,
+			scope_bounds=scope_bounds,
+			attr_rows=attr_rows,
+		)
+		if keep_ids is not None:
+			if not keep_ids:
+				return []
+			allowed_ids = keep_ids
+		else:
+			allowed_ids = visible_ids
+		if not all_tasks:
+			slice_ids = {
+				name
+				for name, parent in parent_by_name.items()
+				if parent == parent_task or (not parent_task and not parent)
+			}
+			allowed_ids &= slice_ids
+		if not allowed_ids:
+			return []
+		query = query.where(Task.name.isin(list(allowed_ids)))
+
+		if sort_field in cls.ALLOWED_SORT_FIELDS and (
+			sort_field != "custom_tree_order" or has_tree_order
+		):
+			field = frappe.qb.Field(sort_field)
+			order = frappe.qb.desc if sort_order == "desc" else frappe.qb.asc
+			query = query.orderby(field, order=order)
+		else:
+			# Manual sibling order first (ISS-2026-02536 #5.1), then forecast dates.
+			if has_tree_order:
+				query = query.orderby(Task.custom_tree_order, order=frappe.qb.asc)
+			query = query.orderby(Task.exp_start_date, order=frappe.qb.asc)
+			query = query.orderby(Task.exp_end_date, order=frappe.qb.asc)
+
+		if limit:
+			query = query.limit(cint(limit))
+
+		raw_rows = query.run(as_dict=True)
+		workflow_state_by_id = (
+			{row["name"]: row.get(workflow_state_field) for row in raw_rows}
+			if workflow_state_field
+			else {}
+		)
+		return cls.build_rows(
+			raw_rows,
+			readable_ids,
+			role_read=role_read,
+			write_without_read=write_without_read,
+			permitted=permitted,
+			meta=task_meta,
+			workflow=workflow,
+			state_by_id=workflow_state_by_id,
+		)
+
+	@classmethod
+	def select_query(cls, fieldnames: list[str]):
+		"""`SELECT <fieldnames> FROM tabTask` — unqualified fields, so `type`, `name`… are safe."""
+		Task = frappe.qb.DocType("Task")
+		return frappe.qb.from_(Task).select(*(frappe.qb.Field(f) for f in fieldnames))
+
+	@classmethod
+	def build_rows(
+		cls,
+		raw_rows: list[dict],
+		readable_ids: set[str],
+		*,
+		role_read: bool,
+		write_without_read: bool = False,
+		permitted: set[str] | None = None,
+		meta=None,
+		workflow=None,
+		state_by_id: dict[str, str] | None = None,
+	) -> list[dict]:
+		"""Raw Task records → API rows: access flags, aliases, attachments, stubs, workflow lock."""
+		if meta is None:
+			meta = frappe.get_meta("Task")
+		if permitted is None:
+			permitted = TaskRow.permitted_fieldnames(
+				meta, "write" if write_without_read else "read"
+			)
+		rows = [TaskRow.from_task(r) for r in raw_rows]
+		TaskTreeAcl.mark_access(rows, readable_ids, role_read=role_read)
+		content_rows = (
+			rows
+			if write_without_read
+			else [row for row in rows if row["can_read"]]
+		)
+		if "type" in permitted:
+			TaskRowAttach.type_labels(content_rows)
+		if "custom_relations" in permitted:
+			TaskRowAttach.relations(content_rows)
+		if "_assign" in permitted:
+			TaskRowAttach.assign_sources(content_rows)
+			TaskRowAttach.publish_assign_user_info(content_rows)
+		TaskRow.attach_child_tables(content_rows, meta, permitted)
+		# Query selected permitted columns only; this blanks stubs and internal-only
+		# columns (workflow state selected for the lock but not readable).
+		TaskRow.apply_field_read_strip(
+			rows, permitted, keep_unreadable_values=write_without_read
+		)
+		TaskFieldWrite.attach(rows, workflow=workflow, state_by_id=state_by_id)
+		return rows
+
+	@classmethod
+	def rows_for_ids(cls, task_ids: list[str]) -> list[dict]:
+		"""Full rows for Tasks the caller already checked read+write on (save_cells)."""
+		ids = [str(i) for i in task_ids if i]
+		if not ids:
+			return []
+		Task = frappe.qb.DocType("Task")
+		meta = frappe.get_meta("Task")
+		permitted = TaskRow.permitted_fieldnames(meta)
+		raw_rows = (
+			cls.select_query(TaskRow.select_fieldnames(meta, permitted))
+			.where(Task.name.isin(ids))
+		).run(as_dict=True)
+		return cls.build_rows(
+			raw_rows,
+			set(ids),
+			role_read=True,
+			permitted=permitted,
+			meta=meta,
+			workflow=TaskFieldWrite.active_workflow(),
+		)
