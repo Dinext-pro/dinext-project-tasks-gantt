@@ -1,0 +1,19 @@
+import { fieldCanEdit } from "../save.js";
+import { fixedCol, TREE_COL_WIDTH } from "./widths.js";
+
+export function includeColumn() {
+	return {
+		field: "custom_include",
+		headerName: __("TS"),
+		...fixedCol(TREE_COL_WIDTH.custom_include),
+		type: "checkbox",
+		sortable: false,
+		edit: (row) => fieldCanEdit(row, "custom_include"),
+		filterValueGetter: (row) => {
+			const on = !!row?.custom_include;
+			const flag = on ? "1" : "0";
+			const label = on ? __("Yes") : __("No");
+			return `${flag} ${label}`;
+		},
+	};
+}
