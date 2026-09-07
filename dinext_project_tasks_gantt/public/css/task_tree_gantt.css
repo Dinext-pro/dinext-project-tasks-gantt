@@ -1,0 +1,1559 @@
+.task-tree-gantt-page,
+.task-tree-gantt-chart,
+.task-tree-gantt-table-host {
+	--g-related-color: #c4a9f3;
+}
+
+/*
+ * Raven sets inline padding-bottom:60px on the global .main-section (desk chrome).
+ * Tree page is viewport-locked — that pad adds a useless page scroll. Other routes keep it.
+ */
+body[data-route="Tree/Task"] .main-section,
+body[data-route^="Tree/Task/"] .main-section {
+	padding-bottom: 0 !important;
+}
+
+.task-tree-gantt-page .title-text.tree-gantt-title--link {
+	cursor: pointer;
+}
+
+.task-tree-gantt-page .title-text.tree-gantt-title--link:hover {
+	text-decoration: underline;
+}
+
+/*
+ * Desk default: .page-title is col-md-4 (~33%) and .title-text is max-width:25vw
+ * (~298px). On this page the right toolbar is often empty — grow title into
+ * leftover .page-head-content space. Scoped: do not change other doctypes.
+ */
+.task-tree-gantt-page .page-head-content > .page-title {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: auto;
+	max-width: none;
+}
+
+.task-tree-gantt-page .page-head-content > .page-actions {
+	flex: 0 0 auto;
+	width: auto;
+	max-width: none;
+}
+
+.task-tree-gantt-page .page-title .title-area,
+.task-tree-gantt-page .page-title .title-area > div,
+.task-tree-gantt-page .page-title .title-area .flex {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+}
+
+.task-tree-gantt-page .page-title .title-area .title-text {
+	flex: 0 1 auto;
+	min-width: 0;
+	width: fit-content;
+	max-width: 100%;
+}
+
+/*
+ * page.add_field → col-md-2 (16.67%). Six fields fill the row, Limit wraps.
+ * Drop bootstrap column widths on this page only. Do not touch Gantt header.
+ */
+.task-tree-gantt-page .page-form.row {
+	margin-left: 0;
+	margin-right: 0;
+	align-items: center;
+}
+
+.task-tree-gantt-page .page-form > div {
+	display: flex;
+	align-items: center;
+	padding-left: 4px;
+	padding-right: 4px;
+}
+
+.task-tree-gantt-page .page-form .form-group {
+	margin-top: 0;
+	margin-bottom: 0;
+	width: 100%;
+}
+
+.task-tree-gantt-page .page-form .control-input-wrapper,
+.task-tree-gantt-page .page-form .control-input {
+	display: flex;
+	align-items: center;
+	width: 100%;
+}
+
+.task-tree-gantt-page .page-form .form-control,
+.task-tree-gantt-page .page-form .awesomplete,
+.task-tree-gantt-page .page-form .multiselect-list.dropdown {
+	width: 100%;
+	max-width: 100%;
+}
+
+.task-tree-gantt-page .page-form .form-control.input-xs,
+.task-tree-gantt-page .page-form .multiselect-list > .form-control {
+	height: 26px;
+	min-height: 26px;
+	box-sizing: border-box;
+}
+
+/* Dummy $input from ControlMultiSelectList — out of flow so chips share one baseline. */
+.task-tree-gantt-page .page-form [data-fieldtype="MultiSelectList"] .control-input > input:not(.form-control) {
+	position: absolute;
+	width: 0;
+	height: 0;
+	opacity: 0;
+	pointer-events: none;
+	border: 0;
+	padding: 0;
+	margin: 0;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list.dropdown {
+	position: relative;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list > .form-control {
+	position: relative;
+	display: flex;
+	align-items: center;
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+.task-tree-gantt-page .page-form .multiselect-list .status-text {
+	position: static;
+	top: auto;
+	width: 100%;
+	line-height: 1.2;
+}
+
+.task-tree-gantt-page .page-form .status-text.ellipsis {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Small: wrap, usable min width. */
+@media (max-width: 991.98px) {
+	.task-tree-gantt-page .page-form {
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.task-tree-gantt-page .page-form > div {
+		flex: 1 1 11rem !important;
+		width: auto !important;
+		max-width: none !important;
+		min-width: 11rem;
+	}
+}
+
+/* md/lg+: one row, share leftover space. Limit stays compact. */
+@media (min-width: 992px) {
+	.task-tree-gantt-page .page-form {
+		flex-wrap: nowrap;
+		align-items: center;
+	}
+
+	.task-tree-gantt-page .page-form > div {
+		flex: 1 1 0 !important;
+		width: auto !important;
+		max-width: none !important;
+		min-width: 0;
+	}
+
+	.task-tree-gantt-page .page-form > [data-fieldname="limit"] {
+		flex: 0 1 8.5rem !important;
+		min-width: 7.5rem;
+		max-width: 9.5rem !important;
+	}
+}
+
+/* Layout split — visual parity with Task Tree Layout V2 (.draggable-border). */
+.task-tree-gantt-page .container.page-body {
+	max-height: calc(100vh - var(--navbar-height) - 65px);
+	overflow-y: hidden;
+}
+
+.task-tree-gantt-shell {
+	display: flex;
+	flex-direction: row;
+	align-items: stretch;
+	width: 100%;
+	height: calc(100vh - var(--navbar-height) - var(--page-head-height) - 65px);
+	min-height: 320px;
+	overflow: hidden;
+}
+
+/* Fullscreen shell = page.main (filters + table/gantt), WR pattern. */
+.task-tree-gantt-page .layout-main-section:fullscreen,
+.task-tree-gantt-page .layout-main-section.task-tree-gantt--fullscreen {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	max-height: 100%;
+	box-sizing: border-box;
+	padding: 8px;
+	overflow: hidden;
+	background-color: var(--card-bg, var(--bg-color, #fff));
+}
+
+.task-tree-gantt-page .layout-main-section:fullscreen .page-form,
+.task-tree-gantt-page .layout-main-section.task-tree-gantt--fullscreen .page-form {
+	flex: 0 0 auto;
+}
+
+.task-tree-gantt-page .layout-main-section:fullscreen .task-tree-gantt-shell,
+.task-tree-gantt-page .layout-main-section.task-tree-gantt--fullscreen .task-tree-gantt-shell {
+	flex: 1 1 auto;
+	min-height: 0;
+	height: auto;
+}
+
+.task-tree-gantt-panel {
+	position: relative;
+	z-index: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+}
+
+/* Panel widths set inline by shell/layout.js (DEFAULT_LEFT_PCT=55). */
+.task-tree-gantt-panel--left {
+	width: 55%;
+}
+
+.task-tree-gantt-panel--right {
+	width: 45%;
+}
+
+.task-tree-gantt-resize {
+	position: relative;
+	flex: 0 0 2px;
+	width: 2px;
+	align-self: stretch;
+	cursor: col-resize;
+	z-index: 10;
+	background-color: #ebebeb;
+	border-radius: 4px;
+}
+
+.task-tree-gantt-resize:hover {
+	background-color: var(--gray-500, #98a1a9);
+}
+
+.task-tree-gantt-resize::after {
+	content: "⁝⁝";
+	position: absolute;
+	top: calc(50% - 8.5px);
+	right: -2px;
+	font-size: 15px;
+	background-color: #ebebeb;
+	color: black;
+	border-radius: 2px;
+	transition: border-color 0.6s ease-out;
+}
+
+.task-tree-gantt-resize:hover::after {
+	background-color: var(--gray-500, #98a1a9);
+}
+
+.task-tree-gantt-table-host,
+.task-tree-gantt-chart {
+	height: 100%;
+	min-height: 100%;
+}
+
+.task-tree-gantt-table-host {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.task-tree-gantt-table-host--loading {
+	justify-content: center;
+	align-items: center;
+}
+
+.task-tree-gantt-table-spinner {
+	width: 28px;
+	height: 28px;
+	flex: 0 0 auto;
+	border: 2px solid var(--border-color, rgba(0, 0, 0, 0.12));
+	border-top-color: var(--primary, #2490ef);
+	border-radius: 50%;
+	animation: task-tree-gantt-table-spin 0.7s linear infinite;
+}
+
+@keyframes task-tree-gantt-table-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* --- table chrome (Tree header / details-cell) --- */
+
+.task-tree-gantt-table-host.dinext-table .ag-header-cell {
+	padding-top: 1px;
+	padding-bottom: 1px;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.dinext-table-header--sortable .ag-header-cell-label {
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-label {
+	justify-content: center;
+	width: 100%;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-header-cell .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell .dinext-table-header-sort-text {
+	text-align: center;
+}
+
+/* Subject header slightly larger; other headers smaller than Quartz default */
+.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell[col-id="subject"] .dinext-table-header-sort-text {
+	font-size: var(--text-sm, 12px);
+	font-weight: 600;
+	line-height: 1.15;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell:not([col-id="subject"]) .dinext-table-header-sort-text {
+	font-size: var(--text-xs, 11px);
+	font-weight: 500;
+	line-height: 1.1;
+}
+
+/* Date headers: wrap «Прогноз …» in narrow cols */
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-label,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .ag-header-cell-text,
+.task-tree-gantt-table-host.dinext-table .ag-header-cell.tree-gantt-header--wrap .dinext-table-header-sort-text {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: unset;
+	line-height: 1.1;
+}
+
+/* Cell content centered except subject (tree col keeps left layout) */
+.task-tree-gantt-table-host.dinext-table .ag-cell:not([col-id="subject"]) > .ag-cell-wrapper {
+	justify-content: center;
+	width: 100%;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell:not([col-id="subject"]) {
+	text-align: center;
+}
+
+/* --- gantt --- */
+
+.task-tree-gantt-chart {
+	overflow: hidden;
+	box-sizing: border-box;
+	/* Fallback before JS; live pad = GANTT_BASE_TOP_PAD (+ toolbar) in sync.js. */
+	padding-top: 2.5px;
+	transition: padding-top 0.22s ease;
+	/* Light tweaks (scoped — survive frappe-gantt.css :root load order). */
+	--g-holiday-highlight-color: color-mix(in srgb, #e6fae6 25%, transparent);
+	--g-progress-color: #e4f5e9;
+	--g-arrow-color: #a4a4a4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.task-tree-gantt-chart {
+		transition: none;
+	}
+}
+
+.task-tree-gantt-chart .gantt-container {
+	height: 100% !important;
+	min-height: 100%;
+	padding-bottom: var(--gantt-top-scroll-h, 0px);
+}
+
+.task-tree-gantt-chart .gantt-container .grid-header {
+	z-index: 9;
+	overflow: clip;
+}
+
+/* Match table `.dinext-table-hscroll-top` so header+scroll+rows stacks align.
+ * SVG is position:absolute — in-flow spacer alone cannot push bars. */
+.task-tree-gantt-hscroll-top {
+	position: sticky;
+	top: var(--gantt-header-h, 76px);
+	left: 0;
+	z-index: 9;
+	display: flex;
+	flex: 0 0 auto;
+	width: 100%;
+	height: var(--gantt-top-scroll-h, 0px);
+	overflow: hidden;
+	background: var(--g-header-background);
+}
+
+.task-tree-gantt-hscroll-top.is-idle,
+.task-tree-gantt-panel--right > .task-tree-gantt-hscroll-top {
+	display: none;
+}
+
+.task-tree-gantt-hscroll-top-viewport {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-x: scroll;
+	overflow-y: hidden;
+}
+
+.task-tree-gantt-hscroll-top-content {
+	height: 1px;
+}
+
+.task-tree-gantt-chart .gantt-container > svg.gantt {
+	top: var(--gantt-top-scroll-h, 0px) !important;
+}
+
+.task-tree-gantt-chart .gantt-container .current-highlight {
+	z-index: 8;
+	margin-top: var(--gantt-top-scroll-h, 0px);
+}
+
+.task-tree-gantt-chart .gantt-container .holiday-label {
+	background: var(--g-weekend-label-color);
+	position: fixed !important;
+}
+
+/* Library hardcodes #fff — break sticky label blob. */
+.task-tree-gantt-chart .gantt-container .current-upper {
+	background: var(--g-header-background);
+	z-index: 1;
+}
+
+.task-tree-gantt-chart .popup-wrapper:empty {
+	visibility: hidden;
+}
+
+.task-tree-gantt-chart .gantt-assign-avatars {
+	display: flex;
+	align-items: center;
+}
+
+.task-tree-gantt-chart .gantt-assign-avatars--action {
+	cursor: pointer;
+}
+
+.task-tree-gantt-chart .gantt-assign-avatars:hover .avatar-group.overlap .avatar:not(:first-child) {
+	margin-left: var(--margin-xs);
+}
+
+.task-tree-gantt-chart .gantt-assign-avatars.tree-gantt-cell--write-denied,
+.task-tree-gantt-chart .gantt-assign-avatars.tree-gantt-cell--write-denied * {
+	cursor: not-allowed;
+}
+
+/*
+ * Lib paints bar border as CSS outline+border-radius on SVG <rect>.
+ * Outline ignores rx → radius mismatch + 1px dark gap under fill.
+ * Use SVG stroke (same rx as fill). Default color/width = lib outline.
+ */
+.task-tree-gantt-chart .gantt .bar-wrapper .bar {
+	outline: none;
+	stroke: var(--g-row-border-color);
+	stroke-width: 1;
+}
+
+/* No exp_* on the row: keep gantt row (title in table), hide invented bar. */
+.task-tree-gantt-chart .gantt .bar-invalid,
+.task-tree-gantt-chart .gantt .bar-invalid ~ .bar-label,
+.task-tree-gantt-chart .gantt .bar-invalid ~ .bar-img {
+	display: none;
+}
+
+/* Lib outline sits outside the fill. Stroke is half inside white --g-bar-color,
+ * so vendor --g-row-border-color (#c7c7c7) vanishes. Use lib light chrome. */
+[data-theme="light"] .task-tree-gantt-chart .gantt .bar-wrapper .bar {
+	stroke: var(--g-handle-color, #37352f);
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.Urgent .bar {
+	stroke: var(--bg-red);
+	stroke-width: 2;
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.Urgent .bar-label {
+	font-weight: 600;
+	fill: var(--text-on-red);
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.High .bar {
+	stroke: var(--bg-orange);
+	stroke-width: 1;
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.Medium .bar {
+	stroke: var(--bg-yellow);
+	stroke-width: 1;
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--hover .bar,
+.task-tree-gantt-chart .gantt .bar-group:hover .bar {
+	stroke: var(--border-primary, var(--primary));
+	stroke-width: 2;
+}
+
+.task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow-hit {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 10;
+	pointer-events: stroke;
+}
+
+.task-tree-gantt-chart .gantt .arrow path[data-from] {
+	fill: none;
+	stroke-width: 1.1;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	pointer-events: none;
+	marker-start: url(#tree-gantt-mk-start);
+	marker-end: url(#tree-gantt-mk-end);
+}
+
+.task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--related,
+.task-tree-gantt-chart .gantt path.tree-gantt-arrow--related {
+	stroke: var(--g-related-color) !important;
+	stroke-width: 1.25;
+	pointer-events: stroke;
+	filter: drop-shadow(0 0 1.2px var(--g-related-color));
+	marker-start: url(#tree-gantt-mk-start-rel);
+	marker-end: url(#tree-gantt-mk-end-rel);
+}
+
+.task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--hover {
+	stroke-width: 2.6 !important;
+	filter: drop-shadow(0 0 2px var(--g-arrow-color, #a4a4a4));
+}
+
+.task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow--related.tree-gantt-arrow--hover,
+.task-tree-gantt-chart .gantt path.tree-gantt-arrow--related.tree-gantt-arrow--hover {
+	stroke-width: 3.2 !important;
+	filter: drop-shadow(0 0 4px var(--g-related-color));
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover,
+.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--hover,
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select,
+.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--select {
+	background-image: none;
+	background-color: color-mix(
+		in srgb,
+		var(--text-color) 10%,
+		var(--card-bg, var(--fg-color, #fff))
+	) !important;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--select,
+.task-tree-gantt-table-host.dinext-table .ag-row.ag-row-hover.tree-gantt-row--select {
+	background-color: color-mix(
+		in srgb,
+		var(--text-color) 16%,
+		var(--card-bg, var(--fg-color, #fff))
+	) !important;
+}
+
+/* Related outline: skip pin seam so pinned + center read as one row. */
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.ag-row-hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-pinned-left-cols-container .ag-row.tree-gantt-row--select.tree-gantt-row--related {
+	box-shadow:
+		inset 2px 0 0 var(--g-related-color),
+		inset 0 2px 0 var(--g-related-color),
+		inset 0 -2px 0 var(--g-related-color);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.ag-row-hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.tree-gantt-row--hover.tree-gantt-row--related,
+.task-tree-gantt-table-host.dinext-table .ag-center-cols-container .ag-row.tree-gantt-row--select.tree-gantt-row--related {
+	box-shadow:
+		inset -2px 0 0 var(--g-related-color),
+		inset 0 2px 0 var(--g-related-color),
+		inset 0 -2px 0 var(--g-related-color);
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--select .bar {
+	stroke: var(--border-primary, var(--primary));
+	stroke-width: 2;
+}
+
+.task-tree-gantt-chart .gantt .bar-wrapper.tree-gantt-bar--related .bar {
+	stroke: var(--g-related-color);
+	stroke-width: 3;
+	filter: drop-shadow(0 0 4px var(--g-related-color));
+}
+
+/*
+ * Dark theme MUST be scoped under .task-tree-gantt-chart.
+ * frappe-gantt.css loads later and resets :root light vars —
+ * unscoped [data-theme="dark"] loses the cascade fight.
+ */
+[data-theme="dark"] .task-tree-gantt-chart {
+	--g-row-color: transparent;
+	--g-bar-stroke: #c6ccd2;
+	--g-bar-border: #9ca3af;
+	--g-arrow-color: #a4a4a4;
+	--g-border-color: #272727;
+	/* Must contrast with dark chart bg — #3e3e3e was invisible. */
+	--g-bar-color: #6b7280;
+	--g-bg-dark: #4b5563;
+	--g-row-border-color: #898989;
+	--g-header-background: #191919;
+	--g-actions-background: #272727;
+	--g-light-border-color: #3e3e3e;
+	--g-text-muted: #eee;
+	--g-text-dark: #ececec;
+	--g-text-light: #f7f7f7;
+	--g-text-color: #f7f7f7;
+	--g-progress-color: #173b2c;
+	--g-weekend-highlight-color: color-mix(in srgb, #5e5e5e 12%, transparent);
+	--g-holiday-highlight-color: color-mix(in srgb, #082a08 25%, transparent);
+	--g-tick-color: #272727;
+	--g-tick-color-thick: #212121;
+	--g-today-highlight: #be8f8f;
+	--g-weekend-label-color: #272727;
+	--g-popup-actions: #3e3e3e;
+	--g-handle-color: #c6ccd2;
+	--g-related-color: #c4a9f3;
+}
+
+[data-theme="dark"] .task-tree-gantt-page,
+[data-theme="dark"] .task-tree-gantt-table-host {
+	--g-related-color: #c4a9f3;
+}
+
+/* Opaque so sticky month labels do not bleed through each other on scroll. */
+[data-theme="dark"] .task-tree-gantt-chart .gantt-container .current-upper {
+	background: var(--g-header-background);
+	z-index: 1;
+}
+
+[data-theme="dark"] .task-tree-gantt-chart .gantt-container .popup-wrapper {
+	background: #333;
+	color: var(--g-text-color);
+}
+
+[data-theme="dark"] .task-tree-gantt-chart .gantt-container .date-range-highlight {
+	background: #5a5a5a;
+}
+
+[data-theme="dark"] .task-tree-gantt-resize,
+[data-theme="dark"] .task-tree-gantt-resize::after {
+	background-color: #b1b1b1;
+	color: #111;
+}
+
+[data-theme="dark"] .task-tree-gantt-resize:hover,
+[data-theme="dark"] .task-tree-gantt-resize:hover::after {
+	background-color: #e8e8e8;
+	color: #111;
+}
+
+.task-tree-gantt-table-host.dinext-table,
+.task-tree-gantt-table-host .ag-root-wrapper {
+	flex: 1 1 auto;
+	min-height: 0;
+	height: 100%;
+}
+
+/* AG themeQuartz paints checked ТШ blue (accent). Vars on theme child. Tree = no blue fill. */
+.task-tree-gantt-table-host.dinext-table [class*="ag-theme-checkboxStyle"] {
+	--ag-checkbox-checked-background-color: var(--ag-checkbox-unchecked-background-color) !important;
+	--ag-checkbox-checked-border-color: var(
+		--ag-checkbox-unchecked-border-color,
+		var(--ag-foreground-color)
+	) !important;
+	--ag-checkbox-checked-shape-color: var(--ag-foreground-color) !important;
+}
+
+body.task-tree-gantt-resizing {
+	cursor: col-resize;
+	user-select: none;
+}
+
+/* --- dependency conflicts (Tree .conflict parity) --- */
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-dep-conflict,
+.task-tree-gantt-table-host.dinext-table .tree-gantt-subject.tree-gantt-dep-conflict {
+	color: var(--danger, #e74c3c) !important;
+}
+
+/* CS Task Tree Dependencies: .tree-link.conflict .tree-toolbar-button.fa-level-down
+ * Color only — toolbar stays hover-only like sibling buttons. */
+.task-tree-gantt-table-host.dinext-table
+	.tree-gantt-subject.tree-gantt-dep-conflict
+	.tree-toolbar-button.fa-level-down {
+	color: var(--danger, #e74c3c) !important;
+}
+
+/* --- table cell chrome (column parity) --- */
+
+/* Subject = Tree .tree-link content (label + hover toolbar). */
+.tree-gantt-subject {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	max-width: 100%;
+	width: 100%;
+	height: 100%;
+	line-height: 1.2;
+	vertical-align: middle;
+}
+
+.tree-gantt-subject--colored {
+	padding-left: 6px;
+}
+
+.tree-gantt-subject-main {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.tree-gantt-milestone {
+	display: block;
+	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+	object-fit: contain;
+}
+
+.tree-gantt-subject-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+	cursor: pointer;
+}
+
+.tree-gantt-subject-text:hover {
+	text-decoration: underline;
+}
+
+/* Subject hover: Task.description (Text Editor) readonly */
+.tree-gantt-subject-preview {
+	position: fixed;
+	z-index: 1055;
+	min-width: 280px;
+	max-width: min(420px, calc(100vw - 16px));
+	max-height: min(360px, calc(100vh - 24px));
+	display: flex;
+	flex-direction: column;
+	padding: 10px 12px;
+	background: var(--fg-color, #fff);
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: var(--border-radius-md, 6px);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18));
+	pointer-events: auto;
+}
+
+.tree-gantt-subject-preview__body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--text-color);
+}
+
+/* Own wrapper — NOT .ql-editor.read-mode (dark theme kills span colors). */
+.tree-gantt-subject-preview__richtext {
+	min-width: 0;
+	word-wrap: break-word;
+	overflow-wrap: anywhere;
+}
+
+.tree-gantt-subject-preview__richtext p,
+.tree-gantt-subject-preview__richtext ol,
+.tree-gantt-subject-preview__richtext ul,
+.tree-gantt-subject-preview__richtext pre,
+.tree-gantt-subject-preview__richtext blockquote {
+	margin: 0 0 0.4em;
+}
+
+.tree-gantt-subject-preview__richtext p:last-child,
+.tree-gantt-subject-preview__richtext ol:last-child,
+.tree-gantt-subject-preview__richtext ul:last-child,
+.tree-gantt-subject-preview__richtext pre:last-child,
+.tree-gantt-subject-preview__richtext blockquote:last-child {
+	margin-bottom: 0;
+}
+
+.tree-gantt-subject-preview__richtext pre,
+.tree-gantt-subject-preview__richtext .ql-code-block-container {
+	padding: 6px 8px;
+	border-radius: var(--border-radius, 4px);
+	background: var(--control-bg, #f5f7fa);
+	font-family: var(--font-mono, monospace);
+	font-size: 11px;
+	white-space: pre-wrap;
+}
+
+.tree-gantt-subject-preview__richtext a {
+	text-decoration: underline;
+}
+
+.tree-gantt-subject-preview__loading,
+.tree-gantt-subject-preview__empty {
+	font-size: 12px;
+}
+
+/* Tree inline Control(Data) on subject click. */
+.tree-gantt-subject-edit {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: 100%;
+}
+
+.tree-gantt-subject-edit .frappe-control,
+.tree-gantt-subject-edit .form-group {
+	margin: 0 !important;
+	max-width: 100%;
+}
+
+.tree-gantt-subject-edit .form-control {
+	background: transparent !important;
+	border: none !important;
+	box-shadow: none !important;
+	padding: 0 !important;
+	height: 22px !important;
+	min-height: 22px !important;
+	font-size: inherit !important;
+	font-weight: 400 !important;
+	line-height: 1.2;
+}
+
+.tree-gantt-subject-edit .form-control.bold,
+.tree-gantt-subject-edit input.form-control.bold {
+	font-weight: 400 !important;
+}
+
+.tree-gantt-subject:has(.tree-gantt-subject-edit) .tree-gantt-subject-toolbar {
+	display: none !important;
+}
+
+/* Tree: .tree-link:hover .tree-node-toolbar { display: inline-flex }.
+ * Host node IS .dinext-table (same element) — no descendant combinator.
+ * Kill Frappe .tree-node-toolbar margin-top:-8px (lifts the bar off-center). */
+.tree-gantt-subject-toolbar {
+	display: none;
+	flex: 0 0 auto;
+	align-items: stretch;
+	align-self: stretch;
+	gap: 0;
+	margin: 0 0 0 4px;
+	padding: 0;
+	white-space: nowrap;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-row-hover .tree-gantt-subject-toolbar,
+.task-tree-gantt-table-host .ag-row-hover .tree-gantt-subject-toolbar,
+.task-tree-gantt-table-host.dinext-table .ag-cell:hover .tree-gantt-subject-toolbar,
+.task-tree-gantt-table-host .ag-cell:hover .tree-gantt-subject-toolbar {
+	display: inline-flex !important;
+}
+
+/* AG cells clip overflowing toolbar — keep subject cell visible. */
+.task-tree-gantt-table-host.dinext-table-tree-content,
+.task-tree-gantt-table-host .ag-cell[col-id="subject"],
+.task-tree-gantt-table-host .ag-cell.ag-column-first {
+	overflow: visible;
+}
+
+.task-tree-gantt-table-host .ag-cell[col-id="subject"] .dinext-table-tree-cell,
+.task-tree-gantt-table-host .ag-cell[col-id="subject"] .dinext-table-tree-content,
+.task-tree-gantt-table-host .dinext-table-tree-cell .tree-gantt-subject {
+	align-self: stretch;
+	height: 100%;
+	min-height: 100%;
+}
+
+/* Tree sticky .tree-link: opaque bg while center scrolls. No pin-seam shadow. */
+.task-tree-gantt-table-host .ag-pinned-left-cols-container,
+.task-tree-gantt-table-host .ag-pinned-left-header {
+	background: var(--bg-color, var(--card-bg, #fff));
+	z-index: 2;
+	box-shadow: none;
+}
+
+.task-tree-gantt-table-host .ag-pinned-left-cols-container .ag-cell[col-id="subject"] {
+	background: transparent;
+}
+
+[data-theme="dark"] .task-tree-gantt-table-host .ag-pinned-left-cols-container,
+[data-theme="dark"] .task-tree-gantt-table-host .ag-pinned-left-header {
+	background: var(--bg-color, #242424);
+}
+
+[data-theme="dark"]
+	.task-tree-gantt-table-host
+	.ag-pinned-left-cols-container
+	.ag-cell[col-id="subject"] {
+	background: transparent;
+}
+
+.tree-gantt-subject-toolbar .btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	min-height: 0;
+	min-width: 22px;
+	padding: 0 5px;
+	line-height: 1;
+	font-size: 14px;
+	border: none !important;
+	border-radius: 3px;
+	box-shadow: none !important;
+	background: transparent !important;
+	background-color: transparent !important;
+}
+
+.tree-gantt-subject-toolbar.btn-group > .btn + .btn,
+.tree-gantt-subject-toolbar.btn-group > .btn:nth-child(2) {
+	margin-left: 0;
+	border-left: none !important;
+}
+
+.tree-gantt-subject-toolbar .btn:hover,
+.tree-gantt-subject-toolbar .btn:focus-visible {
+	background: var(--btn-default-bg, var(--control-bg, #f4f5f6)) !important;
+	background-color: var(--btn-default-bg, var(--control-bg, #f4f5f6)) !important;
+}
+
+.tree-gantt-subject-toolbar .btn.fa:before {
+	margin: 0;
+}
+
+/* Assign — Tree .details-cell.assign */
+.tree-gantt-assign {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+/* Cell + avatars: pointer — click/dblclick opens dialog. */
+.tree-gantt-assign--editable {
+	cursor: pointer;
+}
+
+.tree-gantt-relations--clickable,
+.tree-gantt-relations--editable {
+	cursor: pointer;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	width: 100%;
+	min-height: 100%;
+}
+
+/* Beat DinextTable `.ag-cell { cursor: text }` on the filled/clickable cell. */
+.task-tree-gantt-table-host.dinext-table
+	.ag-cell[col-id="relations"]:has(.tree-gantt-relations--clickable):not(
+		.tree-gantt-cell--write-denied
+	) {
+	cursor: pointer;
+}
+
+/* Relations cell popover (mini-table) */
+.tree-gantt-relations-popover {
+	position: fixed;
+	z-index: 1055;
+	min-width: 420px;
+	max-width: min(560px, calc(100vw - 16px));
+	overflow: visible;
+	padding: 12px 16px;
+	background: var(--fg-color, #fff);
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: var(--border-radius-md, 6px);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18));
+}
+
+/* Default: no scroll — Link list paints under input (Frappe awesomplete). */
+.tree-gantt-relations-popover__rows {
+	overflow: visible;
+}
+
+/* JS sets max-height when panel would exceed 500px */
+.tree-gantt-relations-popover__rows--scrollable {
+	overflow-x: hidden;
+	overflow-y: auto;
+}
+
+/* Solid list surface + above footer (desk theme --bg-color) */
+.tree-gantt-relations-popover .awesomplete {
+	position: relative;
+}
+
+.tree-gantt-relations-popover .awesomplete > ul,
+.tree-gantt-relations-popover .awesomplete > [role="listbox"] {
+	background-color: var(--fg-color, var(--bg-color, #fff));
+	color: var(--text-color);
+	border: 1px solid var(--border-color);
+	box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18));
+	z-index: 20;
+	left: 0;
+	right: auto;
+}
+
+.tree-gantt-relations-popover__table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 4px;
+}
+
+.tree-gantt-relations-popover__table th {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted, #8d99a6);
+	text-align: left;
+	padding: 2px 4px 6px;
+}
+
+.tree-gantt-relations-popover__table td {
+	padding: 3px 4px;
+	vertical-align: middle;
+}
+
+.tree-gantt-relations-popover__del {
+	width: 36px;
+	text-align: center;
+}
+
+.tree-gantt-relations-popover__ctrl .form-group {
+	margin-bottom: 0;
+}
+
+.tree-gantt-relations-popover-control .control-input-wrapper,
+.tree-gantt-relations-popover-control .form-control {
+	min-height: 28px;
+}
+
+.tree-gantt-relations-popover__footer {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+	/* Match table cell horizontal padding (th/td: 4px) */
+	padding: 0 4px;
+}
+
+.tree-gantt-relations-popover__spacer {
+	flex: 1;
+}
+
+.tree-gantt-assign-avatars--action,
+.tree-gantt-assign-avatars--action .avatar,
+.tree-gantt-assign-avatars--action .avatar-frame {
+	cursor: pointer;
+}
+
+.task-tree-gantt-table-host.dinext-table
+	.ag-cell[col-id="assign"]:has(.tree-gantt-assign--editable):not(
+		.tree-gantt-cell--write-denied
+	) {
+	cursor: pointer;
+}
+
+.task-tree-gantt-table-host .ag-cell[col-id="assign"] {
+	overflow: visible;
+}
+
+.task-tree-gantt-table-host .ag-cell[col-id="assign"]:hover {
+	background-color: var(--control-bg);
+}
+
+/* Desk overlap CSS is `.avatar-group.overlap:hover` — also expand on cell hover. */
+.task-tree-gantt-table-host .ag-cell[col-id="assign"]:hover .avatar-group.overlap .avatar:not(:first-child) {
+	margin-left: var(--margin-xs);
+}
+
+.tree-gantt-assign-avatars .avatar {
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+}
+
+.tree-gantt-assign-avatars .avatar-frame {
+	width: 22px;
+	height: 22px;
+}
+
+/* Outline on the circular frame — .avatar box is square. */
+.tree-gantt-assign-avatar--todo .avatar-frame {
+	outline: 2px dashed var(--orange-500, #ed8936);
+	outline-offset: 1px;
+}
+
+.tree-gantt-assign-avatar--pwa .avatar-frame {
+	outline: 2px solid transparent;
+}
+
+/*
+ * Tree: .progress-bar.progress-bar-success inside cell.
+ * Bootstrap .progress-bar is float + height:100% — parent needs fixed height
+ * (otherwise bar collapses to 0 in AG cell).
+ */
+.tree-gantt-progress {
+	display: block;
+	width: 100%;
+	height: 12px;
+	overflow: hidden;
+	border-radius: 2px;
+	background-color: color-mix(in srgb, var(--text-color) 10%, transparent);
+}
+
+.tree-gantt-progress-bar,
+.tree-gantt-progress .progress-bar {
+	float: left;
+	height: 12px;
+	min-height: 12px;
+	background-color: var(--green-500, #98d85b);
+	box-shadow: none;
+}
+
+.tree-gantt-tags {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	overflow: hidden;
+	width: 100%;
+	height: 100%;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="user_tags"] {
+	overflow: hidden;
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="user_tags"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="user_tags"] .ag-cell-value {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/*
+ * Frappe .tag-pill is height:24px / width:60px / padding:3px 10px.
+ * That sits text at the top of the pill in a 28px AG row. Override layout only.
+ */
+.task-tree-gantt-table-host.dinext-table .tree-gantt-tag-pill.tag-pill {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	height: 18px;
+	width: auto;
+	max-width: 72px;
+	padding: 0 6px;
+	border-radius: 8px;
+	font-size: var(--text-xs, 11px);
+	line-height: 18px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	vertical-align: middle;
+	background: var(--bg-light-gray, #e8e8e8);
+	cursor: pointer;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority {
+	font-weight: 400;
+	font-size: var(--text-xs, 11px);
+	line-height: 1.15;
+	padding-block: 0;
+	padding-inline: 2px;
+}
+
+/* Priority labels: vertical + horizontal center (AG cell is inline-block) */
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority {
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+}
+
+/* DinextTable: fill on `.ag-cell` (cellClassRules), not child renderer */
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--completed {
+	color: var(--text-on-green);
+	background-color: color-mix(in srgb, var(--bg-green) 25%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--overdue {
+	color: var(--alert-text-danger);
+	background-color: color-mix(in srgb, var(--alert-bg-danger) 25%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--cancelled {
+	color: var(--text-on-light-gray);
+	background-color: color-mix(in srgb, var(--bg-light-gray) 25%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--working {
+	color: var(--text-on-blue);
+	background-color: color-mix(in srgb, var(--bg-blue) 25%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-status--pending_review {
+	color: var(--text-on-dark-blue);
+	background-color: color-mix(in srgb, var(--bg-dark-blue) 25%, transparent);
+}
+
+/* Tree: Open/Template без спец-цвета */
+
+.tree-gantt-status-cell,
+.tree-gantt-priority-cell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	min-height: 100%;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .ag-checkbox,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .ag-checkbox-input-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .ag-input-field-input,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .tree-gantt-assign,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .tree-gantt-assign-avatars,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .avatar,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .avatar-frame,
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-cell--write-denied .tree-gantt-relations {
+	cursor: not-allowed;
+}
+
+.task-tree-gantt-table-host.dinext-table
+	.ag-row.tree-gantt-row--reorder-denied
+	.dinext-table-row-reorder-handle {
+	cursor: not-allowed;
+}
+
+.task-tree-gantt-chart .gantt .bar-group.tree-gantt-bar--write-denied,
+.task-tree-gantt-chart .gantt .bar-group.tree-gantt-bar--write-denied .bar,
+.task-tree-gantt-chart .gantt .bar-group.tree-gantt-bar--write-denied .bar-progress {
+	cursor: not-allowed;
+}
+
+.tree-gantt-status--editable,
+.tree-gantt-priority--editable {
+	cursor: pointer;
+}
+
+/* Dense grid: square edit chrome (AG quartz uses --ag-card-radius). */
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing {
+	border-radius: 0;
+}
+
+/*
+ * Datepicker on body. Desk --shadow-* use black rgba — invisible on dark table.
+ * Outline + deep drop for separation from grid.
+ */
+.datepicker.tree-gantt-datepicker {
+	/* border-radius: 0; */
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.12),
+		0 10px 28px rgba(51, 49, 49, 0.72);
+}
+
+.datepicker.tree-gantt-datepicker .datepicker--pointer {
+	border-radius: 0;
+}
+
+/*
+ * Frappe ControlDate — in-cell AG editor (not popup).
+ * dinext-table.css loads after this file and used to force --ag-font-size 14px.
+ * Pin 11px on cell + wrappers + input (high specificity + !important) so Desk
+ * .form-control / .input-with-feedback / .bold cannot enlarge or bold the text.
+ */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="status"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="priority"].ag-cell-inline-editing,
+.task-tree-gantt-table-host.dinext-table .ag-cell.ag-cell-inline-editing:has(.tree-gantt-frappe-date-editor),
+.task-tree-gantt-table-host.dinext-table .ag-cell.ag-cell-inline-editing:has(.tree-gantt-frappe-select-editor) {
+	padding: 0;
+	font-size: var(--text-xs, 11px) !important;
+	font-weight: 400 !important;
+	line-height: 1.15 !important;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-editor,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .form-group,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .frappe-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .control-input-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .control-input,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-editor,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control .form-group,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control .frappe-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control .control-input-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control .control-input {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	margin: 0 !important;
+	padding: 0 !important;
+	display: flex;
+	align-items: stretch;
+	box-sizing: border-box;
+	background: transparent;
+	font-family: var(--font-stack, inherit);
+	font-size: var(--text-xs, 11px) !important;
+	font-weight: 400 !important;
+	line-height: 1.2 !important;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"].ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.form-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.form-control.bold,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input.tree-gantt-frappe-date-input,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor.form-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing input.dinext-table-date-editor.form-control.bold {
+	width: 100%;
+	height: 100% !important;
+	min-width: 0;
+	min-height: 0 !important;
+	max-height: 100%;
+	margin: 0;
+	padding: 0 var(--ag-cell-horizontal-padding, 4px) !important;
+	border: none !important;
+	border-radius: 0;
+	box-shadow: none !important;
+	outline: none !important;
+	background: transparent !important;
+	font-family: inherit !important;
+	font-size: var(--text-xs, 11px) !important;
+	font-weight: 400 !important;
+	line-height: inherit !important;
+	text-align: center;
+	box-sizing: border-box;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control .form-control:focus,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-date-control input:focus,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control .form-control:focus,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select:focus {
+	border: none !important;
+	box-shadow: none !important;
+	outline: none !important;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select.form-control,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select.form-control.input-with-feedback,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select.tree-gantt-frappe-select-input,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing select.dinext-table-select-editor {
+	width: 100%;
+	height: 100% !important;
+	min-width: 0;
+	min-height: 0 !important;
+	max-height: 100%;
+	margin: 0;
+	padding: 0 14px 0 2px !important;
+	border: none !important;
+	border-radius: 0;
+	box-shadow: none !important;
+	outline: none !important;
+	background-color: transparent !important;
+	background-position: right 2px center;
+	font-family: inherit !important;
+	font-size: var(--text-xs, 11px) !important;
+	font-weight: 400 !important;
+	line-height: inherit !important;
+	text-align: center;
+	text-align-last: center;
+	box-sizing: border-box;
+}
+
+[data-theme="dark"] .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select,
+[data-theme="dark"] .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing select.dinext-table-select-editor {
+	color-scheme: dark;
+}
+
+[data-theme="light"] .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select,
+[data-theme="light"] .task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing select.dinext-table-select-editor {
+	color-scheme: light;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing .tree-gantt-frappe-select-control select option,
+.task-tree-gantt-table-host.dinext-table .ag-cell-inline-editing select.dinext-table-select-editor option {
+	background-color: Canvas;
+	color: CanvasText;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--urgent {
+	color: var(--text-on-red);
+	background-color: color-mix(in srgb, var(--bg-red) 25%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--high {
+	color: var(--text-orange);
+	background-color: color-mix(in srgb, var(--bg-orange) 25%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--medium {
+	color: var(--text-on-yellow);
+	background-color: color-mix(in srgb, var(--bg-yellow) 25%, transparent);
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell.tree-gantt-priority--low {
+	color: var(--text-muted);
+	background-color: transparent;
+}
+
+/* dates — center, compact (Tree details-cell parity) */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_start_date"],
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_end_date"] {
+	font-size: var(--text-xs, 11px);
+	text-align: center;
+}
+
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_start_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="custom_planned_end_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_start_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="exp_end_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_start_date"] > .ag-cell-wrapper,
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="act_end_date"] > .ag-cell-wrapper {
+	justify-content: center;
+	width: 100%;
+}
+
+/* progress — fixed-height track, vertically centered in row */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="progress"] {
+	display: flex !important;
+	align-items: center;
+	padding-block: 0;
+	padding-inline: 4px;
+}
+
+/* duration — Tree 50px */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="expected_time"] {
+	font-size: var(--text-xs, 11px);
+}
+
+/* type — muted compact */
+.task-tree-gantt-table-host.dinext-table .ag-cell[col-id="type"] {
+	font-size: var(--text-xs, 11px);
+	color: var(--text-muted);
+}
+
+.tree-gantt-plan-fact {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+.tree-gantt-plan-fact-btn.plan-fact-button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border-radius: 50%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+}
+
+.tree-gantt-plan-fact-btn.plan-fact-button i {
+	margin: 0;
+}
+
+/* Tree hex status colors (button + dialog formatters .block/.message/…) */
+.task-tree-gantt-table-host .plan-fact-button.block,
+.modal-body .block {
+	color: #f44336;
+}
+
+.task-tree-gantt-table-host .plan-fact-button.message,
+.modal-body .message {
+	color: #ff9800;
+}
+
+.task-tree-gantt-table-host .plan-fact-button.warning,
+.modal-body .warning {
+	color: #ffeb3b;
+}
+
+.task-tree-gantt-table-host .plan-fact-button.normal,
+.modal-body .normal {
+	color: #4caf50;
+}
+
+.task-tree-gantt-table-host .plan-fact-button.no-plan,
+.task-tree-gantt-table-host .plan-fact-button.no-data,
+.modal-body .no-plan {
+	color: #9e9e9e;
+}
+
+.modal-body div[data-fieldname="plan_fact_table"] .row-check.col {
+	display: none;
+}
+
+body.task-tree-gantt-resizing iframe {
+	pointer-events: none;
+}
+
+@media screen and (max-width: 600px) {
+	.task-tree-gantt-shell {
+		flex-direction: column;
+		height: auto;
+		min-height: 0;
+	}
+
+	.task-tree-gantt-panel--left,
+	.task-tree-gantt-panel--right {
+		width: 100% !important;
+	}
+
+	.task-tree-gantt-resize {
+		display: none;
+	}
+}

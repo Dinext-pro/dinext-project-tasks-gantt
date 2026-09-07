@@ -19,20 +19,6 @@ fixtures = [
         ]
     },
     {
-        "doctype": "Client Script",
-        "filters": [
-            ["module", "in", ["Dinext Project Tasks Gantt"]],
-            ["enabled", "=", 1]
-        ]
-    },
-    {
-        "doctype": "Server Script",
-        "filters": [
-            ["module", "in", ["Dinext Project Tasks Gantt"]],
-            ["disabled", "=", 0]
-        ]
-    },
-    {
         "doctype": "Property Setter",
         "filters": [
             ["module", "in", ["Dinext Project Tasks Gantt"]]
@@ -51,11 +37,7 @@ fixtures = [
 # Apps
 # ------------------
 
-required_apps = [
-    "frappe/erpnext",
-    "dinext/dinext_common",
-    "dinext/dinext_projects",
-]
+required_apps = ["dinext_common", "doctype_permission", "dinext_projects"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -72,7 +54,8 @@ required_apps = [
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_js = "/assets/dinext_project_tasks_gantt/js/dinext_project_tasks_gantt.js"
+# `dinext.fieldRules` registry (Task form adapter + Task Tree consume it; owner apps register).
+app_include_js = ["field_rules.bundle.js"]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/dinext_project_tasks_gantt/css/dinext_project_tasks_gantt.css"
@@ -93,6 +76,7 @@ doctype_js = {
 	"Task": [
 		"public/js/task_progress_trend_styles.js",
 		"public/js/task_progress_trend.js",
+		"public/js/task_field_rules_form.js",
 	],
 	"Project": [
 		"public/js/burndown_navigation.js",
@@ -104,6 +88,7 @@ doctype_tree_js = {
 	"Task": [
 		"public/js/burndown_navigation.js",
 		"public/js/task_tree_burndown_button.js",
+		"public/js/task_tree_gantt_adapter.js",
 	],
 }
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -143,7 +128,8 @@ doctype_tree_js = {
 # ------------
 
 # before_install = "dinext_project_tasks_gantt.install.before_install"
-# after_install = "dinext_project_tasks_gantt.install.after_install"
+after_install = "dinext_project_tasks_gantt.install.after_install"
+after_migrate = "dinext_project_tasks_gantt.install.after_migrate"
 
 # Uninstallation
 # ------------
@@ -197,25 +183,53 @@ doctype_tree_js = {
 # ---------------
 # Hook on document methods and events
 
+vt_handlers = "dinext_project_tasks_gantt.virtual_task.handlers"
+td_handlers = "dinext_project_tasks_gantt.task_dates.handlers"
+
 doc_events = {
 	"Project": {
 		"before_save": "dinext_project_tasks_gantt.project_progress_audit.before_save_project",
 	},
+	"Issue": {
+		"after_insert": f"{vt_handlers}.after_insert_issue",
+		"on_update": f"{vt_handlers}.on_update_issue",
+		"on_trash": f"{vt_handlers}.on_trash_issue",
+	},
 	"Task": {
-		"before_insert": "dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
+		"before_validate": f"{td_handlers}.before_validate_task",
+		"before_insert": [
+			"dinext_project_tasks_gantt.project_progress_audit.before_insert_task",
+			"dinext_project_tasks_gantt.task_tree_order.before_insert_task",
+		],
 		"before_save": [
 			"dinext_project_tasks_gantt.task_progress_audit.before_save_task",
 			"dinext_project_tasks_gantt.project_progress_audit.before_save_task",
+			f"{td_handlers}.before_save_task",
+			f"{vt_handlers}.before_save_task",
 		],
 		"on_update": [
 			"dinext_project_tasks_gantt.project_progress_audit.on_update_task",
 			"dinext_project_tasks_gantt.task_parent_progress.on_update_task",
+			f"{vt_handlers}.on_update_task",
 		],
 		"on_trash": "dinext_project_tasks_gantt.project_progress_audit.on_trash_task",
 		"after_delete": [
 			"dinext_project_tasks_gantt.project_progress_audit.after_delete_task",
 			"dinext_project_tasks_gantt.task_parent_progress.after_delete_task",
+			f"{vt_handlers}.after_delete_task",
 		],
+	},
+	"ToDo": {
+		"after_insert": f"{vt_handlers}.after_insert_todo",
+		"on_update": f"{vt_handlers}.on_update_todo",
+	},
+	"DocShare": {
+		"after_insert": f"{vt_handlers}.after_insert_docshare",
+		"on_update": f"{vt_handlers}.on_update_docshare",
+		"after_delete": f"{vt_handlers}.after_delete_docshare",
+	},
+	"Tag Link": {
+		"after_insert": f"{vt_handlers}.after_insert_tag_link",
 	},
 }
 
