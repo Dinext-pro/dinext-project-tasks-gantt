@@ -844,7 +844,7 @@ def _load_task_volume_rows(
 		if measure == "hours"
 		else {}
 	)
-
+	plan_bulk = _timesheet_plan_bulk(project) if measure == "hours" and project else None
 	for task in tasks:
 		if measure == "hours":
 			task["volume"] = _hours_volume_for_task(
@@ -853,6 +853,7 @@ def _load_task_volume_rows(
 				pwe_by_task,
 				hours_source=hours_source,
 				project_role_filters=project_role_filters,
+				bulk=plan_bulk,
 			)
 		else:
 			task["volume"] = _task_volume(task, measure, sp_map, pwe_by_task, use_task_weight)
@@ -973,23 +974,18 @@ def _hours_volume_for_task(
 	pwe_by_task: dict[str, float] | None = None,
 	hours_source: str = "pwea_plan",
 	project_role_filters: list[str] | None = None,
+	bulk=None,
 ) -> float:
-	project_role_filters = _normalize_project_role_filters(project_role_filters)
-	if cint(task.get("is_group")):
-		effective_by_role = (
-			_effective_group_planned_hours_by_role(
-				project,
-				task.get("name"),
-				hours_source=hours_source,
-				project_role_filters=project_role_filters,
-			)
-			if project_role_filters
-			else _effective_group_planned_hours_by_role(
-				project, task.get("name"), hours_source=hours_source
-			)
-		)
-		return sum(flt(value) for value in effective_by_role.values())
-	return flt((pwe_by_task or {}).get(task.get("name"), 0.0))
+	hours_by_role, consumers, assembled_at = _branch_plan_fact(
+		project,
+		task.get("name"),
+		project_role_filters=project_role_filters,
+		hours_source=hours_source,
+		bulk=bulk,
+	)
+	task["_pf_consumers"] = consumers
+	task["_pf_assembled_at"] = assembled_at
+	return sum(flt(value) for value in hours_by_role.values())
 
 
 def _effective_hours_scope_volume(plan_volume: float, cumulative_actual_hours: float) -> float:
@@ -1783,173 +1779,147 @@ def _project_limits(project: str | None) -> dict[str, float | None]:
 	}
 
 
-def _planned_hours_by_role(
-	project: str | None,
-	task: str,
-	hours_source: str = "pwea_plan",
-	project_role_filters: list[str] | None = None,
-) -> dict[str, float]:
-	if not project or not task:
-		return {}
-	pwe = frappe.qb.DocType("Project Work Efforts")
-	amount = frappe.qb.DocType("Project Work Efforts Amount")
-	return _planned_hours_by_role_for_task(
-		project,
-		task,
-		pwe,
-		amount,
-		hours_source=hours_source,
-		project_role_filters=project_role_filters,
+def _timesheet_plan_bulk(project: str):
+	from project_workload_assignment.project_workload_assignment.work_efforts.timesheet_limits.bulk_loader import (
+		TimesheetLimitsBulkLoader,
 	)
 
+	return TimesheetLimitsBulkLoader.load([{"project": project}])
 
-def _planned_hours_by_role_for_task(
-	project: str,
+
+def _branch_plan_fact(
+	project: str | None,
 	task: str,
-	pwe: Any | None = None,
-	amount: Any | None = None,
-	hours_source: str = "pwea_plan",
 	project_role_filters: list[str] | None = None,
-) -> dict[str, float]:
-	pwe = pwe or frappe.qb.DocType("Project Work Efforts")
-	amount = amount or frappe.qb.DocType("Project Work Efforts Amount")
-	amount_expr = _pwe_amount_expression(amount, hours_source)
-	query = (
-		frappe.qb.from_(pwe)
-		.inner_join(amount)
-		.on(amount.parent == pwe.name)
-		.select(
-			pwe.pwe_project_role.as_("role"),
-			Sum(amount_expr).as_("planned_hours"),
+	hours_source: str = "pwea_plan",
+	bulk=None,
+) -> tuple[dict[str, float], list[str], str]:
+	"""Котёл, едоки, assembled_at. hours_source: pwea_plan | pwea_expected."""
+	if not project or not task:
+		return {}, [task] if task else [], task
+	from project_workload_assignment.project_workload_assignment.work_efforts.timesheet_limits.bulk_loader import (
+		TimesheetLimitsBulkLoader,
+	)
+	from project_workload_assignment.project_workload_assignment.work_efforts.timesheet_limits.plan_fact_adapter import (
+		TimesheetPlanFactAdapter,
+	)
+
+	if bulk is None:
+		bulk = TimesheetLimitsBulkLoader.load([{"project": project}])
+	roles = _normalize_project_role_filters(project_role_filters) or None
+	hours_key = "expected" if _normalize_hours_source(hours_source) == "pwea_expected" else "plan"
+	hours = TimesheetPlanFactAdapter.hours_by_role(
+		bulk, project, task, roles, hours_key=hours_key
+	)
+	consumers = list(
+		TimesheetPlanFactAdapter.consumers_for(
+			bulk, project, task, roles, hours_key=hours_key
 		)
-		.where(pwe.pwe_project == project)
-		.where(pwe.pwe_task == task)
-		.groupby(pwe.pwe_project_role)
 	)
-	query = _apply_project_role_filters(query, pwe.pwe_project_role, project_role_filters)
-	rows = query.run(as_dict=True)
-	out: dict[str, float] = {}
-	for row in rows:
-		role = (row.get("role") or "").strip()
-		planned = flt(row.get("planned_hours"))
-		if role and planned > 0:
-			out[role] = planned
+	assembled = task
+	wanted = roles or list(hours) or TimesheetPlanFactAdapter._roles(bulk, project)
+	for role in wanted:
+		got = TimesheetPlanFactAdapter.result(
+			bulk, project, task, role, hours_key=hours_key
+		)
+		if not got:
+			continue
+		if got.assembled_at == task:
+			assembled = task
+			break
+		assembled = got.assembled_at
+	return hours, consumers or [task], assembled or task
+
+
+def _branch_hours_by_role(
+	project: str | None,
+	task: str,
+	project_role_filters: list[str] | None = None,
+	hours_source: str = "pwea_plan",
+) -> dict[str, float]:
+	hours, _consumers, _assembled = _branch_plan_fact(
+		project, task, project_role_filters, hours_source
+	)
+	return hours
+
+
+def _branch_consumers(
+	project: str | None,
+	task: str,
+	project_role_filters: list[str] | None = None,
+	hours_source: str = "pwea_plan",
+) -> list[str]:
+	_hours, consumers, _assembled = _branch_plan_fact(
+		project, task, project_role_filters, hours_source
+	)
+	return consumers
+
+
+def _task_branch_consumers(task: dict) -> list[str]:
+	raw = task.get("_pf_consumers")
+	if raw:
+		return [str(item) for item in raw if item]
+	name = task.get("name")
+	return [name] if name else []
+
+
+def _hours_fact_scope_names(
+	tasks: list[dict], fallback: list[str] | None = None
+) -> list[str]:
+	names = {item for task in tasks for item in _task_branch_consumers(task)}
+	if names:
+		return sorted(names)
+	return list(fallback or [])
+
+
+def _remap_hours_to_branch_pots(
+	raw_by_task: dict[str, float], tasks: list[dict]
+) -> dict[str, float]:
+	if not any(task.get("_pf_consumers") for task in tasks):
+		return dict(raw_by_task)
+	return {
+		task["name"]: sum(flt(raw_by_task.get(item)) for item in _task_branch_consumers(task))
+		for task in tasks
+		if task.get("name")
+	}
+
+
+def _hours_ancestor_names(name: str, parent_of: dict[str, str | None]) -> list[str]:
+	out: list[str] = []
+	current = parent_of.get(name)
+	seen: set[str] = set()
+	while current and current not in seen:
+		out.append(current)
+		seen.add(current)
+		current = parent_of.get(current)
 	return out
 
 
-def _add_hours_by_role(target: dict[str, float], source: dict[str, float]) -> None:
-	for role, planned in source.items():
-		target[role] = target.get(role, 0.0) + flt(planned)
-
-
-def _child_tree_planned_hours_by_role(
-	project: str | None,
-	task: str,
-	hours_source: str = "pwea_plan",
-	project_role_filters: list[str] | None = None,
-) -> dict[str, float]:
-	if not project or not task:
-		return {}
-	rows = _task_child_names(project, task)
-	children_by_parent: dict[str, list[str]] = {}
-	for row in rows:
-		parent = row.get("parent_task")
-		name = row.get("name")
-		if parent and name:
-			children_by_parent.setdefault(parent, []).append(name)
-
-	pwe = frappe.qb.DocType("Project Work Efforts")
-	amount = frappe.qb.DocType("Project Work Efforts Amount")
-	plan_cache: dict[str, dict[str, float]] = {}
-	visited_by_role: dict[str, set[str]] = {}
-
-	def child_plan(task_name: str) -> dict[str, float]:
-		if task_name not in plan_cache:
-			plan_cache[task_name] = _planned_hours_by_role_for_task(
-				project,
-				task_name,
-				pwe,
-				amount,
-				hours_source=hours_source,
-				project_role_filters=project_role_filters,
-			)
-		return plan_cache[task_name]
-
-	def roles_in_subtree(parent: str, visited: set[str] | None = None) -> set[str]:
-		visited = visited or set()
-		if parent in visited:
-			return set()
-		visited.add(parent)
-		out: set[str] = set()
-		for child in sorted(children_by_parent.get(parent, [])):
-			out.update(child_plan(child).keys())
-			out.update(roles_in_subtree(child, visited))
-		return out
-
-	def nearest_role_hours(parent: str, role: str) -> float:
-		visited = visited_by_role.setdefault(role, set())
-		if parent in visited:
-			return 0.0
-		visited.add(parent)
-		current_plan = flt(child_plan(parent).get(role))
-		if current_plan > 0:
-			return current_plan
-		for child in sorted(children_by_parent.get(parent, [])):
-			planned = flt(child_plan(child).get(role))
-			if planned > 0:
-				return planned
-			descendant_hours = nearest_role_hours(child, role)
-			if descendant_hours > 0:
-				return descendant_hours
-		return 0.0
-
-	def planned_for_descendants(parent: str) -> dict[str, float]:
-		if parent not in children_by_parent:
-			return {}
-		out: dict[str, float] = {}
-		roles = roles_in_subtree(parent)
-		for role in sorted(roles):
-			total_for_role = 0.0
-			for child in sorted(children_by_parent.get(parent, [])):
-				visited_by_role[role] = set()
-				total_for_role += nearest_role_hours(child, role)
-			if total_for_role > 0:
-				out[role] = total_for_role
-		return out
-
-	return planned_for_descendants(task)
-
-
-def _effective_group_planned_hours_by_role(
-	project: str | None,
-	task: str,
-	hours_source: str = "pwea_plan",
-	project_role_filters: list[str] | None = None,
-) -> dict[str, float]:
-	if not project or not task:
-		return {}
-	own_plan = _planned_hours_by_role(
-		project,
-		task,
-		hours_source=hours_source,
-		project_role_filters=project_role_filters,
-	)
-	if not own_plan:
-		return {}
-	descendant_plan = _child_tree_planned_hours_by_role(
-		project,
-		task,
-		hours_source=hours_source,
-		project_role_filters=project_role_filters,
-	)
-	if not descendant_plan:
-		return own_plan
-	out: dict[str, float] = {}
-	for role, planned in own_plan.items():
-		remaining = flt(planned) - flt(descendant_plan.get(role))
-		if remaining > 0:
-			out[role] = remaining
-	return out
+def _hours_aggregate_task_names(tasks: list[dict]) -> set[str]:
+	"""Один представитель на котёл: предок, не дети того же котла."""
+	visible = [task for task in tasks if task.get("name")]
+	if not any(task.get("_pf_assembled_at") or task.get("_pf_consumers") for task in visible):
+		return {task["name"] for task in visible}
+	parent_of = {task["name"]: task.get("parent_task") or None for task in visible}
+	assembled_of = {
+		task["name"]: task.get("_pf_assembled_at") or task["name"] for task in visible
+	}
+	unique_at = set(assembled_of.values())
+	keep_at = {
+		at
+		for at in unique_at
+		if not any(ancestor in unique_at for ancestor in _hours_ancestor_names(at, parent_of))
+	}
+	reps: set[str] = set()
+	for at in keep_at:
+		if at in assembled_of:
+			reps.add(at)
+			continue
+		for name, assembled in assembled_of.items():
+			if assembled == at:
+				reps.add(name)
+				break
+	return reps
 
 
 def _total_hours(hours_by_role: list[dict[str, Any]]) -> float:
@@ -2250,18 +2220,10 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	task_start = min(task_start_candidates) if task_start_candidates else None
 	actual_progress_completion = getdate(task_row["completed_on"]) if task_row.get("completed_on") else None
 	skip_forecasts = _task_trend_forecasts_suppressed(task_row)
-	task_names_for_hours = _task_tree_names(task_row.get("project"), task)
-	planned_hours_by_role = (
-		_effective_group_planned_hours_by_role(task_row.get("project"), task)
-		if cint(task_row.get("is_group"))
-		else _planned_hours_by_role(task_row.get("project"), task)
+	planned_hours_by_role, task_names_for_hours, _assembled = _branch_plan_fact(
+		task_row.get("project"), task
 	)
-	scale_planned_hours_by_role = (
-		planned_hours_by_role
-		if planned_hours_by_role
-		else _child_tree_planned_hours_by_role(task_row.get("project"), task)
-	)
-	scale_planned_hours = sum(flt(value) for value in scale_planned_hours_by_role.values())
+	scale_planned_hours = sum(flt(value) for value in planned_hours_by_role.values())
 	project_limits = _project_limits(task_row.get("project"))
 	def _build_trend_state(
 		current_buckets: list[tuple[str, date, date]],
@@ -2526,7 +2488,7 @@ def _utp_cumulative_hours_by_task(
 		task_name = row.get("task_name")
 		if not task_name:
 			continue
-		task_start = task_start_dates.get(task_name)
+		task_start = task_start_dates.get(task_name) or query_start
 		work_date = row.get("work_date")
 		if not task_start or not work_date or getdate(work_date) < task_start:
 			continue
@@ -2780,10 +2742,26 @@ def _period_volume_burndown(
 	task_by_name = {task["name"]: task for task in tasks if task.get("name")}
 	hours_completion_dates: dict[str, date] = {}
 	released_hours_by_task: dict[str, float] = {}
+	agg_names = {task["name"] for task in tasks if task.get("name")}
+	fact_names = task_names
 	if measure == "hours":
-		last_approved_timesheet_dates = _utp_max_date_by_task(
-			project, task_names, project_role_filters=project_role_filters
+		fact_names = _hours_fact_scope_names(tasks, task_names)
+		agg_names = _hours_aggregate_task_names(tasks)
+		last_approved_raw = _utp_max_date_by_task(
+			project, fact_names, project_role_filters=project_role_filters
 		)
+		last_approved_timesheet_dates: dict[str, date] = {}
+		for task in tasks:
+			task_name = task.get("name")
+			if not task_name:
+				continue
+			consumer_dates = [
+				last_approved_raw[item]
+				for item in _task_branch_consumers(task)
+				if item in last_approved_raw
+			]
+			if consumer_dates:
+				last_approved_timesheet_dates[task_name] = max(consumer_dates)
 		task_names_by_completion_date: dict[date, list[str]] = {}
 		for task in tasks:
 			task_name = task.get("name")
@@ -2795,12 +2773,18 @@ def _period_volume_burndown(
 			hours_completion_dates[task_name] = completion_date
 			task_names_by_completion_date.setdefault(completion_date, []).append(task_name)
 		for completion_date, completed_task_names in task_names_by_completion_date.items():
-			cumulative_hours_at_completion = _utp_cumulative_hours_by_task(
+			completed_rows = [
+				task_by_name[name] for name in completed_task_names if name in task_by_name
+			]
+			raw_at_completion = _utp_cumulative_hours_by_task(
 				project,
 				completion_date,
 				tasks,
-				completed_task_names,
+				_hours_fact_scope_names(completed_rows, completed_task_names),
 				project_role_filters=project_role_filters,
+			)
+			cumulative_hours_at_completion = _remap_hours_to_branch_pots(
+				raw_at_completion, completed_rows
 			)
 			for task_name in completed_task_names:
 				task = task_by_name.get(task_name) or {}
@@ -2814,11 +2798,17 @@ def _period_volume_burndown(
 		created_task_names = [task["name"] for task in created_tasks]
 		created_raw = sum(flt(task.get("volume")) for task in created_tasks)
 		if measure == "hours":
-			bucket_hours_by_task = _utp_hours_by_task(
-				project, bs, be, task_names, project_role_filters=project_role_filters
+			bucket_hours_by_task = _remap_hours_to_branch_pots(
+				_utp_hours_by_task(
+					project, bs, be, fact_names, project_role_filters=project_role_filters
+				),
+				tasks,
 			)
-			cumulative_hours_by_task = _utp_cumulative_hours_by_task(
-				project, be, tasks, task_names, project_role_filters=project_role_filters
+			cumulative_hours_by_task = _remap_hours_to_branch_pots(
+				_utp_cumulative_hours_by_task(
+					project, be, tasks, fact_names, project_role_filters=project_role_filters
+				),
+				tasks,
 			)
 			effective_scope_by_task = _effective_hours_scope_by_task(tasks, cumulative_hours_by_task)
 			eligible_open_tasks = []
@@ -2828,10 +2818,14 @@ def _period_volume_burndown(
 					continue
 				eligible_open_tasks.append(task)
 			eligible_forecast_volume = sum(
-				effective_scope_by_task.get(task["name"], 0.0) for task in eligible_open_tasks
+				effective_scope_by_task.get(task["name"], 0.0)
+				for task in eligible_open_tasks
+				if task["name"] in agg_names
 			)
 			created_raw = sum(
-				effective_scope_by_task.get(name, 0.0) for name in created_task_names
+				effective_scope_by_task.get(name, 0.0)
+				for name in created_task_names
+				if name in agg_names
 			)
 			task_by_name = {task["name"]: task for task in tasks if task.get("name")}
 			created_task_names_set = set(created_task_names)
@@ -2866,29 +2860,45 @@ def _period_volume_burndown(
 			released_to_period = sum(
 				flt(released_hours_by_task.get(name))
 				for name, completion_date in hours_completion_dates.items()
-				if completion_date <= be
+				if completion_date <= be and name in agg_names
 			)
-			released_value = sum(flt(released_hours_by_task.get(name)) for name in released_names)
+			released_value = sum(
+				flt(released_hours_by_task.get(name))
+				for name in released_names
+				if name in agg_names
+			)
 			released_value_by_task = {
 				name: flt(released_hours_by_task.get(name))
 				for name in released_names
 				if flt(released_hours_by_task.get(name)) > 1e-9
 			}
 			created_completed_value = sum(
-				flt(created_completed_by_task.get(name)) for name in created_completed_names
+				flt(created_completed_by_task.get(name))
+				for name in created_completed_names
+				if name in agg_names
 			)
 			created_total_in_bucket = sum(
-				flt(bucket_hours_by_task.get(name)) for name in created_task_names
+				flt(bucket_hours_by_task.get(name))
+				for name in created_task_names
+				if name in agg_names
 			)
 			created_value = max(0.0, created_raw - created_total_in_bucket)
-			completed_total_in_bucket = sum(flt(hours) for hours in bucket_hours_by_task.values())
+			completed_total_in_bucket = sum(
+				flt(bucket_hours_by_task.get(name)) for name in agg_names
+			)
 			completed_value = sum(
-				flt(value) for value in completed_within_expected_by_task.values()
+				flt(value)
+				for name, value in completed_within_expected_by_task.items()
+				if name in agg_names
 			)
 			completed_above_expected_value = sum(
-				flt(value) for value in completed_above_expected_by_task.values()
+				flt(value)
+				for name, value in completed_above_expected_by_task.items()
+				if name in agg_names
 			)
-			completed_to_period = sum(flt(hours) for hours in cumulative_hours_by_task.values())
+			completed_to_period = sum(
+				flt(cumulative_hours_by_task.get(name)) for name in agg_names
+			)
 			open_names = []
 			open_value_by_task: dict[str, float] = {}
 			for task in eligible_open_tasks:
