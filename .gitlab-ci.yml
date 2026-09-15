@@ -6,7 +6,7 @@ include:
     file: /ci/dinext-app.yml
 
 variables:
-  DINEXT_CONTROL_CENTER_REF: "main"
+  DINEXT_CONTROL_CENTER_REF: "fix/gantt-ci-pwa-dep"
 
 docs-agent:mr-analyze:
   allow_failure: false
