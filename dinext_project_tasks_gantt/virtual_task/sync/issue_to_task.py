@@ -128,6 +128,9 @@ def _update_existing_virtual_task(doc, task_name, data):
 
 	task_doc = frappe.get_doc("Task", task_name, ignore_permissions=True)
 	for fieldname in data:
+		# owner = Created By, set_only_once. save() throws if Issue.owner != Task.owner.
+		if fieldname == "owner":
+			continue
 		task_doc.set(fieldname, data[fieldname])
 
 	_persist_virtual_task_or_throw(task_doc, is_new=False)
