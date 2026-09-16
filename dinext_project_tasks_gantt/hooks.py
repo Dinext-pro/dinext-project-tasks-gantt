@@ -37,7 +37,7 @@ fixtures = [
 # Apps
 # ------------------
 
-required_apps = ["dinext_common", "doctype_permission", "dinext_projects"]
+required_apps = ["dinext_common", "doctype_permission", "dinext_projects", "project_workload_assignment"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [

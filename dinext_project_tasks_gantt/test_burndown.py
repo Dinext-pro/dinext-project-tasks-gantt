@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import math
+import unittest
 from datetime import date
 from unittest.mock import call, patch
 
@@ -13,12 +14,14 @@ from dinext_project_tasks_gantt.burndown import (
 	_current_date_marker,
 	_creation_date,
 	_derive_start_scope_series,
-	_effective_group_planned_hours_by_role,
 	_extended_forecast_bucket_label,
 	_forecast_hours_to_plan,
 	_forecast_progress_to_completion,
 	_forecast_target_date,
+	_hours_aggregate_task_names,
 	_hours_completion_date,
+	_hours_volume_for_task,
+	_remap_hours_to_branch_pots,
 	get_task_progress_trend,
 	get_project_x_axis_period_options,
 	_load_task_volume_rows,
@@ -28,7 +31,6 @@ from dinext_project_tasks_gantt.burndown import (
 	_measure_open_scope_from_rows,
 	_period_volume_burndown,
 	_period_progress_series,
-	_planned_hours_by_role,
 	_planned_progress_series,
 	_task_tree_names_from_rows,
 	_task_actual_progress_series,
@@ -1262,87 +1264,6 @@ class TestProjectXAxisPeriodOptions(FrappeTestCase):
 		)
 
 
-class TestPlannedHoursByRole(FrappeTestCase):
-	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
-	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task", return_value={})
-	def test_planned_hours_by_role_does_not_fallback_to_parent_task(
-		self, mock_planned_for_task, mock_get_value
-	):
-		result = _planned_hours_by_role("PROJ-1", "TASK-CHILD")
-
-		self.assertEqual(result, {})
-		mock_planned_for_task.assert_called_once()
-		mock_get_value.assert_not_called()
-
-	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
-	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
-	def test_effective_group_planned_hours_stops_at_nearest_descendant_role_match(
-		self, mock_planned_for_task, mock_task_child_names
-	):
-		mock_task_child_names.return_value = [
-			{"name": "TASK-1.1", "parent_task": "TASK-1"},
-			{"name": "TASK-1.1.1", "parent_task": "TASK-1.1"},
-		]
-		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
-			"TASK-1": {"Developer": 100.0},
-			"TASK-1.1": {"Developer": 10.0},
-			"TASK-1.1.1": {"Developer": 15.0},
-		}.get(task, {})
-
-		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
-
-		self.assertEqual(result, {"Developer": 90.0})
-
-	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
-	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
-	def test_effective_group_planned_hours_stops_per_role_but_descends_for_missing_roles(
-		self, mock_planned_for_task, mock_task_child_names
-	):
-		mock_task_child_names.return_value = [
-			{"name": "TASK-1.1", "parent_task": "TASK-1"},
-			{"name": "TASK-1.1.1", "parent_task": "TASK-1.1"},
-		]
-		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
-			"TASK-1": {"Developer": 100.0, "Analyst": 50.0},
-			"TASK-1.1": {"Developer": 10.0},
-			"TASK-1.1.1": {"Developer": 15.0, "Analyst": 20.0},
-		}.get(task, {})
-
-		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
-
-		self.assertEqual(result, {"Developer": 90.0, "Analyst": 30.0})
-
-	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
-	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
-	def test_effective_group_planned_hours_ignores_non_overlapping_child_roles(
-		self, mock_planned_for_task, mock_task_child_names
-	):
-		mock_task_child_names.return_value = [{"name": "TASK-1.1", "parent_task": "TASK-1"}]
-		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
-			"TASK-1": {"Developer": 100.0},
-			"TASK-1.1": {"Analyst": 25.0},
-		}.get(task, {})
-
-		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
-
-		self.assertEqual(result, {"Developer": 100.0})
-
-	@patch("dinext_project_tasks_gantt.burndown._task_child_names")
-	@patch("dinext_project_tasks_gantt.burndown._planned_hours_by_role_for_task")
-	def test_effective_group_planned_hours_clamps_negative_role_balance_to_zero(
-		self, mock_planned_for_task, mock_task_child_names
-	):
-		mock_task_child_names.return_value = [{"name": "TASK-1.1", "parent_task": "TASK-1"}]
-		mock_planned_for_task.side_effect = lambda project, task, *_args, **_kwargs: {
-			"TASK-1": {"Developer": 10.0},
-			"TASK-1.1": {"Developer": 25.0},
-		}.get(task, {})
-
-		result = _effective_group_planned_hours_by_role("PROJ-1", "TASK-1")
-
-		self.assertEqual(result, {})
-
-
 class TestLoadTaskVolumeRowsHours(FrappeTestCase):
 	@patch("dinext_project_tasks_gantt.burndown._task_name_list", return_value=["TASK-GROUP", "TASK-CHILD"])
 	@patch("dinext_project_tasks_gantt.burndown._story_point_map", return_value={})
@@ -1388,10 +1309,18 @@ class TestLoadTaskVolumeRowsHours(FrappeTestCase):
 			},
 		],
 	)
-	@patch("dinext_project_tasks_gantt.burndown._effective_group_planned_hours_by_role", return_value={"Developer": 75.0})
-	def test_load_task_volume_rows_uses_effective_group_hours_for_group_tasks(
+	@patch("dinext_project_tasks_gantt.burndown._timesheet_plan_bulk", return_value=None)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._branch_plan_fact",
+		side_effect=lambda _project, task, **_kwargs: {
+			"TASK-GROUP": ({"Developer": 75.0}, ["TASK-GROUP", "TASK-CHILD"], "TASK-GROUP"),
+			"TASK-CHILD": ({"Developer": 10.0}, ["TASK-CHILD"], "TASK-CHILD"),
+		}[task],
+	)
+	def test_load_task_volume_rows_uses_core_hours_for_group_and_leaf(
 		self,
-		mock_effective,
+		mock_plan_fact,
+		_mock_bulk,
 		_mock_get_all,
 		_mock_pwe,
 		_mock_utp_min,
@@ -1405,9 +1334,11 @@ class TestLoadTaskVolumeRowsHours(FrappeTestCase):
 			use_task_weight=False,
 		)
 		by_name = {row["name"]: row for row in rows}
-		mock_effective.assert_called_once_with("PROJ-1", "TASK-GROUP", hours_source="pwea_plan")
+		self.assertEqual(mock_plan_fact.call_count, 2)
 		self.assertEqual(by_name["TASK-GROUP"]["volume"], 75.0)
 		self.assertEqual(by_name["TASK-CHILD"]["volume"], 10.0)
+		self.assertEqual(by_name["TASK-CHILD"]["_pf_consumers"], ["TASK-CHILD"])
+		self.assertEqual(by_name["TASK-GROUP"]["_pf_assembled_at"], "TASK-GROUP")
 
 	@patch("dinext_project_tasks_gantt.burndown._task_name_list", return_value=["TASK-GROUP"])
 	@patch("dinext_project_tasks_gantt.burndown._story_point_map", return_value={})
@@ -1434,10 +1365,15 @@ class TestLoadTaskVolumeRowsHours(FrappeTestCase):
 			}
 		],
 	)
-	@patch("dinext_project_tasks_gantt.burndown._effective_group_planned_hours_by_role", return_value={"Developer": 75.0})
-	def test_load_task_volume_rows_passes_project_role_filters_to_group_hours(
+	@patch("dinext_project_tasks_gantt.burndown._timesheet_plan_bulk", return_value=None)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._branch_plan_fact",
+		return_value=({"Developer": 75.0}, ["TASK-GROUP"], "TASK-GROUP"),
+	)
+	def test_load_task_volume_rows_passes_project_role_filters_to_core(
 		self,
-		mock_effective,
+		mock_plan_fact,
+		_mock_bulk,
 		_mock_get_all,
 		_mock_pwe,
 		_mock_utp_min,
@@ -1452,7 +1388,42 @@ class TestLoadTaskVolumeRowsHours(FrappeTestCase):
 			project_role_filters=["Developer"],
 		)
 
-		self.assertEqual(mock_effective.call_args.kwargs["project_role_filters"], ["Developer"])
+		self.assertEqual(mock_plan_fact.call_args.kwargs["project_role_filters"], ["Developer"])
+
+
+class TestHoursBranchPots(unittest.TestCase):
+	@patch(
+		"dinext_project_tasks_gantt.burndown._branch_plan_fact",
+		return_value=({"Dev": 45.0}, ["t1", "t1.1", "t1.1.3"], "t1.1"),
+	)
+	def test_leaf_volume_is_core_pot(self, _mock_plan_fact):
+		task = {"name": "t1.1.3", "is_group": 0}
+		self.assertEqual(_hours_volume_for_task("PROJ-1", task), 45.0)
+		self.assertEqual(task["_pf_consumers"], ["t1", "t1.1", "t1.1.3"])
+		self.assertEqual(task["_pf_assembled_at"], "t1.1")
+
+	def test_remap_sums_consumers(self):
+		tasks = [{"name": "t1.1.3", "_pf_consumers": ["t1.1.1", "t1.1.3"]}]
+		self.assertEqual(
+			_remap_hours_to_branch_pots({"t1.1.1": 5.0, "t1.1.3": 10.0}, tasks),
+			{"t1.1.3": 15.0},
+		)
+
+	def test_aggregate_keeps_ancestor_pot(self):
+		tasks = [
+			{"name": "t1", "parent_task": None, "_pf_assembled_at": "t1"},
+			{"name": "t1.1", "parent_task": "t1", "_pf_assembled_at": "t1.1"},
+			{"name": "t1.1.3", "parent_task": "t1.1", "_pf_assembled_at": "t1.1"},
+		]
+		self.assertEqual(_hours_aggregate_task_names(tasks), {"t1"})
+
+	def test_aggregate_leaves_collapse_to_parent_pot(self):
+		tasks = [
+			{"name": "t1.1.1", "parent_task": "t1.1", "_pf_assembled_at": "t1.1.1"},
+			{"name": "t1.1.2", "parent_task": "t1.1", "_pf_assembled_at": "t1.1.2"},
+			{"name": "t1.1.3", "parent_task": "t1.1", "_pf_assembled_at": "t1.1"},
+		]
+		self.assertEqual(_hours_aggregate_task_names(tasks), {"t1.1.3"})
 
 
 class TestTaskProgressTrendForecastSuppression(FrappeTestCase):
@@ -3099,8 +3070,15 @@ class TestHoursCreationDateFromApprovedTimesheets(FrappeTestCase):
 			}
 		],
 	)
+	@patch("dinext_project_tasks_gantt.burndown._timesheet_plan_bulk", return_value=None)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._branch_plan_fact",
+		return_value=({"Dev": 8.0}, ["TASK-LATE"], "TASK-LATE"),
+	)
 	def test_load_task_volume_rows_uses_earliest_approved_utp_date_for_hours_only(
 		self,
+		_mock_plan_fact,
+		_mock_bulk,
 		_mock_get_all,
 		_mock_pwe,
 		mock_min_date,
