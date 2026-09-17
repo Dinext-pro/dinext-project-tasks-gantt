@@ -115,4 +115,5 @@ def _cascade_parent_exp_dates(doc) -> None:
 		parent_doc.flags.task_actual_dates_parent_sync = True
 		parent_doc.flags.task_dates_force_pwa_sync = True
 		parent_doc.flags.task_actual_dates_sync_depth = sync_depth + 1
+		parent_doc.flags.skip_pss_guard = True
 		parent_doc.save(ignore_permissions=True)
