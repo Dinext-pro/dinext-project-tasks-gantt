@@ -101,6 +101,21 @@ function hideGanttPopup(ctx) {
 	ctx.get_details?.()?.closest?.(".popup-wrapper")?.classList.add("hide");
 }
 
+/** frappe-gantt hardcodes Today/Mode; language option is dates only. */
+function localizeGanttChrome(ganttEl) {
+	if (!ganttEl) {
+		return;
+	}
+	const todayBtn = ganttEl.querySelector(".today-button");
+	if (todayBtn) {
+		todayBtn.textContent = __("Today");
+	}
+	const modeOpt = ganttEl.querySelector(".viewmode-select option[disabled]");
+	if (modeOpt) {
+		modeOpt.textContent = __("Mode");
+	}
+}
+
 function showPopup(ctx, state) {
 	ctx.set_title(ctx.task.name);
 	const start = formatPopupDate(ctx.task.start);
@@ -333,6 +348,7 @@ async function runGanttUpdate(state) {
 
 	if (state.gantt?.refresh && state.ganttEl.querySelector?.(".gantt")) {
 		state.gantt.refresh(tasks);
+		localizeGanttChrome(state.ganttEl);
 		bindSync(state);
 		bindGanttDateDragGuard(state);
 		return state.gantt;
@@ -345,6 +361,7 @@ async function runGanttUpdate(state) {
 		tasks,
 		buildOptions(state.holidays || [], state)
 	);
+	localizeGanttChrome(state.ganttEl);
 	bindSync(state);
 	bindGanttDateDragGuard(state);
 	return state.gantt;
