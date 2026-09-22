@@ -26,6 +26,9 @@ from dinext_project_tasks_gantt.virtual_task.sync.dates import (
 	apply_task_actual_dates_logic,
 	date_cmp_value,
 )
+from dinext_project_tasks_gantt.virtual_task.sync.issue_to_task import (
+	_update_existing_virtual_task,
+)
 from dinext_project_tasks_gantt.virtual_task.sync.task_to_issue import sync_virtual_task_to_issue
 
 
@@ -91,6 +94,32 @@ class TestVirtualTaskDates(unittest.TestCase):
 			apply_task_actual_dates_logic(data, None, "2026-12-31", None)
 		self.assertEqual(data["completed_on"], "2026-09-03")
 		self.assertNotIn("act_end_date", data)
+
+
+class TestItvtOwnerOnUpdate(unittest.TestCase):
+	def test_update_skips_owner(self):
+		issue = SimpleNamespace(name="ISS-1")
+		issue.get = lambda k, d=None: getattr(issue, k, d)
+		task = MagicMock()
+		task.flags = {}
+		data = {
+			"subject": "Subj",
+			"owner": "Administrator",
+			"status": "Completed",
+		}
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.issue_to_task.frappe.db.get_value",
+			return_value=None,
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.issue_to_task.frappe.get_doc",
+			return_value=task,
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.issue_to_task._persist_virtual_task_or_throw",
+		):
+			_update_existing_virtual_task(issue, "TASK-V", data)
+		set_fields = [c.args[0] for c in task.set.call_args_list]
+		self.assertIn("subject", set_fields)
+		self.assertNotIn("owner", set_fields)
 
 
 class TestVirtualTaskToIssueGuard(unittest.TestCase):

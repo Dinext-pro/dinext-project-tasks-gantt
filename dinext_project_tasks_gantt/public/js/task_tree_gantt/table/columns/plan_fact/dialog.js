@@ -2,6 +2,10 @@
  * ТРЗ dialog — Tree show_plan_fact.
  */
 
+function showForecastColumn() {
+	return Boolean(frappe.boot?.dinext_timesheet_show_forecast);
+}
+
 /** Tree formatPlanField: color plan only when planned_hours is falsy. */
 function formatPlanField(val, _field, _options, doc) {
 	return doc.planned_hours ? val : `<span class="${doc.status}">${val}</span>`;
@@ -26,6 +30,68 @@ export function showPlanFactDialog(row) {
 		return;
 	}
 
+	const showForecast = showForecastColumn();
+	const fields = [
+		{
+			label: __("Role"),
+			fieldname: "role",
+			fieldtype: "Data",
+			read_only: 1,
+			in_list_view: 1,
+			columns: 3,
+		},
+		{
+			label: __("Plan"),
+			fieldname: "planned_hours",
+			fieldtype: "Float",
+			precision: 1,
+			read_only: 1,
+			in_list_view: 1,
+			columns: 1,
+			formatter: formatPlanField,
+		},
+	];
+	if (showForecast) {
+		fields.push({
+			label: __("Forecast"),
+			fieldname: "forecast_hours",
+			fieldtype: "Float",
+			precision: 1,
+			read_only: 1,
+			in_list_view: 1,
+			columns: 1,
+		});
+	}
+	fields.push(
+		{
+			label: __("Actual"),
+			fieldname: "total_hours",
+			fieldtype: "Float",
+			precision: 1,
+			read_only: 1,
+			in_list_view: 1,
+			columns: 1,
+		},
+		{
+			label: __("%"),
+			fieldname: "completion_percentage",
+			fieldtype: "Percent",
+			precision: 1,
+			read_only: 1,
+			in_list_view: 1,
+			columns: 1,
+			formatter: formatPctField,
+		},
+		{
+			label: __("Work efforts included from"),
+			fieldname: "users",
+			fieldtype: "Data",
+			read_only: 1,
+			in_list_view: 1,
+			columns: showForecast ? 3 : 4,
+		}
+	);
+
 	const d = new frappe.ui.Dialog({
 		title: __("Work Efforts Plan vs Actual"),
 		fields: [
@@ -42,53 +108,7 @@ export function showPlanFactDialog(row) {
 				cannot_add_rows: 1,
 				cannot_delete_rows: 1,
 				in_place_edit: true,
-				fields: [
-					{
-						label: __("Role"),
-						fieldname: "role",
-						fieldtype: "Data",
-						read_only: 1,
-						in_list_view: 1,
-						columns: 3,
-					},
-					{
-						label: __("Plan"),
-						fieldname: "planned_hours",
-						fieldtype: "Float",
-						precision: 1,
-						read_only: 1,
-						in_list_view: 1,
-						columns: 1,
-						formatter: formatPlanField,
-					},
-					{
-						label: __("Actual"),
-						fieldname: "total_hours",
-						fieldtype: "Float",
-						precision: 1,
-						read_only: 1,
-						in_list_view: 1,
-						columns: 1,
-					},
-					{
-						label: __("%"),
-						fieldname: "completion_percentage",
-						fieldtype: "Percent",
-						precision: 1,
-						read_only: 1,
-						in_list_view: 1,
-						columns: 1,
-						formatter: formatPctField,
-					},
-					{
-						label: __("Work efforts included from"),
-						fieldname: "users",
-						fieldtype: "Data",
-						read_only: 1,
-						in_list_view: 1,
-						columns: 4,
-					},
-				],
+				fields,
 				data: taskData,
 			},
 		],
