@@ -101,7 +101,7 @@ function hideGanttPopup(ctx) {
 	ctx.get_details?.()?.closest?.(".popup-wrapper")?.classList.add("hide");
 }
 
-/** frappe-gantt hardcodes Today/Mode; language option is dates only. */
+/** frappe-gantt hardcodes Today/Mode and paints option labels from mode.name. */
 function localizeGanttChrome(ganttEl) {
 	if (!ganttEl) {
 		return;
@@ -110,9 +110,15 @@ function localizeGanttChrome(ganttEl) {
 	if (todayBtn) {
 		todayBtn.textContent = __("Today");
 	}
-	const modeOpt = ganttEl.querySelector(".viewmode-select option[disabled]");
-	if (modeOpt) {
-		modeOpt.textContent = __("Mode");
+	const modeSelect = ganttEl.querySelector(".viewmode-select");
+	if (!modeSelect) {
+		return;
+	}
+	for (const opt of modeSelect.options) {
+		const source = opt.disabled ? "Mode" : opt.value;
+		if (source) {
+			opt.textContent = __(source);
+		}
 	}
 }
 
