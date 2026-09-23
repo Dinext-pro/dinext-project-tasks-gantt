@@ -191,9 +191,11 @@ function buildOptions(holidays, state) {
 		),
 		on_view_change: () => {
 			const gen = ganttGen(state);
+			localizeGanttChrome(state.ganttEl);
 			reapplyGanttArrows(state);
 			requestAnimationFrame(() => {
 				if (ganttStillCurrent(state, gen)) {
+					localizeGanttChrome(state.ganttEl);
 					state.applyGanttOffset?.();
 				}
 			});
