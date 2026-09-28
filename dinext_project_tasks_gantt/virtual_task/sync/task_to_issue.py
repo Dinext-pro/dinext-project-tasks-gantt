@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import now
+from frappe.utils import cint, now
 
 from dinext_project_tasks_gantt.virtual_task.helpers import (
 	ITVT_DEPTH,
@@ -13,6 +13,18 @@ from dinext_project_tasks_gantt.virtual_task.helpers import (
 )
 
 from .dates import date_cmp_value, issue_resolution_fieldname
+
+
+def _opening_date_writable() -> bool:
+	"""Писать exp_start_date в Issue.opening_date только если поле не read_only.
+
+	read_only=1 оставляет прежний канон: старт с ганта на Issue не зеркалится.
+	read_only=0 включает ту же запись, что уже есть у даты окончания.
+	"""
+	field = frappe.get_meta("Issue").get_field("opening_date")
+	if not field:
+		return False
+	return not cint(field.read_only)
 
 
 def sync_virtual_task_to_issue(doc) -> None:
@@ -44,11 +56,14 @@ def sync_virtual_task_to_issue(doc) -> None:
 		"custom_include": doc.get("custom_include"),
 	}
 
-	date_fields = (
+	date_fields = {
 		"custom_expected_resolution_date",
 		"resolution_date",
 		"sla_resolution_date",
-	)
+	}
+	if _opening_date_writable():
+		field_updates["opening_date"] = doc.get("exp_start_date")
+		date_fields.add("opening_date")
 
 	for fieldname, new_value in field_updates.items():
 		old_value = issue.get(fieldname)

@@ -151,6 +151,112 @@ class TestVirtualTaskToIssueGuard(unittest.TestCase):
 			get_doc.assert_not_called()
 
 
+class TestOpeningDateMirror(unittest.TestCase):
+	def _task(self):
+		flags = SimpleNamespace()
+		flags.get = lambda k, d=None: getattr(flags, k, d)
+		doc = SimpleNamespace(
+			type="Issue",
+			custom_linked_issue="ISS-1",
+			flags=flags,
+			status="Open",
+			priority="Medium",
+			subject="S",
+			owner="o@x",
+			description="d",
+			project="P",
+			story_point=None,
+			exp_end_date="2026-08-20",
+			exp_start_date="2026-08-01",
+			custom_include=1,
+			act_end_date=None,
+		)
+		doc.get = lambda k, d=None: getattr(doc, k, d)
+		return doc
+
+	def _issue(self):
+		data = {
+			"name": "ISS-1",
+			"subject": "S",
+			"owner": "o@x",
+			"description": "d",
+			"project": "P",
+			"priority": "Средний",
+			"custom_story_point": None,
+			"status": "Open",
+			"custom_expected_resolution_date": "2026-08-20",
+			"custom_include": 1,
+			"opening_date": "2026-07-01",
+		}
+		issue = SimpleNamespace(**data)
+		issue.get = lambda k, d=None: getattr(issue, k, d)
+		return issue
+
+	def _written(self, read_only, *, issue=None, field_missing=False, task=None):
+		meta = MagicMock()
+		meta.get_field.return_value = None if field_missing else SimpleNamespace(read_only=read_only)
+		issue = issue or self._issue()
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.task_to_issue.frappe.get_meta",
+			return_value=meta,
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.task_to_issue.frappe.get_doc",
+			return_value=issue,
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.sync.task_to_issue.frappe.db.set_value",
+		) as set_value:
+			sync_virtual_task_to_issue(task or self._task())
+		written = {}
+		for args, kwargs in zip(
+			(c.args for c in set_value.call_args_list),
+			(c.kwargs for c in set_value.call_args_list),
+		):
+			self.assertFalse(kwargs.get("update_modified", True))
+			if args[2] != "modified":
+				written[args[2]] = args[3]
+		return written
+
+	def _shifted_end(self):
+		issue = self._issue()
+		issue.custom_expected_resolution_date = "2026-08-01"
+		return issue
+
+	def test_read_only_does_not_write_opening_date(self):
+		self.assertEqual(self._written(1), {})
+
+	def test_read_only_string_does_not_write_opening_date(self):
+		self.assertEqual(self._written("1"), {})
+
+	def test_read_only_still_mirrors_end_date(self):
+		written = self._written(1, issue=self._shifted_end())
+		self.assertEqual(written, {"custom_expected_resolution_date": "2026-08-20"})
+
+	def test_missing_field_still_mirrors_end_date(self):
+		written = self._written(0, issue=self._shifted_end(), field_missing=True)
+		self.assertEqual(written, {"custom_expected_resolution_date": "2026-08-20"})
+
+	def test_writable_mirrors_exp_start(self):
+		self.assertEqual(self._written(0), {"opening_date": "2026-08-01"})
+
+	def test_writable_string_zero_mirrors_exp_start(self):
+		self.assertEqual(self._written("0"), {"opening_date": "2026-08-01"})
+
+	def test_writable_mirrors_start_and_end(self):
+		written = self._written(0, issue=self._shifted_end())
+		self.assertEqual(
+			written,
+			{
+				"opening_date": "2026-08-01",
+				"custom_expected_resolution_date": "2026-08-20",
+			},
+		)
+
+	def test_writable_same_date_does_not_write(self):
+		issue = self._issue()
+		issue.opening_date = "2026-08-01"
+		self.assertEqual(self._written(0, issue=issue), {})
+
+
 class TestMirrorTarget(unittest.TestCase):
 	def test_issue_to_virtual_task(self):
 		with patch(
