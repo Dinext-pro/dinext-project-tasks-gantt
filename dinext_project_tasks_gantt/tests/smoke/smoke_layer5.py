@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import cint, getdate
 
 from dinext_project_tasks_gantt.task_tree_gantt.save_cells import save_cells
 
@@ -195,13 +195,27 @@ def _door_gantt_save_cells_virtual_exp() -> str:
 		f"{task.exp_start_date}/{task.exp_end_date}",
 	)
 
-	# TVTI canon: exp_end → custom_expected_resolution_date (not opening_date)
+	# Конец всегда зеркалится. Старт — только если opening_date не read_only.
 	issue.reload()
 	_ok(
 		"gantt_exp→issue_end",
 		getdate(issue.custom_expected_resolution_date) == d1,
 		f"end={issue.custom_expected_resolution_date}",
 	)
+	opening_field = frappe.get_meta("Issue").get_field("opening_date")
+	opening_locked = bool(opening_field and cint(opening_field.read_only))
+	if opening_locked:
+		_ok(
+			"gantt_exp_start_stays_off_issue",
+			getdate(issue.opening_date) == date.today(),
+			f"opening={issue.opening_date}",
+		)
+	else:
+		_ok(
+			"gantt_exp_start→issue_opening",
+			getdate(issue.opening_date) == d0,
+			f"opening={issue.opening_date}",
+		)
 	return issue.name
 
 
