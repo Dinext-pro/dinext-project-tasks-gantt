@@ -3,7 +3,7 @@ app_title = "Dinext Project Tasks Gantt"
 app_publisher = "Dinext"
 app_description = "Dinext Project Tasks Gantt"
 app_email = "info@dinext.ru"
-app_license = "mit"
+app_license = "GNU General Public License (v3)"
 
 fixtures = [
     {
@@ -16,6 +16,18 @@ fixtures = [
         "doctype": "Story Point",
         "filters": [
             ["name", "in", ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]]
+        ]
+    },
+    {
+        "doctype": "Client Script",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]],
+        ]
+    },
+    {
+        "doctype": "Server Script",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]],
         ]
     },
     {
@@ -32,7 +44,6 @@ fixtures = [
     #    ]
     #}    
 ]
-''''''
 
 # Apps
 # ------------------
