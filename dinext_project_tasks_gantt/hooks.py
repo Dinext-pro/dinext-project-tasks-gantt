@@ -19,6 +19,20 @@ fixtures = [
         ]
     },
     {
+        "doctype": "Client Script",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]],
+            ["enabled", "=", 1]
+        ]
+    },
+    {
+        "doctype": "Server Script",
+        "filters": [
+            ["module", "in", ["Dinext Project Tasks Gantt"]],
+            ["disabled", "=", 0]
+        ]
+    },
+    {
         "doctype": "Property Setter",
         "filters": [
             ["module", "in", ["Dinext Project Tasks Gantt"]]
