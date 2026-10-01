@@ -34,9 +34,25 @@ function taskFilterFromPage() {
 	return ids.length === 1 ? ids[0] : null;
 }
 
-export function openTaskForm(taskId) {
-	if (!taskId) return;
-	frappe.set_route("Form", "Task", taskId);
+/** Virtual Task (type=Issue) opens the linked Issue. Task form would bounce there.
+
+Grid `row.type` is the display label. Raw type and `custom_linked_issue` stay on `row._doc`.
+*/
+export function taskOpenTarget(row) {
+	const taskId = row?.id;
+	if (!taskId) return null;
+	const doc = row._doc || row;
+	const type = doc.task_type || doc.type;
+	if (type === "Issue" && doc.custom_linked_issue) {
+		return { doctype: "Issue", name: doc.custom_linked_issue };
+	}
+	return { doctype: "Task", name: taskId };
+}
+
+export function openTaskForm(taskId, row) {
+	const target = taskOpenTarget(row || { id: taskId });
+	if (!target) return;
+	frappe.set_route("Form", target.doctype, target.name);
 }
 
 export function renameTask(taskId) {

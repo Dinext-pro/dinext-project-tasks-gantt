@@ -9,6 +9,7 @@ import {
 	previewDownstream,
 	renameTask,
 	taskAllowRename,
+	taskOpenTarget,
 } from "./actions.js";
 
 function el(tag, className) {
@@ -17,12 +18,24 @@ function el(tag, className) {
 	return node;
 }
 
-function makeBtn({ iconClass, title, onClick }) {
-	const btn = el("button", `btn btn-default btn-xs tree-toolbar-button ${iconClass}`);
-	btn.type = "button";
+function makeBtn({ iconClass, title, onClick, href }) {
+	const btn = el(
+		href ? "a" : "button",
+		`btn btn-default btn-xs tree-toolbar-button ${iconClass}`
+	);
+	if (href) {
+		btn.href = href;
+	} else {
+		btn.type = "button";
+	}
 	btn.title = title;
 	btn.setAttribute("aria-label", title);
 	btn.addEventListener("click", (ev) => {
+		// Ctrl/Cmd/Shift-click keeps the real href (new tab). Plain click stays in Desk.
+		if (href && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey)) {
+			ev.stopPropagation();
+			return;
+		}
 		ev.preventDefault();
 		ev.stopPropagation();
 		onClick();
@@ -31,6 +44,11 @@ function makeBtn({ iconClass, title, onClick }) {
 		// Keep AG Grid from starting cell edit / selection steal.
 		ev.stopPropagation();
 	});
+	if (href) {
+		btn.addEventListener("contextmenu", (ev) => {
+			ev.stopPropagation();
+		});
+	}
 	return btn;
 }
 
@@ -52,11 +70,13 @@ export function buildSubjectToolbar(row) {
 
 	// Edit / Details (treeview + toolbarRedesign → fa-pencil-square-o)
 	if (canRead) {
+		const target = taskOpenTarget(row);
 		bar.appendChild(
 			makeBtn({
 				iconClass: "fa fa-pencil-square-o",
 				title: canWrite ? __("Edit") : __("Details"),
-				onClick: () => openTaskForm(row.id),
+				href: frappe.utils.get_form_link(target.doctype, target.name),
+				onClick: () => openTaskForm(row.id, row),
 			})
 		);
 	}

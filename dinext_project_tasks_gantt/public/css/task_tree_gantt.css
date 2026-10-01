@@ -926,6 +926,8 @@ body.task-tree-gantt-resizing {
 	box-shadow: none !important;
 	background: transparent !important;
 	background-color: transparent !important;
+	text-decoration: none;
+	color: var(--text-color);
 }
 
 .tree-gantt-subject-toolbar.btn-group > .btn + .btn,
