@@ -21,6 +21,11 @@ from dinext_project_tasks_gantt.virtual_task.helpers import (
 	is_virtual_task,
 	mirror_target_for_issue_or_task,
 )
+from dinext_project_tasks_gantt.virtual_task.mirrors.tag import (
+	sync_tag_unlink_mirror,
+	tags_removed_from_link,
+	wrap_update_tags,
+)
 from dinext_project_tasks_gantt.virtual_task.mirrors.todo import sync_todo_mirror
 from dinext_project_tasks_gantt.virtual_task.sync.dates import (
 	apply_task_actual_dates_logic,
@@ -353,6 +358,83 @@ class TestTodoMirrorAssignRebuild(unittest.TestCase):
 			sync_todo_mirror(doc)
 
 		dummy.update_in_reference.assert_called_once()
+
+
+class TestTagUnlinkMirror(unittest.TestCase):
+	def test_removed_tags_are_links_missing_from_new_value(self):
+		doc_tags = [SimpleNamespace(tag="keep"), SimpleNamespace(tag="drop")]
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.frappe.get_all",
+			return_value=doc_tags,
+		):
+			removed = tags_removed_from_link("Issue", "ISS-1", ",keep")
+		self.assertEqual(removed, ["drop"])
+
+	def test_unlink_removes_tag_on_virtual_task(self):
+		target = MagicMock()
+		target.get_tags.return_value = ["drop"]
+		flags = SimpleNamespace(ignore_permissions=False, vt_tag_mirror=False)
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.mirror_target_for_issue_or_task",
+			return_value=("Task", "TASK-V"),
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.frappe.get_doc",
+			return_value=target,
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.frappe.flags",
+			flags,
+		):
+			sync_tag_unlink_mirror("Issue", "ISS-1", "drop")
+		target.remove_tag.assert_called_once_with("drop")
+		self.assertFalse(flags.ignore_permissions)
+
+	def test_unlink_skips_when_pair_has_no_tag(self):
+		target = MagicMock()
+		target.get_tags.return_value = ["other"]
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.mirror_target_for_issue_or_task",
+			return_value=("Task", "TASK-V"),
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.frappe.get_doc",
+			return_value=target,
+		):
+			sync_tag_unlink_mirror("Issue", "ISS-1", "drop")
+		target.remove_tag.assert_not_called()
+
+	def test_update_tags_wrapper_unlinks_removed_and_does_not_recurse(self):
+		flags = SimpleNamespace(vt_tag_mirror=False)
+		calls = []
+
+		def original(doc, tags):
+			calls.append(("original", doc.name, tags))
+
+		wrapped = wrap_update_tags(original)
+
+		def unlink(doctype, name, tag):
+			calls.append(("unlink", doctype, name, tag))
+			wrapped(SimpleNamespace(doctype="Task", name="TASK-V"), "")
+
+		with patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.tags_removed_from_link",
+			side_effect=lambda dt, name, tags: ["drop"] if name == "ISS-1" else [],
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.sync_tag_unlink_mirror",
+			side_effect=unlink,
+		), patch(
+			"dinext_project_tasks_gantt.virtual_task.mirrors.tag.frappe.flags",
+			flags,
+		):
+			wrapped(SimpleNamespace(doctype="Issue", name="ISS-1"), ",keep")
+
+		self.assertEqual(
+			calls,
+			[
+				("original", "ISS-1", ",keep"),
+				("unlink", "Issue", "ISS-1", "drop"),
+				("original", "TASK-V", ""),
+			],
+		)
+		self.assertFalse(flags.vt_tag_mirror)
 
 
 if __name__ == "__main__":
