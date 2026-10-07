@@ -6,7 +6,7 @@ import {
 	GANTT_UPPER_HEADER,
 } from "../constants.js";
 import { expandAllRows } from "../table/index.js";
-import { collectVisibleRows, rowsToGanttTasks } from "./tasks.js";
+import { applyCriticalBarClasses, collectVisibleRows, rowsToGanttTasks } from "./tasks.js";
 import { setupScrollSync, setupToolbarOffsetSync } from "./sync.js";
 import { bindGanttDateDragGuard, clearGanttDateTimers, createGanttDateChangeHandler } from "./dates.js";
 import { applyRelatedGanttPaint, setupHoverSync, taskIdFromAgRow } from "./hover.js";
@@ -243,6 +243,7 @@ function reapplyGanttArrows(state) {
 			return;
 		}
 		applyRelationArrowGeometry(state.ganttEl, state.table);
+		applyCriticalBarClasses(state.ganttEl);
 		applyRelatedGanttPaint(
 			state.ganttEl,
 			state.relatedTaskIds || [],
@@ -356,6 +357,7 @@ async function runGanttUpdate(state) {
 
 	if (state.gantt?.refresh && state.ganttEl.querySelector?.(".gantt")) {
 		state.gantt.refresh(tasks);
+		applyCriticalBarClasses(state.ganttEl);
 		localizeGanttChrome(state.ganttEl);
 		bindSync(state);
 		bindGanttDateDragGuard(state);
@@ -370,6 +372,7 @@ async function runGanttUpdate(state) {
 		buildOptions(state.holidays || [], state)
 	);
 	localizeGanttChrome(state.ganttEl);
+	applyCriticalBarClasses(state.ganttEl);
 	bindSync(state);
 	bindGanttDateDragGuard(state);
 	return state.gantt;

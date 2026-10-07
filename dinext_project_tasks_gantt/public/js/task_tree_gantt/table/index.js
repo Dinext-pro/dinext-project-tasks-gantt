@@ -2,6 +2,11 @@ import { getChildren } from "../api.js";
 import { HEADER_HEIGHT, ROW_HEIGHT } from "../constants.js";
 import { hasMulti, multiPayload, normalizeMulti } from "../filters/defaults.js";
 import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/check.js";
+import {
+	criticalPathToolbarItem,
+	invalidateCriticalPath,
+	isTaskCritical,
+} from "../critical/index.js";
 import { refreshPlanFact } from "./columns/plan_fact/limits.js";
 import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
 import { dateVisibilityToolbarItems } from "./columns/dates/visibility.js";
@@ -513,6 +518,9 @@ export async function loadTable(container, getArgs, hooks = {}) {
 					addRootTaskToolbarItem(),
 					bulkAssignToolbarItem(),
 					...dateVisibilityToolbarItems(),
+					criticalPathToolbarItem({
+						getProject: () => getArgs()?.project || null,
+					}),
 				],
 			},
 			onBeforeDeleteRows: createOnBeforeDeleteRows(),
@@ -573,6 +581,9 @@ export async function loadTable(container, getArgs, hooks = {}) {
 					) {
 						classes.push("tree-gantt-row--related");
 					}
+					if (isTaskCritical(params.data?.id)) {
+						classes.push("tree-gantt-row--critical");
+					}
 					return classes.length ? classes : undefined;
 				},
 			},
@@ -588,6 +599,12 @@ export async function loadTable(container, getArgs, hooks = {}) {
 					if (dateFieldsAffectConflicts(ctx.changes)) {
 						// Full loaded set — successors may gain/lose conflicts.
 						scheduleSideDataRefresh(getArgs, state.table);
+					}
+					if (
+						dateFieldsAffectConflicts(ctx.changes) ||
+						(ctx.changes || []).some((c) => c.field === "status")
+					) {
+						void invalidateCriticalPath(getArgs()?.project || null);
 					}
 				}
 				return ok;

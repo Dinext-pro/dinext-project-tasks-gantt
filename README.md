@@ -4,12 +4,15 @@
 
 **Dinext Project Tasks Gantt** — приложение на [Frappe](https://frappeframework.com/), расширяющее ERPNext **Project / Task** для Dinext: представления Gantt и дерева, работа с зависимостями, оценки в story points, **журнал изменений поля «% выполнения»** у задач (`progress`) и проектов (`percent_complete`), **автоматический пересчёт `%` у групповых родителей** по весам дочерних задач (с монотонным «полом» и цепочкой вверх по иерархии), а также **серии для графиков** (тренд прогноза/факта на форме задачи и отчёт Epic Burndown).
 
+В дереве задач и на диаграмме Гантта можно включить **критический путь** по текущим плановым датам (`exp_start_date` / `exp_end_date`) и активным строкам `Task Relation`. Даты не переносятся: подсветка показывает, какие задачи и связи держат финиш проекта.
+
 В составе приложения — **фикстуры** (Custom Field, Client Script, Server Script, записи Story Point) и **DocTypes** (например `Task Relation`, `Story Point`, `Task Progress History`). Серверная логика аудита прогресса задач, аудита процента проекта и rollup групповых задач вызывается через `doc_events`, поэтому изменения фиксируются при сохранении из формы, через API и в скриптах — не только из интерфейса Desk. Для проекта покрываются оба сценария: прямой `Project.save()` и штатный пересчёт `Project.percent_complete` из `Task`, где ERPNext сохраняет проект через `db_update()`. Данные для графиков отдаёт модуль [`burndown.py`](dinext_project_tasks_gantt/burndown.py) (whitelisted-методы для клиента и отчёта).
 
 ## ✨ Возможности
 
 - **Расширение UI задачи** — Client Script на `Task` (дерево, Gantt, оформление и поведение зависимостей).
 - **Логика зависимостей** — Server Script и дочерняя таблица **`Task Relation`** на `Task` (`custom_relations`) для связей предшественник/последователь и связанной автоматизации.
+- **Критический путь** — полный резерв по плановым датам и активным связям `Task Relation` (FS / SS / FF / SF, лаг `buffer_days`). Рабочие дни пропускают субботу, воскресенье и Holiday List проекта, иначе список компании. Узел — любая читаемая задача проекта, кроме `Cancelled` и задач без обеих плановых дат; групповая задача считается по своим `exp_*`, а не потому что критичен ребёнок. Выполненные задачи входят в путь плана. Цикл в связях из расчёта исключается. Подсветка строк дерева, баров и стрелок включается чекбоксом с иконкой в тулбаре таблицы (по умолчанию выключен, состояние на пользователя). Реализация: [`task_tree_gantt/critical_path.py`](dinext_project_tasks_gantt/task_tree_gantt/critical_path.py), whitelist `dinext_project_tasks_gantt.api.get_critical_path`.
 - **Story points** — DocType **`Story Point`** и поле-связь **`story_point`** на `Task`.
 - **Аудит прогресса задачи** — при сохранении уже существующей задачи, если **`progress`** реально изменился, в **`custom_progress_history`** (таблица **`Task Progress History`**) добавляется строка с `changed_on`, `changed_by`, `old_progress`, `new_progress`. При первой вставке документа строка не создаётся; при неизменном прогрессе дубликаты не пишутся.
 - **Аудит процента проекта** — при изменении **`Project.percent_complete`** строка также добавляется в **`custom_progress_history`** на `Project`. Покрываются оба пути: прямое сохранение проекта (`Project.before_save`) и пересчёт процента из задач. Для task-driven сценария приложение заранее запоминает старое значение проекта в lifecycle `Task`, а после штатного ERPNext-пересчёта сравнивает его с текущим и добавляет child-row напрямую, без повторного `Project.save()`.
@@ -34,6 +37,7 @@ bench build --app dinext_project_tasks_gantt
 
 ## 🛠️ Использование
 
+- **Дерево задач / Гантт** — на странице дерева (`/app/tree/Task`) чекбокс с иконкой цепочки рядом с «Факт» и «План» включает критический путь выбранного проекта. Пока он выключен, запроса нет и подсветки нет. Пока включён, критические строка, бар и стрелка помечены; смена дат, связей или статуса пересчитывает путь.
 - **Desk / Task** — откройте **Task** как обычно; блок **Progress History** отображается после поля **% Progress**, если кастомное поле есть. Строки заполняются автоматически; таблица только для чтения. Секция **Progress Trend** (если задача не новая и не milestone) показывает график по периоду (день / неделя / месяц). У **групповых** задач поле **% Progress** при сохранении или удалении дочерних задач может обновиться автоматически по правилам rollup (см. раздел «Возможности»).
 - **Desk / Project** — если на `Project` присутствует `custom_progress_history`, таблица истории также заполняется автоматически при изменении **`percent_complete`**. Это работает и при ручном сохранении проекта, и при изменениях задач, которые пересчитывают процент проекта в ERPNext.
 - **Task Epic Burndown** — откройте отчёт в Desk, выберите проект, период и показатель. В фильтре **X Axis Period** можно выбрать календарную группировку или один из типов **групповых задач** текущего проекта (`Task.type`, кроме **Issue**). Список динамический: если в проекте есть групповые задачи типов **Sprint** и **Release**, фильтр покажет именно их; если таких задач нет, останутся только **month / week / day**. При смене проекта, если ранее выбранный тип периода в новом проекте недоступен, фильтр сбрасывается на **month**. Для task-type периодов ось X строится по задачам выбранного типа и датам из `exp_*` / `custom_planned_*`, с полным покрытием диапазона отчёта, включая пересечения и промежутки без периода. Для **hours** столбец периода складывается из сегментов: **завершено сверх прогноза** (часы сверх плана задачи в периоде, отображаются над **Completed**), завершённые часы в пределах плана (согласованные ТШ в периоде), **высвобождённые часы** (неиспользованный плановый объём на дату завершения задачи), открытый объём на конец периода, созданный объём и созданный+завершённый в том же периоде. Табличная часть под графиком сразу показывает **детальный список задач** только по фактическим данным отфильтрованной выборки; прогнозные bucket'ы в неё не попадают. В колонке **Task** отображается название задачи как ссылка с переходом в документ `Task`. При включённом прогнозе завершения незавершённый **текущий** период может появиться на оси X **дважды** подряд (одинаковая подпись): сначала factual-столбец, затем прогнозная часть того же периода; вертикальная граница прогноза проходит между ними. Клик по сегментам **Completed** / **Completed above expected** / **Created+Completed** в режиме hours открывает список **User Timesheet Position**; по **Released hours** и остальным сегментам — список **Task** (прогнозные столбцы не кликабельны). Явное обновление отчёта (иконка Reload или пункт **Refresh**) перерисовывает график даже без смены фильтров.
@@ -43,6 +47,8 @@ bench build --app dinext_project_tasks_gantt
 
 ```bash
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt
+bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.tests.test_critical_path
+bench --site your-site.local run-ui-tests dinext_project_tasks_gantt --headless
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.test_task_parent_progress
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.test_burndown
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.dinext_project_tasks_gantt.doctype.task_progress_history.test_task_progress_history
@@ -93,6 +99,7 @@ pre-commit install
 
 Недавние коммиты (полная история — `git log`):
 
+- Критический путь в дереве задач и на Гантте: расчёт по плановым датам и `Task Relation`, подсветка только при включённом чекбоксе тулбара.
 - Task Epic Burndown: прогноз завершения с учётом **неравной длительности** периодов (скорость и регрессия по календарным дням, прогнозные объёмы масштабируются длительностью bucket).
 - Task Epic Burndown: при незавершённом текущем периоде — **два столбца** на графике (factual + forecast часть того же label); `forecast_from_index` на forecast-half; `_build_display_buckets` в `burndown.py`.
 - Task Epic Burndown: динамический фильтр **X Axis Period** — `get_project_x_axis_period_options` и обновление Select при смене проекта; в списке только **month / week / day** плюс типы групповых задач проекта (`is_group=1`, кроме **Issue**); `group_by` для периода задаётся именем `Task.type`; при недоступном значении — сброс на **month**.
@@ -125,7 +132,10 @@ dinext_project_tasks_gantt/          # Корень репозитория
     ├── task_progress_audit.py       # before_save: строки истории прогресса задачи
     ├── project_progress_audit.py    # аудит percent_complete проекта при save и task-driven recalc
     ├── task_parent_progress.py      # on_update / after_delete: взвешенный rollup группы, монотонность
+    ├── api.py                       # whitelist, в том числе get_critical_path
     ├── burndown.py                  # get_task_progress_trend, get_burndown_series, расчёт серий
+    ├── task_tree_gantt/
+    │   └── critical_path.py         # полный резерв по плановым датам и Task Relation
     ├── test_burndown.py
     ├── test_task_parent_progress.py # Тесты rollup прогресса групповых задач
     ├── modules.txt
@@ -151,7 +161,8 @@ dinext_project_tasks_gantt/          # Корень репозитория
 - **`project_progress_audit.py`** — серверный аудит при изменении `Project.percent_complete`, включая путь пересчёта проекта из `Task`.
 - **`task_parent_progress.py`** — пересчёт `%` у прямого родителя-группы по весам детей (монотонный пол).
 - **`burndown.py`** — расчёт серий для виджета Progress Trend и отчёта Epic Burndown: `get_project_x_axis_period_options`, `get_period_buckets` / `iter_task_type_period_buckets_from_rows` (ось X по любому `Task.type`), `get_burndown_series`, `_period_volume_burndown` (factual + completion forecast), `_build_display_buckets` (split текущего периода на factual/forecast для графика), duration-aware прогноз (`_bucket_duration_days`, `_forecast_bucket_range`, `_velocity_window_daily_rates`), `completed_above_expected`, `unused_hours` / Released hours для режима hours.
-- **`translations/ru.csv`** — русские переводы подписей отчёта, включая **Completed above expected** → «Завершено сверх прогноза» и **Released hours** → «Высвобожденные часы».
+- **`translations/ru.csv`** — русские переводы подписей отчёта, включая **Completed above expected** → «Завершено сверх прогноза» и **Released hours** → «Высвобожденные часы», а также строк критического пути.
+- **`task_tree_gantt/critical_path.py`** — чистый расчёт критического пути; `api.get_critical_path` отдаёт `tasks`, `edges`, `cycles`. Клиент: `public/js/task_tree_gantt/critical/`. UI-тест: `cypress/integration/critical_path.js`.
 
 ## 🔗 Схема потока
 

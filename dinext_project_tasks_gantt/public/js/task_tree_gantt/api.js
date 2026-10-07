@@ -2,6 +2,7 @@ import { multiPayload } from "./filters/defaults.js";
 import { setTreeMeta } from "./table/field_status.js";
 
 const GET_CHILDREN = "dinext_project_tasks_gantt.api.get_children";
+const GET_CRITICAL_PATH = "dinext_project_tasks_gantt.api.get_critical_path";
 const GET_TREE_META = "dinext_project_tasks_gantt.api.get_tree_meta";
 const SAVE_CELLS = "dinext_project_tasks_gantt.api.save_cells";
 const TIMESHEET_LIMITS =
@@ -114,6 +115,15 @@ export async function calculateTimesheetLimits(args) {
 		console.warn("[task_tree_gantt] plan_fact limits", e);
 		return [];
 	}
+}
+
+/** @param {string} project */
+export async function getCriticalPath(project) {
+	const r = await frappe.call({
+		method: GET_CRITICAL_PATH,
+		args: { project },
+	});
+	return r.message || { tasks: [], edges: [], cycles: false };
 }
 
 /** @param {{ project: string, tasks: object[] }} args */

@@ -4,6 +4,7 @@
  * Click-when-active / dblclick → Control(Data). Form — toolbar pencil.
  * Text click must bubble: hover.js capture scrolls gantt.
  */
+import { isTaskCritical } from "../../../critical/index.js";
 import {
 	subjectConflictClassRules,
 	subjectTreeContentKey,
@@ -109,6 +110,9 @@ export function renderSubject(params) {
 		"tree-gantt-subject-text",
 		row.subject || params.value || ""
 	);
+	if (isTaskCritical(row.id)) {
+		text.title = __("Critical path");
+	}
 	main.appendChild(text);
 	wrap.appendChild(main);
 

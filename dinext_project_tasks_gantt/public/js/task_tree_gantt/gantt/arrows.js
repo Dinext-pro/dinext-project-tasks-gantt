@@ -3,6 +3,7 @@
  * Library always draws pred-center → succ-left. We rewrite `d` after refresh/drag.
  * Does not patch frappe-gantt.umd.js.
  */
+import { CRITICAL_ARROW_CLASS, isCriticalEdge } from "../critical/index.js";
 import { shortRelationType } from "../table/columns/relations/options.js";
 
 const STUB = 10;
@@ -464,6 +465,10 @@ export function applyRelationArrowGeometry(ganttEl, table) {
 			if (path.getAttribute("d") !== next) {
 				path.setAttribute("d", next);
 			}
+			path.classList.toggle(
+				CRITICAL_ARROW_CLASS,
+				isCriticalEdge(fromId, toId)
+			);
 			syncHitPath(path);
 		});
 		raiseArrowLayer(ganttEl);
