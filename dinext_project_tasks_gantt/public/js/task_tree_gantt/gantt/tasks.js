@@ -1,3 +1,4 @@
+import { CRITICAL_BAR_CLASS, isTaskCritical } from "../critical/index.js";
 import { fieldIsHidden } from "../table/save.js";
 
 function statusColor(status) {
@@ -58,12 +59,24 @@ export function rowToGanttTask(row, dummyDay) {
 			.map((r) => r.predecessor)
 			.filter(Boolean),
 		thumbnail: milestone ? "/files/rhombus.png" : null,
+		// frappe-gantt refresh does classList.add(custom_class) as one token.
 		custom_class: row.priority || "",
 		color: statusColor(row.status),
 		color_progress: "var(--bg-green)",
 		invalid: !hasBar,
 		row,
 	};
+}
+
+/** Second class on `.bar-wrapper`. Priority stays the only `custom_class` token. */
+export function applyCriticalBarClasses(ganttEl) {
+	if (!ganttEl?.querySelectorAll) {
+		return;
+	}
+	ganttEl.querySelectorAll(".bar-wrapper[data-id]").forEach((wrap) => {
+		const id = wrap.getAttribute("data-id");
+		wrap.classList.toggle(CRITICAL_BAR_CLASS, isTaskCritical(id));
+	});
 }
 
 export function collectVisibleRows(table) {
