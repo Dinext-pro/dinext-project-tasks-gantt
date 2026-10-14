@@ -6,9 +6,9 @@ import { getCriticalPath } from "../api.js";
 
 const STORAGE_SUFFIX = ":tree:critical-path";
 
-export const CRITICAL_ROW_CLASS = "tree-gantt-row--critical";
-export const CRITICAL_BAR_CLASS = "tree-gantt-bar--critical";
-export const CRITICAL_ARROW_CLASS = "tree-gantt-arrow--critical";
+export const CRITICAL_MARK_CLASS = "tree-gantt-critical-mark";
+export const CRITICAL_RING_CLASS = "tree-gantt-critical-ring";
+export const CRITICAL_ARROW_UNDERLAY_CLASS = "tree-gantt-critical-arrow-underlay";
 
 const ICON_SVG =
 	'<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
@@ -17,6 +17,10 @@ const ICON_SVG =
 	'<rect x="10" y="9" width="5" height="3" rx="0.6"/>' +
 	'<path d="M6 5.5h2.2a2 2 0 0 1 2 2V9"/>' +
 	"</g></svg>";
+
+export function criticalPathIconSvg() {
+	return ICON_SVG;
+}
 
 let cache = emptyCache();
 let requestGen = 0;

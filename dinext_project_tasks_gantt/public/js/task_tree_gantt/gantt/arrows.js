@@ -3,7 +3,10 @@
  * Library always draws pred-center → succ-left. We rewrite `d` after refresh/drag.
  * Does not patch frappe-gantt.umd.js.
  */
-import { CRITICAL_ARROW_CLASS, isCriticalEdge } from "../critical/index.js";
+import {
+	CRITICAL_ARROW_UNDERLAY_CLASS,
+	isCriticalEdge,
+} from "../critical/index.js";
 import { shortRelationType } from "../table/columns/relations/options.js";
 
 const STUB = 10;
@@ -337,6 +340,57 @@ function raiseArrowLayer(ganttEl) {
 	}
 }
 
+function underlayFor(group, key) {
+	if (!group) {
+		return null;
+	}
+	for (const el of group.children) {
+		if (
+			el.classList?.contains(CRITICAL_ARROW_UNDERLAY_CLASS) &&
+			el.getAttribute("data-critical-pair") === key
+		) {
+			return el;
+		}
+	}
+	return null;
+}
+
+/** Thicker path under the relation arrow. No data-from / data-to. */
+function syncCriticalUnderlay(path) {
+	const group = path.parentNode;
+	if (!group) {
+		return;
+	}
+	const fromId = path.getAttribute("data-from");
+	const toId = path.getAttribute("data-to");
+	const key = `${fromId}\0${toId}`;
+	const existing = underlayFor(group, key);
+	if (!isCriticalEdge(fromId, toId)) {
+		existing?.remove();
+		return;
+	}
+	const node =
+		existing ||
+		svgEl("path", {
+			class: CRITICAL_ARROW_UNDERLAY_CLASS,
+			fill: "none",
+			"pointer-events": "none",
+		});
+	if (!existing) {
+		node.setAttribute("data-critical-pair", key);
+	}
+	const anchor = path.previousElementSibling?.classList?.contains(HIT_CLASS)
+		? path.previousElementSibling
+		: path;
+	if (node.parentNode !== group || node.nextElementSibling !== anchor) {
+		group.insertBefore(node, anchor);
+	}
+	const next = path.getAttribute("d") || "";
+	if (node.getAttribute("d") !== next) {
+		node.setAttribute("d", next);
+	}
+}
+
 function syncHitPath(path) {
 	const group = path.parentNode;
 	if (!group) {
@@ -423,6 +477,9 @@ function mutationTouchesArrows(mutations) {
 			if (node.classList?.contains?.(HIT_CLASS)) {
 				continue;
 			}
+			if (node.classList?.contains?.(CRITICAL_ARROW_UNDERLAY_CLASS)) {
+				continue;
+			}
 			if (node.classList?.contains?.("tree-gantt-arrow-defs")) {
 				continue;
 			}
@@ -465,11 +522,8 @@ export function applyRelationArrowGeometry(ganttEl, table) {
 			if (path.getAttribute("d") !== next) {
 				path.setAttribute("d", next);
 			}
-			path.classList.toggle(
-				CRITICAL_ARROW_CLASS,
-				isCriticalEdge(fromId, toId)
-			);
 			syncHitPath(path);
+			syncCriticalUnderlay(path);
 		});
 		raiseArrowLayer(ganttEl);
 	} finally {
@@ -541,8 +595,14 @@ function raiseArrowPath(path) {
 	if (!parent) {
 		return;
 	}
-	const hit = path.previousElementSibling;
-	if (hit?.classList?.contains?.(HIT_CLASS)) {
+	const key = `${path.getAttribute("data-from")}\0${path.getAttribute("data-to")}`;
+	const under = underlayFor(parent, key);
+	const prev = path.previousElementSibling;
+	const hit = prev?.classList?.contains?.(HIT_CLASS) ? prev : null;
+	if (under) {
+		parent.appendChild(under);
+	}
+	if (hit) {
 		parent.appendChild(hit);
 	}
 	parent.appendChild(path);
