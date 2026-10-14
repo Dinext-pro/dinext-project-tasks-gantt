@@ -5,7 +5,6 @@ import { dateFieldsAffectConflicts, refreshConflicts } from "../dependencies/che
 import {
 	criticalPathToolbarItem,
 	invalidateCriticalPath,
-	isTaskCritical,
 } from "../critical/index.js";
 import { refreshPlanFact } from "./columns/plan_fact/limits.js";
 import { bulkAssignToolbarItem } from "./columns/assign/bulk.js";
@@ -580,9 +579,6 @@ export async function loadTable(container, getArgs, hooks = {}) {
 						params.data?.id
 					) {
 						classes.push("tree-gantt-row--related");
-					}
-					if (isTaskCritical(params.data?.id)) {
-						classes.push("tree-gantt-row--critical");
 					}
 					return classes.length ? classes : undefined;
 				},

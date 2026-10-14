@@ -31,28 +31,37 @@ context("Task critical path", () => {
 		cy.get("#tree-gantt-critical-path", { timeout: 120000 })
 			.should("exist")
 			.and("not.be.checked");
-		cy.get(".tree-gantt-row--critical").should("not.exist");
+		cy.get(".tree-gantt-critical-mark").should("not.exist");
+		cy.get(".tree-gantt-critical-ring").should("not.exist");
 		cy.get(".tree-gantt-bar--critical").should("not.exist");
+		cy.get(".tree-gantt-row--critical").should("not.exist");
 
 		cy.get("#tree-gantt-critical-path").check({ force: true });
 
 		for (const task of fixture.critical) {
-			cy.get(`.bar-wrapper[data-id="${task}"]`, { timeout: 30000 }).should(
-				"have.class",
+			cy.get(`.bar-wrapper[data-id="${task}"] rect.tree-gantt-critical-ring`, {
+				timeout: 30000,
+			}).should("exist");
+			cy.get(`.bar-wrapper[data-id="${task}"]`).should(
+				"not.have.class",
 				"tree-gantt-bar--critical"
 			);
-			cy.get(".tree-gantt-subject-text")
-				.contains("Cypress critical")
-				.should("exist");
 		}
-		cy.get(`.bar-wrapper[data-id="${fixture.slack}"]`).should(
-			"not.have.class",
-			"tree-gantt-bar--critical"
+		cy.get(`.bar-wrapper[data-id="${fixture.slack}"] rect.tree-gantt-critical-ring`).should(
+			"not.exist"
 		);
-		cy.get(".ag-row.tree-gantt-row--critical").should("exist");
-		cy.get(".tree-gantt-subject-text[title='Critical path']").should("exist");
-		cy.contains(".tree-gantt-subject-text", "Cypress critical slack")
-			.closest(".ag-row")
-			.should("not.have.class", "tree-gantt-row--critical");
+		cy.contains(".tree-gantt-subject", "Cypress critical start")
+			.find(".tree-gantt-critical-mark")
+			.should("have.attr", "title", "Critical path")
+			.and("have.attr", "aria-label", "Critical path");
+		cy.contains(".tree-gantt-subject", "Cypress critical end")
+			.find(".tree-gantt-critical-mark")
+			.should("exist");
+		cy.contains(".tree-gantt-subject", "Cypress critical slack")
+			.find(".tree-gantt-critical-mark")
+			.should("not.exist");
+		cy.get(".tree-gantt-subject-text[title='Critical path']").should("not.exist");
+		cy.get(".tree-gantt-bar--critical").should("not.exist");
+		cy.get(".ag-row.tree-gantt-row--critical").should("not.exist");
 	});
 });
