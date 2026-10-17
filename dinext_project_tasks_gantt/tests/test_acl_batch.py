@@ -20,8 +20,8 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 
 	def test_if_owner_only_edits_owned_task(self):
 		rows = [
-			{"id": "OWN", "owner": "Administrator"},
-			{"id": "OTHER", "owner": "Administrator"},
+			{"id": "OWN", "owner": "test-user-1@example.invalid"},
+			{"id": "OTHER", "owner": "test-user-2@example.invalid"},
 		]
 
 		def role_permissions(_meta, user=None, is_owner=None):
@@ -32,7 +32,7 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 				if_owner={"read": int(is_owner), "write": int(is_owner)},
 			)
 
-		with self.as_user("user@example.com"):
+		with self.as_user("test-user-1@example.invalid"):
 			with (
 				patch.object(TaskTreeAcl, "_shared_rights", return_value={}),
 				patch.object(
@@ -46,11 +46,11 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 		self.assertEqual(editable, {"OWN"})
 
 	def test_docshare_adds_missing_read_and_write(self):
-		rows = [{"id": "SHARED", "owner": "Administrator"}]
+		rows = [{"id": "SHARED", "owner": "test-user-2@example.invalid"}]
 		role_permissions = frappe._dict(
 			has_if_owner_enabled=False, read=0, write=0, if_owner={}
 		)
-		with self.as_user("user@example.com"):
+		with self.as_user("test-user-1@example.invalid"):
 			with (
 				patch.object(
 					TaskTreeAcl,
@@ -70,8 +70,8 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 	def test_editable_ids_stays_on_batch_when_supports_check_false(self):
 		"""False batch gate / parent-link UP / unknown hook: still role+share."""
 		rows = [
-			{"id": "YES", "owner": "Administrator"},
-			{"id": "NO", "owner": "Administrator"},
+			{"id": "YES", "owner": "test-user-1@example.invalid"},
+			{"id": "NO", "owner": "test-user-2@example.invalid"},
 		]
 
 		def role_permissions(_meta, user=None, is_owner=None):
@@ -82,7 +82,7 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 				if_owner={"read": int(is_owner), "write": int(is_owner)},
 			)
 
-		with self.as_user("user@example.com"):
+		with self.as_user("test-user-1@example.invalid"):
 			with (
 				patch.object(TaskTreeAcl, "_supports_batch_edit_check", return_value=False),
 				patch.object(
@@ -118,7 +118,7 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 			return_value={"Company": {"Dinord": {}}, "Employee": {"HR-EMP-00007": {}}},
 		):
 			self.assertFalse(
-				TaskTreeAcl._has_relevant_user_permissions("user@example.com")
+				TaskTreeAcl._has_relevant_user_permissions("test-user-1@example.invalid")
 			)
 
 	def test_child_only_user_permission_is_relevant(self):
@@ -148,7 +148,7 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 			return_value={allow: {"X": {}}},
 		):
 			self.assertTrue(
-				TaskTreeAcl._has_relevant_user_permissions("user@example.com")
+				TaskTreeAcl._has_relevant_user_permissions("test-user-1@example.invalid")
 			)
 
 	def test_company_employee_up_keeps_batch_path(self):
@@ -167,7 +167,7 @@ class TestTaskTreeAclBatch(FrappeTestCase):
 			),
 		):
 			self.assertTrue(
-				TaskTreeAcl._supports_batch_edit_check("user@example.com")
+				TaskTreeAcl._supports_batch_edit_check("test-user-1@example.invalid")
 			)
 
 	def test_mark_access_computes_batch_once(self):
