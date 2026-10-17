@@ -162,7 +162,7 @@ class TestOpeningDateMirror(unittest.TestCase):
 			status="Open",
 			priority="Medium",
 			subject="S",
-			owner="o@x",
+			owner="Administrator",
 			description="d",
 			project="P",
 			story_point=None,
