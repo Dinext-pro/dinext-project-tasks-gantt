@@ -1,26 +1,28 @@
+[Русский](README.ru.md)
+
 # Dinext Project Tasks Gantt
 
-## 📖 Обзор
+## 📖 Overview
 
-**Dinext Project Tasks Gantt** — приложение на [Frappe](https://frappeframework.com/), расширяющее ERPNext **Project / Task** для Dinext: представления Gantt и дерева, работа с зависимостями, оценки в story points, **журнал изменений поля «% выполнения»** у задач (`progress`) и проектов (`percent_complete`), **автоматический пересчёт `%` у групповых родителей** по весам дочерних задач (с монотонным «полом» и цепочкой вверх по иерархии), а также **серии для графиков** (тренд прогноза/факта на форме задачи и отчёт Epic Burndown).
+**Dinext Project Tasks Gantt** is an application built on [Frappe](https://frappeframework.com/) that extends ERPNext **Project / Task** for Dinext: Gantt and tree views, dependency management, story point estimates, a **change log for task % complete** (`progress`) and project % complete (`percent_complete`), **automatic recalculation of group parents' `%`** using child task weights (with a monotonic floor and propagation up the hierarchy), and **chart series** (forecast/actual trends on the task form and the Epic Burndown report).
 
-В составе приложения — **фикстуры** (Custom Field, Client Script, Server Script, записи Story Point) и **DocTypes** (например `Task Relation`, `Story Point`, `Task Progress History`). Серверная логика аудита прогресса задач, аудита процента проекта и rollup групповых задач вызывается через `doc_events`, поэтому изменения фиксируются при сохранении из формы, через API и в скриптах — не только из интерфейса Desk. Для проекта покрываются оба сценария: прямой `Project.save()` и штатный пересчёт `Project.percent_complete` из `Task`, где ERPNext сохраняет проект через `db_update()`. Данные для графиков отдаёт модуль [`burndown.py`](dinext_project_tasks_gantt/burndown.py) (whitelisted-методы для клиента и отчёта).
+The application includes **fixtures** (Custom Field, Client Script, Server Script, Story Point records) and **DocTypes** (for example, `Task Relation`, `Story Point`, `Task Progress History`). Server logic for task progress auditing, project percentage auditing and group task rollup runs through `doc_events`, so changes are recorded when saving from a form, through the API and in scripts — not only from Desk. Both project scenarios are covered: direct `Project.save()` and the standard recalculation of `Project.percent_complete` from `Task`, where ERPNext saves the project through `db_update()`. Chart data is provided by [`burndown.py`](dinext_project_tasks_gantt/burndown.py) (whitelisted methods for the client and report).
 
-## ✨ Возможности
+## ✨ Features
 
-- **Расширение UI задачи** — Client Script на `Task` (дерево, Gantt, оформление и поведение зависимостей).
-- **Логика зависимостей** — Server Script и дочерняя таблица **`Task Relation`** на `Task` (`custom_relations`) для связей предшественник/последователь и связанной автоматизации.
-- **Story points** — DocType **`Story Point`** и поле-связь **`story_point`** на `Task`.
-- **Аудит прогресса задачи** — при сохранении уже существующей задачи, если **`progress`** реально изменился, в **`custom_progress_history`** (таблица **`Task Progress History`**) добавляется строка с `changed_on`, `changed_by`, `old_progress`, `new_progress`. При первой вставке документа строка не создаётся; при неизменном прогрессе дубликаты не пишутся.
-- **Аудит процента проекта** — при изменении **`Project.percent_complete`** строка также добавляется в **`custom_progress_history`** на `Project`. Покрываются оба пути: прямое сохранение проекта (`Project.before_save`) и пересчёт процента из задач. Для task-driven сценария приложение заранее запоминает старое значение проекта в lifecycle `Task`, а после штатного ERPNext-пересчёта сравнивает его с текущим и добавляет child-row напрямую, без повторного `Project.save()`.
-- **Прогресс групповых задач (rollup)** — после сохранения или удаления `Task` пересчитывается **только прямой** родитель-группа: взвешенное среднее по прямым детям с `task_weight > 0`; итог **`max(raw, текущий %)`** и не выше 100%, то есть сохранённый у родителя процент **не понижается** автоматикой; при росте расчётного значения выполняется `save` родителя, что запускает тот же механизм для **его** родителя (цепочка без явного цикла по всем предкам в одном хуке). Отключение: `doc.flags.skip_parent_progress_rollup = True`. Реализация: [`task_parent_progress.py`](dinext_project_tasks_gantt/task_parent_progress.py), события `Task` в [`hooks.py`](dinext_project_tasks_gantt/hooks.py) — `on_update`, `after_delete`.
-- **Progress Trend на форме Task** — виджет в дашборде формы (подключается через `hooks.py`: `doctype_js` для Task). Данные: `dinext_project_tasks_gantt.burndown.get_task_progress_trend`; клиент: [`public/js/task_progress_trend.js`](dinext_project_tasks_gantt/public/js/task_progress_trend.js), стили: [`public/js/task_progress_trend_styles.js`](dinext_project_tasks_gantt/public/js/task_progress_trend_styles.js) (ECharts). Вертикальные маркеры дат на оси X по возможности совпадают по цвету с соответствующими линиями рядов: **Today** — фактический прогресс, **Progress forecast end** — прогноз прогресса, **Work hours forecast end** — прогноз трудозатрат; если в одном bucket объединены маркеры разных типов, используется нейтральный цвет темы.
-- **Отчёт Task Epic Burndown** — Script Report в модуле приложения; график строится из `get_burndown_series` (см. `dinext_project_tasks_gantt/report/task_epic_burndown/`). Поддерживаются показатели **hours**, **story points** и **task count**; ось X — **month**, **week**, **day** или привязка к реальным типам **групповых задач** выбранного проекта (`Task.type`, кроме **Issue**). Фильтр **X Axis Period** показывает только те типы, для которых в проекте есть хотя бы одна групповая задача (`is_group=1`), например **Sprint**, **Stage**, **Phase** или другой проектный тип. Для task-type периодов интервал отчёта разбивается на **непересекающиеся календарные сегменты**: одиночный период, пересечение нескольких (`Sprint 1 + Sprint 2`) и «пустые» промежутки вне любого периода (**Before …**, **Between … and …**, **After …**); метрики burndown считаются по `[start, end]` каждого сегмента. Для **hours** — waterfall-сегменты **Completed above expected → Completed → Released hours → Open → Created → Created+Completed**. Сегмент **Completed above expected** («Завершено сверх прогноза») показывает часы, залогированные сверх планового объёма задачи в периоде: накопленные согласованные часы по задаче сравниваются с планом, и часть в пределах плана попадает в **Completed** / **Created+Completed**, а перерасход — в **Completed above expected** (в том числе для задач, созданных в том же периоде). План может быть задан на групповой задаче, а факт — собираться по дочерним. Сегмент **Released hours** («Высвобожденные часы») показывает разницу между плановым объёмом задачи и накопленными согласованными часами на дату завершения; дата завершения — наибольшая из `completed_on`, `act_end_date` и даты последнего согласованного ТШ с ненулевыми часами по задаче. Табличная часть отчёта теперь по умолчанию показывает **детальный список задач** по фактическим данным текущей выборки: **Period / Segment / Volume / Task**. Строки появляются сразу при загрузке отчёта, не дублируют forecast-half текущего периода и для колонки **Task** используют название задачи как ссылку на документ `Task`. **Прогноз завершения** (при включённом показе forecast) учитывает **разную длительность** периодов: скорость и регрессия считаются по календарным дням, а будущие прогнозные объёмы масштабируются длительностью каждого bucket (в том числе для неравных кастомных этапов). Если **текущий** период ещё не закончился, на графике он отображается **дважды** с одним label: factual-часть (от начала периода до today) и forecast-часть (оставшиеся дни того же периода); граница прогноза (`forecast_from_index`) ставится на второй столбец. Кнопка **Reload / Refresh** отчёта принудительно перезапрашивает серию графика (обход dedupe при тех же фильтрах). Подписи отчёта и фильтров локализуются через `translations/ru.csv`.
-- **Инструменты качества** — `pre-commit` с ruff, ESLint, Prettier, pyupgrade (см. `.pre-commit-config.yaml`).
+- **Task UI extension** — Client Script on `Task` (tree, Gantt, dependency styling and behavior).
+- **Dependency logic** — Server Script and the **`Task Relation`** child table on `Task` (`custom_relations`) for predecessor/successor relationships and related automation.
+- **Story points** — the **`Story Point`** DocType and **`story_point`** Link field on `Task`.
+- **Task progress auditing** — when an existing task is saved, if **`progress`** has actually changed, a row with `changed_on`, `changed_by`, `old_progress`, `new_progress` is added to **`custom_progress_history`** (the **`Task Progress History`** table). No row is created on initial document insertion; unchanged progress does not generate duplicate entries.
+- **Project percentage auditing** — when **`Project.percent_complete`** changes, a row is also added to **`custom_progress_history`** on `Project`. Both paths are covered: direct project saving (`Project.before_save`) and percentage recalculation from tasks. For the task-driven scenario, the application captures the old project value in the `Task` lifecycle, compares it with the current value after the standard ERPNext recalculation, and inserts a child row directly without another `Project.save()`.
+- **Group task progress (rollup)** — after saving or deleting a `Task`, **only the immediate** group parent is recalculated: a weighted average of immediate children with `task_weight > 0`; the result is **`max(raw, current %)`**, capped at 100%, so automation **does not lower** the parent's saved percentage. When the calculated value increases, the parent is saved with `save`, triggering the same mechanism for **its** parent (propagation without an explicit loop through all ancestors in a single hook). Disable with `doc.flags.skip_parent_progress_rollup = True`. Implementation: [`task_parent_progress.py`](dinext_project_tasks_gantt/task_parent_progress.py), `Task` events in [`hooks.py`](dinext_project_tasks_gantt/hooks.py) — `on_update`, `after_delete`.
+- **Progress Trend on the Task form** — a form dashboard widget (connected through `hooks.py`: `doctype_js` for Task). Data: `dinext_project_tasks_gantt.burndown.get_task_progress_trend`; client: [`public/js/task_progress_trend.js`](dinext_project_tasks_gantt/public/js/task_progress_trend.js), styles: [`public/js/task_progress_trend_styles.js`](dinext_project_tasks_gantt/public/js/task_progress_trend_styles.js) (ECharts). Where possible, vertical date markers on the X axis match the corresponding series colors: **Today** — actual progress, **Progress forecast end** — progress forecast, **Work hours forecast end** — work hours forecast; when markers of different types share a bucket, a neutral theme color is used.
+- **Task Epic Burndown report** — a Script Report in the application module; the chart is built from `get_burndown_series` (see `dinext_project_tasks_gantt/report/task_epic_burndown/`). Supported metrics are **hours**, **story points** and **task count**; the X axis uses **month**, **week**, **day**, or actual **group task** types in the selected project (`Task.type`, excluding **Issue**). The **X Axis Period** filter shows only types for which the project has at least one group task (`is_group=1`), for example **Sprint**, **Stage**, **Phase**, or another project-specific type. For task-type periods, the report interval is divided into **non-overlapping calendar segments**: a single period, overlaps of several periods (`Sprint 1 + Sprint 2`), and empty gaps outside any period (**Before …**, **Between … and …**, **After …**); burndown metrics are calculated for each segment's `[start, end]`. For **hours**, the waterfall segments are **Completed above expected → Completed → Released hours → Open → Created → Created+Completed**. **Completed above expected** shows hours logged beyond the task's planned volume in the period: cumulative approved task hours are compared with the plan, the portion within the plan goes into **Completed** / **Created+Completed**, and the overrun goes into **Completed above expected** (including tasks created in the same period). The plan may be set on a group task while actuals are collected from children. **Released hours** shows the difference between planned task volume and cumulative approved hours at completion; the completion date is the latest of `completed_on`, `act_end_date` and the date of the last approved timesheet with nonzero task hours. By default, the report table now displays a **detailed task list** using actual data from the current selection: **Period / Segment / Volume / Task**. Rows appear as soon as the report loads, do not duplicate the current period's forecast half, and use the task title as a link to the `Task` document in the **Task** column. The **completion forecast** (when forecast display is enabled) accounts for **different period lengths**: velocity and regression use calendar days, and future forecast volumes are scaled by each bucket's duration (including unequal custom stages). If the **current** period has not ended, the chart displays it **twice** with the same label: an actual portion (from the period start through today) and a forecast portion (the remaining days in that period); the forecast boundary (`forecast_from_index`) is placed at the second column. The report's **Reload / Refresh** button forces a new chart series request (bypassing deduplication with unchanged filters). Report and filter labels are localized through `translations/ru.csv`.
+- **Quality tools** — `pre-commit` with ruff, ESLint, Prettier, pyupgrade (see `.pre-commit-config.yaml`).
 
-## 🚀 Установка
+## 🚀 Installation
 
-Нужна рабочая среда [bench](https://github.com/frappe/bench) с уже установленным на целевом сайте **ERPNext** (и Frappe).
+A working [bench](https://github.com/frappe/bench) environment with **ERPNext** (and Frappe) already installed on the target site is required.
 
 ```bash
 cd /path/to/frappe-bench
@@ -30,16 +32,16 @@ bench --site your-site.local migrate
 bench build --app dinext_project_tasks_gantt
 ```
 
-После установки перезагрузите сайт и убедитесь, что **migrate** выполнился успешно, чтобы появились Custom Field и таблицы DocType.
+After installation, reload the site and make sure **migrate** completed successfully so Custom Fields and DocType tables are created.
 
-## 🛠️ Использование
+## 🛠️ Usage
 
-- **Desk / Task** — откройте **Task** как обычно; блок **Progress History** отображается после поля **% Progress**, если кастомное поле есть. Строки заполняются автоматически; таблица только для чтения. Секция **Progress Trend** (если задача не новая и не milestone) показывает график по периоду (день / неделя / месяц). У **групповых** задач поле **% Progress** при сохранении или удалении дочерних задач может обновиться автоматически по правилам rollup (см. раздел «Возможности»).
-- **Desk / Project** — если на `Project` присутствует `custom_progress_history`, таблица истории также заполняется автоматически при изменении **`percent_complete`**. Это работает и при ручном сохранении проекта, и при изменениях задач, которые пересчитывают процент проекта в ERPNext.
-- **Task Epic Burndown** — откройте отчёт в Desk, выберите проект, период и показатель. В фильтре **X Axis Period** можно выбрать календарную группировку или один из типов **групповых задач** текущего проекта (`Task.type`, кроме **Issue**). Список динамический: если в проекте есть групповые задачи типов **Sprint** и **Release**, фильтр покажет именно их; если таких задач нет, останутся только **month / week / day**. При смене проекта, если ранее выбранный тип периода в новом проекте недоступен, фильтр сбрасывается на **month**. Для task-type периодов ось X строится по задачам выбранного типа и датам из `exp_*` / `custom_planned_*`, с полным покрытием диапазона отчёта, включая пересечения и промежутки без периода. Для **hours** столбец периода складывается из сегментов: **завершено сверх прогноза** (часы сверх плана задачи в периоде, отображаются над **Completed**), завершённые часы в пределах плана (согласованные ТШ в периоде), **высвобождённые часы** (неиспользованный плановый объём на дату завершения задачи), открытый объём на конец периода, созданный объём и созданный+завершённый в том же периоде. Табличная часть под графиком сразу показывает **детальный список задач** только по фактическим данным отфильтрованной выборки; прогнозные bucket'ы в неё не попадают. В колонке **Task** отображается название задачи как ссылка с переходом в документ `Task`. При включённом прогнозе завершения незавершённый **текущий** период может появиться на оси X **дважды** подряд (одинаковая подпись): сначала factual-столбец, затем прогнозная часть того же периода; вертикальная граница прогноза проходит между ними. Клик по сегментам **Completed** / **Completed above expected** / **Created+Completed** в режиме hours открывает список **User Timesheet Position**; по **Released hours** и остальным сегментам — список **Task** (прогнозные столбцы не кликабельны). Явное обновление отчёта (иконка Reload или пункт **Refresh**) перерисовывает график даже без смены фильтров.
-- **Разработчикам** — аудит задачи: `dinext_project_tasks_gantt.task_progress_audit.before_save_task` (`doc_events["Task"]["before_save"]`). Аудит проекта: `dinext_project_tasks_gantt.project_progress_audit.before_save_project`, `before_insert_task`, `before_save_task`, `on_trash_task`, `on_update_task`, `after_delete_task`. Rollup родителя: `dinext_project_tasks_gantt.task_parent_progress.on_update_task` и `after_delete_task`. Логика аудита задачи — `task_progress_audit.py`; логика аудита проекта — `project_progress_audit.py`; rollup — [`task_parent_progress.py`](dinext_project_tasks_gantt/task_parent_progress.py). Burndown и тренд — `burndown.py` (`get_burndown_series`, `get_project_x_axis_period_options`, `get_period_buckets`, `_build_display_buckets`, `_bucket_duration_days` / `_bucket_remaining_days`, `_forecast_bucket_range`, `_hours_completion_date`, `_utp_max_date_by_task`); значение фильтра `group_by` для task-type периодов — точное имя `Task.type` (например `Sprint`, `Release`), не lowercase-ключи. Payload отчёта: параллельные массивы по `categories`; при частично текущем периоде backend дублирует label в двух соседних индексах, `forecast_from_index` указывает на forecast-half. Клиент отчёта — [`task_epic_burndown.js`](dinext_project_tasks_gantt/dinext_project_tasks_gantt/report/task_epic_burndown/task_epic_burndown.js) (один bar на индекс категории, `idx >= forecast_from_index` → forecast-серии; динамическое обновление **X Axis Period** при смене проекта). Тесты — `test_burndown.py`, [`test_task_parent_progress.py`](dinext_project_tasks_gantt/test_task_parent_progress.py), `doctype/task_progress_history/test_task_progress_history.py`.
+- **Desk / Task** — open **Task** as usual; the **Progress History** block appears after **% Progress** if the custom field exists. Rows are populated automatically; the table is read-only. **Progress Trend** (for a task that is neither new nor a milestone) displays a chart by period (day / week / month). For **group** tasks, **% Progress** may update automatically when child tasks are saved or deleted, following the rollup rules (see Features).
+- **Desk / Project** — if `Project` has `custom_progress_history`, the history table is also populated automatically when **`percent_complete`** changes. This works both for manually saved projects and task changes that recalculate the project percentage in ERPNext.
+- **Task Epic Burndown** — open the report in Desk and select a project, period and metric. **X Axis Period** lets you choose calendar grouping or one of the current project's **group task** types (`Task.type`, excluding **Issue**). The list is dynamic: if the project has group tasks of types **Sprint** and **Release**, those are the types the filter shows; if there are no such tasks, only **month / week / day** remain. When switching projects, if the previously selected period type is unavailable in the new project, the filter resets to **month**. For task-type periods, the X axis is built from tasks of the selected type and dates in `exp_*` / `custom_planned_*`, covering the entire report range, including overlaps and gaps without a period. For **hours**, each period column comprises: **Completed above expected** (hours beyond the task plan in the period, displayed above **Completed**), completed hours within the plan (approved timesheets in the period), **Released hours** (unused planned volume at the task's completion date), open volume at the period end, created volume, and volume created+completed within that period. The table below the chart immediately shows a **detailed task list** using only actual data from the filtered selection; forecast buckets are excluded. The **Task** column shows the task title as a link to the `Task` document. When the completion forecast is enabled, an unfinished **current** period may appear **twice** consecutively on the X axis (with the same label): first the actual column, then that period's forecast portion; the vertical forecast boundary is between them. Clicking **Completed** / **Completed above expected** / **Created+Completed** segments in hours mode opens a **User Timesheet Position** list; clicking **Released hours** and other segments opens a **Task** list (forecast columns are not clickable). Explicit report refresh (the Reload icon or **Refresh** item) redraws the chart even when filters have not changed.
+- **For developers** — task auditing: `dinext_project_tasks_gantt.task_progress_audit.before_save_task` (`doc_events["Task"]["before_save"]`). Project auditing: `dinext_project_tasks_gantt.project_progress_audit.before_save_project`, `before_insert_task`, `before_save_task`, `on_trash_task`, `on_update_task`, `after_delete_task`. Parent rollup: `dinext_project_tasks_gantt.task_parent_progress.on_update_task` and `after_delete_task`. Task audit logic: `task_progress_audit.py`; project audit logic: `project_progress_audit.py`; rollup: [`task_parent_progress.py`](dinext_project_tasks_gantt/task_parent_progress.py). Burndown and trend: `burndown.py` (`get_burndown_series`, `get_project_x_axis_period_options`, `get_period_buckets`, `_build_display_buckets`, `_bucket_duration_days` / `_bucket_remaining_days`, `_forecast_bucket_range`, `_hours_completion_date`, `_utp_max_date_by_task`); the `group_by` filter value for task-type periods is the exact `Task.type` name (for example, `Sprint`, `Release`), not a lowercase key. Report payload: parallel arrays aligned with `categories`; for a partially elapsed current period, the backend duplicates the label at two adjacent indexes, and `forecast_from_index` points to the forecast half. Report client: [`task_epic_burndown.js`](dinext_project_tasks_gantt/dinext_project_tasks_gantt/report/task_epic_burndown/task_epic_burndown.js) (one bar per category index, `idx >= forecast_from_index` → forecast series; dynamic **X Axis Period** updates when switching projects). Tests: `test_burndown.py`, [`test_task_parent_progress.py`](dinext_project_tasks_gantt/test_task_parent_progress.py), `doctype/task_progress_history/test_task_progress_history.py`.
 
-Запуск тестов:
+Running tests:
 
 ```bash
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt
@@ -48,191 +50,187 @@ bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.dinext_project_tasks_gantt.doctype.task_progress_history.test_task_progress_history
 ```
 
-## 📦 Технологии
+## 📦 Technologies
 
-- **Python** 3.10+ (см. `pyproject.toml`)
-- **Frappe Framework** / **ERPNext** (через bench)
-- **JavaScript** — Client Script (фикстуры) для Desk
-- **Линтинг / форматирование** — Ruff, ESLint, Prettier, pyupgrade через pre-commit
+- **Python** 3.10+ (see `pyproject.toml`)
+- **Frappe Framework** / **ERPNext** (through bench)
+- **JavaScript** — Client Script (fixtures) for Desk
+- **Linting / formatting** — Ruff, ESLint, Prettier, pyupgrade through pre-commit
 
-## 🔧 Конфигурация
+## 🔧 Configuration
 
-- **Hooks** — `dinext_project_tasks_gantt/hooks.py`: `app_name`, `fixtures` (Custom Field, Story Point, Client Script, Server Script), `doc_events` для `Project` и `Task`: `Project.before_save` для прямого аудита `percent_complete`; `Task.before_insert` / `before_save` / `on_trash` для захвата старого процента проекта; `Task.on_update` / `after_delete` для записи истории проекта после ERPNext-пересчёта; параллельно сохраняются существующие `Task.before_save` (аудит `progress`) и `Task.on_update` / `after_delete` (rollup `%` у прямого родителя-группы).
-- **Фикстуры** — экспортированные метаданные в `dinext_project_tasks_gantt/fixtures/`. Новые Custom Field не добавляют правкой файлов вручную: создают в системе (или через MCP) и выполняют `bench export-fixtures` по принятому у команды процессу (см. `AGENTS.md`).
-- **Патчи** — `dinext_project_tasks_gantt/patches.txt` для патчей миграций при необходимости.
+- **Hooks** — `dinext_project_tasks_gantt/hooks.py`: `app_name`, `fixtures` (Custom Field, Story Point, Client Script, Server Script), `doc_events` for `Project` and `Task`: `Project.before_save` for direct auditing of `percent_complete`; `Task.before_insert` / `before_save` / `on_trash` for capturing the old project percentage; `Task.on_update` / `after_delete` for recording project history after the ERPNext recalculation; the existing `Task.before_save` (auditing `progress`) and `Task.on_update` / `after_delete` (rolling up `%` to the immediate group parent) remain in place alongside these hooks.
+- **Fixtures** — exported metadata in `dinext_project_tasks_gantt/fixtures/`. New Custom Fields are not added by editing files manually: create them in the system (or through MCP) and run `bench export-fixtures` according to the team's process (see `AGENTS.md`).
+- **Patches** — `dinext_project_tasks_gantt/patches.txt` for migration patches when necessary.
 
-## ✅ Требования
+## ✅ Requirements
 
-- [bench](https://github.com/frappe/bench) и сайт с установленным **ERPNext**
+- [bench](https://github.com/frappe/bench) and a site with **ERPNext** installed
 - **Python** >= 3.10
-- **MariaDB** (или СУБД, поддерживаемая вашей версией Frappe), **Redis**, **Node** — как требует ваш стек bench
+- **MariaDB** (or a DBMS supported by your Frappe version), **Redis**, **Node** — as required by your bench stack
 
-## 🤝 Участие в разработке
+## 🤝 Contributing
 
-1. Клонируйте приложение в `apps/dinext_project_tasks_gantt`.
-2. Установите pre-commit и включите его для репозитория:
+1. Clone the application into `apps/dinext_project_tasks_gantt`.
+2. Install pre-commit and enable it for the repository:
 
 ```bash
 cd apps/dinext_project_tasks_gantt
 pre-commit install
 ```
 
-3. Соблюдайте соглашения проекта в [`AGENTS.md`](AGENTS.md) (метаданные Frappe, фикстуры, правила MCP-first где применимо).
+3. Follow the project conventions in [`AGENTS.md`](AGENTS.md) (Frappe metadata, fixtures, MCP-first rules where applicable).
 
-## 📄 Документация
+## 📄 Documentation
 
-- **[AGENTS.md](AGENTS.md)** — руководство по разработке в этом проекте (паттерны Frappe, DocType, фикстуры, тесты).
-- **Frappe** — [документация Frappe](https://frappeframework.com/docs)
-- **ERPNext** — [документация ERPNext](https://docs.erpnext.com)
+- **[AGENTS.md](AGENTS.md)** — this project's development guide (Frappe patterns, DocTypes, fixtures, tests).
+- **Frappe** — [Frappe documentation](https://frappeframework.com/docs)
+- **ERPNext** — [ERPNext documentation](https://docs.erpnext.com)
 
-## ❤️ Благодарности
+## 📝 Changelog
 
-Разработано **Dinext** для ERPNext/Frappe. Используются [Frappe Framework](https://frappeframework.com/) и [ERPNext](https://erpnext.com/).
+Recent commits (full history: `git log`):
 
-## 📝 История изменений
+- Task Epic Burndown: completion forecasting that accounts for **unequal period lengths** (velocity and regression based on calendar days, forecast volumes scaled by bucket duration).
+- Task Epic Burndown: **two columns** for an unfinished current period (actual + forecast portions of the same label); `forecast_from_index` at the forecast half; `_build_display_buckets` in `burndown.py`.
+- Task Epic Burndown: dynamic **X Axis Period** filter — `get_project_x_axis_period_options` and Select updates when switching projects; the list contains only **month / week / day** plus project group task types (`is_group=1`, excluding **Issue**); `group_by` for a period is set to the `Task.type` name; unavailable values reset to **month**.
+- Task Epic Burndown: X axis by task type — full segmentation of the report range (single periods, `A + B` overlaps, empty **Before / Between / After** intervals); metric calculation over non-overlapping `[start, end]`; tests in `test_burndown.py`.
+- Task Epic Burndown: forced chart refresh on **Reload / Refresh** (bypassing client-side deduplication with unchanged filters).
+- Task Epic Burndown (hours): the **Completed above expected** / «Завершено сверх прогноза» segment above **Completed** when task volume exceeds the plan (including tasks created in the same period; group task plans and child task actuals are accounted for); drilldown into **User Timesheet Position**.
+- Task Epic Burndown (hours): the **Released hours** / «Высвобожденные часы» segment between Completed and Open; calculation at the completion date `max(completed_on, act_end_date, last approved timesheet)`; translation in `translations/ru.csv`.
+- Cascading `%` recalculation for group `Task` records using child weights (`task_parent_progress`, `on_update` / `after_delete` hooks, `test_task_parent_progress` tests).
+- Progress Trend widget on Task: `get_task_progress_trend` API, date markers aligned with series colors (when a bucket has a single marker type).
+- `Project.percent_complete` auditing: history in `Project.custom_progress_history` both for direct `Project.save()` and project recalculation from `Task` through `db_update()`; tests in `doctype/task_progress_history/test_task_progress_history.py`.
+- Documentation and Cursor skills (AGENTS, README tools).
+- Story Point DocType and related behavior.
+- Task Relation and dependency fixtures.
+- Initial application initialization.
 
-Недавние коммиты (полная история — `git log`):
+*For progress auditing, group rollup and burndown, see the current branch and `git log`.*
 
-- Task Epic Burndown: прогноз завершения с учётом **неравной длительности** периодов (скорость и регрессия по календарным дням, прогнозные объёмы масштабируются длительностью bucket).
-- Task Epic Burndown: при незавершённом текущем периоде — **два столбца** на графике (factual + forecast часть того же label); `forecast_from_index` на forecast-half; `_build_display_buckets` в `burndown.py`.
-- Task Epic Burndown: динамический фильтр **X Axis Period** — `get_project_x_axis_period_options` и обновление Select при смене проекта; в списке только **month / week / day** плюс типы групповых задач проекта (`is_group=1`, кроме **Issue**); `group_by` для периода задаётся именем `Task.type`; при недоступном значении — сброс на **month**.
-- Task Epic Burndown: ось X по типу задачи — полная сегментация диапазона отчёта (одиночные периоды, пересечения `A + B`, пустые интервалы **Before / Between / After**); расчёт метрик по непересекающимся `[start, end]`; тесты в `test_burndown.py`.
-- Task Epic Burndown: принудительное обновление графика по **Reload / Refresh** (обход client-side dedupe при тех же фильтрах).
-- Task Epic Burndown (hours): сегмент **Completed above expected** / «Завершено сверх прогноза» над **Completed** при перерасходе относительно планового объёма задачи (включая задачи, созданные в том же периоде; учёт плана групповой задачи и факта по дочерним); drilldown в **User Timesheet Position**.
-- Task Epic Burndown (hours): сегмент **Released hours** / «Высвобожденные часы» между Completed и Open; расчёт по дате завершения `max(completed_on, act_end_date, последний согласованный ТШ)`; перевод в `translations/ru.csv`.
-- Каскадный пересчёт `%` у групповых `Task` по весам детей (`task_parent_progress`, хуки `on_update` / `after_delete`, тесты `test_task_parent_progress`).
-- Виджет Progress Trend на Task: API `get_task_progress_trend`, маркеры дат согласованы с цветами рядов (при одном типе маркера в bucket).
-- Аудит `Project.percent_complete`: история на `Project.custom_progress_history` как при прямом `Project.save()`, так и при пересчёте проекта из `Task` через `db_update()`; тесты в `doctype/task_progress_history/test_task_progress_history.py`.
-- Документация и навыки Cursor (AGENTS, инструменты для README).
-- DocType Story Point и связанное поведение.
-- Task Relation и фикстуры для зависимостей.
-- Первичная инициализация приложения.
-
-*Аудит прогресса, rollup групп, burndown: см. текущую ветку и `git log`.*
-
-## 🗂️ Структура репозитория
+## 🗂️ Repository Structure
 
 ```text
-dinext_project_tasks_gantt/          # Корень репозитория
+dinext_project_tasks_gantt/          # Repository root
 ├── README.md
 ├── license.txt
-├── pyproject.toml                   # Метаданные пакета Python, ruff
+├── pyproject.toml                   # Python package metadata, ruff
 ├── .pre-commit-config.yaml
-├── AGENTS.md                        # Руководство для контрибьюторов / Frappe
-└── dinext_project_tasks_gantt/      # Основной Python-пакет
+├── AGENTS.md                        # Contributor / Frappe guide
+└── dinext_project_tasks_gantt/      # Main Python package
     ├── __init__.py
-    ├── hooks.py                     # Фикстуры, doc_events Project/Task (аудит, rollup)
-    ├── task_progress_audit.py       # before_save: строки истории прогресса задачи
-    ├── project_progress_audit.py    # аудит percent_complete проекта при save и task-driven recalc
-    ├── task_parent_progress.py      # on_update / after_delete: взвешенный rollup группы, монотонность
-    ├── burndown.py                  # get_task_progress_trend, get_burndown_series, расчёт серий
+    ├── hooks.py                     # Fixtures, Project/Task doc_events (audit, rollup)
+    ├── task_progress_audit.py       # before_save: task progress history rows
+    ├── project_progress_audit.py    # Project percent_complete audit on save and task-driven recalculation
+    ├── task_parent_progress.py      # on_update / after_delete: weighted group rollup, monotonicity
+    ├── burndown.py                  # get_task_progress_trend, get_burndown_series, series calculation
     ├── test_burndown.py
-    ├── test_task_parent_progress.py # Тесты rollup прогресса групповых задач
+    ├── test_task_parent_progress.py # Group task progress rollup tests
     ├── modules.txt
     ├── patches.txt
     ├── fixtures/                    # JSON: Custom Field, Client/Server Script, Story Point
-    ├── dinext_project_tasks_gantt/  # Модуль «Dinext Project Tasks Gantt»
-    │   ├── doctype/                 # JSON DocType, контроллеры, тесты
+    ├── dinext_project_tasks_gantt/  # Dinext Project Tasks Gantt module
+    │   ├── doctype/                 # DocType JSON, controllers, tests
     │   │   ├── story_point/
     │   │   ├── task_relation/
     │   │   └── task_progress_history/
-    │   └── report/                  # Script Report Task Epic Burndown (+ JS графика)
+    │   └── report/                  # Task Epic Burndown Script Report (+ chart JS)
     │       └── task_epic_burndown/
     ├── api/
     ├── config/
-    ├── public/                      # JS-ассеты (например js/task_progress_trend.js, js/task_progress_trend_styles.js)
+    ├── public/                      # JS assets (for example js/task_progress_trend.js, js/task_progress_trend_styles.js)
     ├── templates/
     └── www/
 ```
 
-- **`fixtures/`** — сериализованные метаданные Desk для установки/миграции; при `export-fixtures` источником истины остаётся целевой сайт.
-- **`doctype/`** — DocType приложения (дочерняя таблица `Task Progress History`, `Task Relation`, `Story Point` и др.).
-- **`task_progress_audit.py`** — серверный аудит при изменении `Task.progress`.
-- **`project_progress_audit.py`** — серверный аудит при изменении `Project.percent_complete`, включая путь пересчёта проекта из `Task`.
-- **`task_parent_progress.py`** — пересчёт `%` у прямого родителя-группы по весам детей (монотонный пол).
-- **`burndown.py`** — расчёт серий для виджета Progress Trend и отчёта Epic Burndown: `get_project_x_axis_period_options`, `get_period_buckets` / `iter_task_type_period_buckets_from_rows` (ось X по любому `Task.type`), `get_burndown_series`, `_period_volume_burndown` (factual + completion forecast), `_build_display_buckets` (split текущего периода на factual/forecast для графика), duration-aware прогноз (`_bucket_duration_days`, `_forecast_bucket_range`, `_velocity_window_daily_rates`), `completed_above_expected`, `unused_hours` / Released hours для режима hours.
-- **`translations/ru.csv`** — русские переводы подписей отчёта, включая **Completed above expected** → «Завершено сверх прогноза» и **Released hours** → «Высвобожденные часы».
+- **`fixtures/`** — serialized Desk metadata for installation/migration; the target site remains the source of truth for `export-fixtures`.
+- **`doctype/`** — application DocTypes (the `Task Progress History` child table, `Task Relation`, `Story Point`, etc.).
+- **`task_progress_audit.py`** — server-side auditing when `Task.progress` changes.
+- **`project_progress_audit.py`** — server-side auditing when `Project.percent_complete` changes, including project recalculation from `Task`.
+- **`task_parent_progress.py`** — recalculation of the immediate group parent's `%` from child weights (monotonic floor).
+- **`burndown.py`** — series calculation for the Progress Trend widget and Epic Burndown report: `get_project_x_axis_period_options`, `get_period_buckets` / `iter_task_type_period_buckets_from_rows` (X axis by any `Task.type`), `get_burndown_series`, `_period_volume_burndown` (actual + completion forecast), `_build_display_buckets` (splitting the current period into actual/forecast portions for the chart), duration-aware forecasting (`_bucket_duration_days`, `_forecast_bucket_range`, `_velocity_window_daily_rates`), `completed_above_expected`, `unused_hours` / Released hours for hours mode.
+- **`translations/ru.csv`** — Russian report label translations, including **Completed above expected** → «Завершено сверх прогноза» and **Released hours** → «Высвобожденные часы».
 
-## 🔗 Схема потока
+## 🔗 Flow Diagram
 
-### Аудит изменения `progress`
+### Auditing changes to `progress`
 
 ```mermaid
 flowchart TD
-    save[Сохранение Task] --> hook[before_save_task]
-    hook --> checkField{Есть custom_progress_history?}
-    checkField -->|нет| skip1[Выход]
-    checkField -->|да| checkNew{doc.is_new?}
-    checkNew -->|да| skip2[Выход — при вставке аудит не пишем]
-    checkNew -->|нет| loadPrev[get_doc_before_save]
-    loadPrev --> compare{progress изменился?}
-    compare -->|нет| skip3[Выход]
-    compare -->|да| append[Добавить строку: changed_on, changed_by, old, new]
-    append --> persist[Frappe сохраняет Task и дочерние строки]
+    save[Save Task] --> hook[before_save_task]
+    hook --> checkField{Has custom_progress_history?}
+    checkField -->|no| skip1[Exit]
+    checkField -->|yes| checkNew{doc.is_new?}
+    checkNew -->|yes| skip2[Exit — no audit on insertion]
+    checkNew -->|no| loadPrev[get_doc_before_save]
+    loadPrev --> compare{Has progress changed?}
+    compare -->|no| skip3[Exit]
+    compare -->|yes| append[Add row: changed_on, changed_by, old, new]
+    append --> persist[Frappe saves Task and child rows]
 ```
 
-### Аудит изменения `Project.percent_complete`
+### Auditing changes to `Project.percent_complete`
 
 ```mermaid
 flowchart TD
-    taskChange[Сохранение или удаление Task] --> capture[Capture old Project percent]
+    taskChange[Save or delete Task] --> capture[Capture old Project percent]
     capture --> erpnextUpdate[ERPNext update_project db_update]
-    erpnextUpdate --> compareProject{Project percent_complete изменился}
-    compareProject -->|нет| skipProject[Выход]
-    compareProject -->|да| insertProject[Вставить child row в Project.custom_progress_history]
+    erpnextUpdate --> compareProject{Project percent_complete changed}
+    compareProject -->|no| skipProject[Exit]
+    compareProject -->|yes| insertProject[Insert child row into Project.custom_progress_history]
 
-    projectSave[Сохранение Project] --> projectValidate[validate пересчитывает percent_complete]
+    projectSave[Save Project] --> projectValidate[validate recalculates percent_complete]
     projectValidate --> beforeSave[before_save_project]
-    beforeSave --> compareDirect{Старое и новое значение различаются}
-    compareDirect -->|нет| skipDirect[Выход]
-    compareDirect -->|да| appendDirect[Append row в custom_progress_history]
+    beforeSave --> compareDirect{Old and new values differ}
+    compareDirect -->|no| skipDirect[Exit]
+    compareDirect -->|yes| appendDirect[Append row to custom_progress_history]
 ```
 
-### Rollup прогресса у родителя-группы
+### Group parent progress rollup
 
-После успешной записи или удаления задачи (если не установлен `skip_parent_progress_rollup`):
+After a task is successfully saved or deleted (unless `skip_parent_progress_rollup` is set):
 
 ```mermaid
 flowchart TD
-    ou[Task on_update или after_delete] --> gate{skip или нет parent_task}
-    gate -->|да| end1[Выход]
-    gate -->|нет| raw[Сырой % по детям с task_weight gt 0]
-    raw -->|нет весов| end2[Выход]
-    raw -->|есть| mono[max raw текущий cap 100]
-    mono --> grow{target gt текущий?}
-    grow -->|нет| end3[Выход без save родителя]
-    grow -->|да| psave[save родителя]
-    psave --> chain[on_update родителя — пересчёт его родителя]
+    ou[Task on_update or after_delete] --> gate{skip or no parent_task}
+    gate -->|yes| end1[Exit]
+    gate -->|no| raw[Raw % from children with task_weight gt 0]
+    raw -->|no weights| end2[Exit]
+    raw -->|present| mono[max raw current cap 100]
+    mono --> grow{target gt current?}
+    grow -->|no| end3[Exit without saving parent]
+    grow -->|yes| psave[save parent]
+    psave --> chain[Parent on_update — recalculate its parent]
 ```
 
-### Динамический фильтр X Axis Period (Task Epic Burndown)
+### Dynamic X Axis Period filter (Task Epic Burndown)
 
-При смене проекта клиент запрашивает опции оси X; сервер возвращает календарные периоды и distinct `Task.type` групповых задач проекта.
+When the project changes, the client requests X axis options; the server returns calendar periods and distinct `Task.type` values for the project's group tasks.
 
 ```mermaid
 flowchart LR
-    projectFilter[Фильтр Project] --> api[get_project_x_axis_period_options]
+    projectFilter[Project filter] --> api[get_project_x_axis_period_options]
     api --> options[month week day + Task.type]
-    options --> select[Обновить Select group_by]
-    select --> valid{Текущее значение в списке?}
-    valid -->|нет| reset[Сброс на month]
-    valid -->|да| keep[Оставить выбор]
-    reset --> chart[Перерисовка графика]
+    options --> select[Update group_by Select]
+    select --> valid{Current value in list?}
+    valid -->|no| reset[Reset to month]
+    valid -->|yes| keep[Keep selection]
+    reset --> chart[Redraw chart]
     keep --> chart
 ```
 
-### Прогноз завершения и split текущего периода (Task Epic Burndown)
+### Completion forecast and current-period split (Task Epic Burndown)
 
-Исходные bucket'ы считаются по календарным `[start, end]`. Для payload графика `_build_display_buckets` может разбить **текущий** bucket на два display-entry с одним label: factual (до today) и forecast (оставшиеся дни). Массивы `categories`, `open`, `completed`, `forecast_*` выравниваются по display-индексам; `forecast_from_index` указывает на forecast-half.
+Source buckets are calculated over calendar `[start, end]` intervals. For the chart payload, `_build_display_buckets` may split the **current** bucket into two display entries with the same label: actual (through today) and forecast (remaining days). The `categories`, `open`, `completed`, `forecast_*` arrays are aligned by display index; `forecast_from_index` points to the forecast half.
 
 ```mermaid
 flowchart TD
-    buckets[Source buckets N] --> calc[Factual метрики по bucket]
+    buckets[Source buckets N] --> calc[Actual metrics by bucket]
     calc --> split{_build_display_buckets}
-    split -->|текущий период частично в будущем| dup[2 categories с одним label]
-    split -->|иначе| one[1 category на bucket]
-    dup --> align[Выравнивание массивов + forecast sim]
+    split -->|current period partly in future| dup[2 categories with same label]
+    split -->|otherwise| one[1 category per bucket]
+    dup --> align[Align arrays + forecast simulation]
     one --> align
-    align --> api[JSON: forecast_from_index на forecast-half]
-    api --> js[task_epic_burndown.js: bar на индекс]
+    align --> api[JSON: forecast_from_index at forecast half]
+    api --> js[task_epic_burndown.js: bar per index]
 ```
