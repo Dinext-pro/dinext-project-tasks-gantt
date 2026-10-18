@@ -21,7 +21,7 @@ from frappe import _
 from frappe.query_builder.functions import Coalesce, Date, IfNull, Max, Min, Sum
 from frappe.utils import add_months, cint, cstr, flt, get_datetime, getdate
 
-UTP_STATUS_APPROVED = "Согласовано"
+from dinext_timesheets.timesheet_status import APPROVED_POSITION_STATUSES
 CALENDAR_GROUP_BYS = {"day", "week", "month"}
 TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET = "__not_set__"
 DINEXT_TASK_TYPE_TRANSLATION_CONTEXT = "Dinext.TaskType"
@@ -2004,7 +2004,7 @@ def _load_task_timesheet_role_rows(task_names: list[str], date_from: date, date_
 			detail.date,
 			Sum(IfNull(detail.hours, 0)).as_("hours"),
 		)
-		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(utp.status.isin(APPROVED_POSITION_STATUSES))
 		.where(IfNull(utp.document_type, "") == "Task")
 		.where(utp.document_name.isin(task_names))
 		.where(detail.date.between(date_from, date_to))
@@ -2031,7 +2031,7 @@ def _utp_query_with_role_filters(
 		.inner_join(detail)
 		.on(detail.parent == utp.name)
 		.where(utp.project == project)
-		.where(utp.status == UTP_STATUS_APPROVED)
+		.where(utp.status.isin(APPROVED_POSITION_STATUSES))
 		.where(IfNull(utp.document_type, "") == "Task")
 	)
 	if date_from and date_to:
