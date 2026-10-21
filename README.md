@@ -1,5 +1,25 @@
 [Русский](README.ru.md)
 
+<!-- dinext-presentation:start -->
+<p align="center">
+  <a href="https://dinext.ru"><img src="docs/assets/readme/dinext-logo.png" alt="Dinext" width="128"></a>
+</p>
+<h1 align="center">Dinext Project Tasks Gantt</h1>
+
+<hr>
+
+<p align="center">Plan project tasks in an interactive tree and Gantt chart with dependencies, dates and progress.</p>
+
+<p align="center">
+  <img src="docs/assets/readme/overview.png" alt="Task structure, dependencies and schedule on a demonstration Gantt chart." width="960">
+</p>
+<p align="center"><sub>Task structure, dependencies and schedule on a demonstration Gantt chart.</sub></p>
+
+<p align="center">
+  <a href="https://dinext.ru">Website</a> · <a href="https://docs.dinext.ru">Documentation</a>
+</p>
+<!-- dinext-presentation:end -->
+
 # Dinext Project Tasks Gantt
 
 ## 📖 Overview

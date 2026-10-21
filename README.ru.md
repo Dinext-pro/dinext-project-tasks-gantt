@@ -1,5 +1,25 @@
 [English](README.md)
 
+<!-- dinext-presentation:start -->
+<p align="center">
+  <a href="https://dinext.ru"><img src="docs/assets/readme/dinext-logo.png" alt="Dinext" width="128"></a>
+</p>
+<h1 align="center">Dinext Project Tasks Gantt</h1>
+
+<hr>
+
+<p align="center">Планирование задач проекта в интерактивном дереве и диаграмме Ганта со связями, сроками и прогрессом.</p>
+
+<p align="center">
+  <img src="docs/assets/readme/overview.png" alt="Структура задач, зависимости и сроки на демонстрационной диаграмме Ганта." width="960">
+</p>
+<p align="center"><sub>Структура задач, зависимости и сроки на демонстрационной диаграмме Ганта.</sub></p>
+
+<p align="center">
+  <a href="https://dinext.ru">Сайт</a> · <a href="https://docs.dinext.ru">Документация</a>
+</p>
+<!-- dinext-presentation:end -->
+
 # Dinext Project Tasks Gantt
 
 ## 📖 Обзор
