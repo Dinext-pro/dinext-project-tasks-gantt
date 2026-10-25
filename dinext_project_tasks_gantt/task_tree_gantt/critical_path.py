@@ -11,8 +11,8 @@ Dates are not written back.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
-from typing import Iterable
 
 import frappe
 
@@ -136,18 +136,45 @@ def _cycle_nodes(node_ids: list[str], edges: list[tuple[str, str]]) -> set[str]:
 	return cyclic
 
 
-def _reconcile(late_start: date, late_finish: date, offset: int, holidays: set[str]) -> tuple[date, date]:
-	for _ in range(3):
-		from_finish = add_business_days(late_finish, -offset, holidays)
-		if from_finish and from_finish < late_start:
-			late_start = from_finish
-		from_start = add_business_days(late_start, offset, holidays)
-		if from_start and from_start < late_finish:
-			late_finish = from_start
-	return late_start, late_finish
+def _latest_predecessor_date(successor_date: date, buffer_days: int, holidays: set[str]) -> date:
+	"""Latest anchor whose forward business-day lag does not pass the bound."""
+	if buffer_days <= 0:
+		return add_business_days(successor_date, -buffer_days, holidays)
+	# A positive lag always lands on a working day. The last allowed anchor
+	# is the calendar day before the first required working day, not the
+	# result of simply negating the lag on a weekend or holiday.
+	last_workday = successor_date
+	while not is_business_day(last_workday, holidays):
+		last_workday -= timedelta(days=1)
+	first_required = add_business_days(last_workday, 1 - buffer_days, holidays)
+	return first_required - timedelta(days=1)
 
 
-def compute_critical_path(tasks: Iterable[dict], relations: Iterable[dict], holidays: Iterable[str] | None = None) -> dict:
+def _latest_shift(anchor: date, bound: date, holidays: set[str]) -> int:
+	"""Largest business-day shift of the stored anchor that fits the bound."""
+	# A negative shift lands on a working day; zero preserves the saved date.
+	# Round an earlier non-working bound down so zero cannot pass that bound.
+	while bound < anchor and not is_business_day(bound, holidays):
+		bound -= timedelta(days=1)
+	return business_offset(anchor, bound, holidays)
+
+
+def _reconcile(node: dict, late_start: date, late_finish: date, holidays: set[str]) -> tuple[date, date]:
+	# Move both saved endpoints by one common amount, keeping their exact
+	# dates at zero float instead of reconstructing them from duration.
+	shift = min(
+		_latest_shift(node["start"], late_start, holidays),
+		_latest_shift(node["end"], late_finish, holidays),
+	)
+	return (
+		add_business_days(node["start"], shift, holidays),
+		add_business_days(node["end"], shift, holidays),
+	)
+
+
+def compute_critical_path(
+	tasks: Iterable[dict], relations: Iterable[dict], holidays: Iterable[str] | None = None
+) -> dict:
 	"""Return critical task ids, tight edges, and whether a cycle was excluded."""
 	holiday_set = {str(day)[:10] for day in (holidays or []) if day}
 	nodes: dict[str, dict] = {}
@@ -169,7 +196,6 @@ def compute_critical_path(tasks: Iterable[dict], relations: Iterable[dict], holi
 			"id": task_id,
 			"start": start,
 			"end": end,
-			"offset": business_offset(start, end, holiday_set),
 		}
 
 	parsed_edges = []
@@ -182,7 +208,9 @@ def compute_critical_path(tasks: Iterable[dict], relations: Iterable[dict], holi
 		if pred not in nodes or succ not in nodes:
 			continue
 		try:
-			buffer_days = int(raw.get("buffer_days") if raw.get("buffer_days") is not None else raw.get("buffer") or 0)
+			buffer_days = int(
+				raw.get("buffer_days") if raw.get("buffer_days") is not None else raw.get("buffer") or 0
+			)
 		except (TypeError, ValueError):
 			buffer_days = 0
 		parsed_edges.append({"from": pred, "to": succ, "type": kind, "buffer": buffer_days})
@@ -190,7 +218,9 @@ def compute_critical_path(tasks: Iterable[dict], relations: Iterable[dict], holi
 	cyclic = _cycle_nodes(list(nodes), [(edge["from"], edge["to"]) for edge in parsed_edges])
 	if cyclic:
 		nodes = {task_id: node for task_id, node in nodes.items() if task_id not in cyclic}
-		parsed_edges = [edge for edge in parsed_edges if edge["from"] not in cyclic and edge["to"] not in cyclic]
+		parsed_edges = [
+			edge for edge in parsed_edges if edge["from"] not in cyclic and edge["to"] not in cyclic
+		]
 
 	if not nodes:
 		return {"tasks": [], "edges": [], "cycles": bool(cyclic)}
@@ -216,27 +246,30 @@ def compute_critical_path(tasks: Iterable[dict], relations: Iterable[dict], holi
 	for task_id in reversed(order):
 		node = nodes[task_id]
 		late_finish = project_finish
-		late_start = add_business_days(late_finish, -node["offset"], holiday_set) or node["start"]
+		# Subtracting duration from a non-working finish does not recover the
+		# saved start. Anchor zero float to the stored interval instead.
+		finish_slack = business_offset(node["end"], project_finish, holiday_set)
+		late_start = add_business_days(node["start"], finish_slack, holiday_set) or node["start"]
 		for edge in outgoing[task_id]:
 			succ_start, succ_finish = late[edge["to"]]
 			buffer_days = edge["buffer"]
 			if edge["type"] == "FS":
-				bound = add_business_days(succ_start, -buffer_days, holiday_set)
+				bound = _latest_predecessor_date(succ_start, buffer_days, holiday_set)
 				if bound and bound < late_finish:
 					late_finish = bound
 			elif edge["type"] == "FF":
-				bound = add_business_days(succ_finish, -buffer_days, holiday_set)
+				bound = _latest_predecessor_date(succ_finish, buffer_days, holiday_set)
 				if bound and bound < late_finish:
 					late_finish = bound
 			elif edge["type"] == "SS":
-				bound = add_business_days(succ_start, -buffer_days, holiday_set)
+				bound = _latest_predecessor_date(succ_start, buffer_days, holiday_set)
 				if bound and bound < late_start:
 					late_start = bound
 			elif edge["type"] == "SF":
-				bound = add_business_days(succ_finish, -buffer_days, holiday_set)
+				bound = _latest_predecessor_date(succ_finish, buffer_days, holiday_set)
 				if bound and bound < late_start:
 					late_start = bound
-		late[task_id] = _reconcile(late_start, late_finish, node["offset"], holiday_set)
+		late[task_id] = _reconcile(node, late_start, late_finish, holiday_set)
 
 	critical = []
 	for task_id in nodes:
