@@ -1,21 +1,12 @@
-const method = "dinext_project_tasks_gantt.tests.ui_test_helpers";
-const bench = "cd /home/ikhmel/mybench && /usr/local/bin/bench --site localhost execute";
-
 context("Task critical path", () => {
 	before(() => {
-		cy.exec(`${bench} ${method}.seed_critical_path`, { timeout: 180000 }).then((result) => {
-			const line = result.stdout
-				.trim()
-				.split("\n")
-				.filter((row) => row.startsWith("{"))
-				.pop();
-			expect(line, result.stdout).to.be.a("string");
-			Cypress.env("criticalPath", JSON.parse(line));
+		cy.task("criticalPathFixture", "seed_critical_path", { timeout: 180000 }).then((fixture) => {
+			Cypress.env("criticalPath", fixture);
 		});
 	});
 
 	after(() => {
-		cy.exec(`${bench} ${method}.cleanup_critical_path`, { timeout: 180000 });
+		cy.task("criticalPathFixture", "cleanup_critical_path", { timeout: 180000 });
 	});
 
 	it("highlights the critical chain only after the toolbar checkbox is turned on", () => {

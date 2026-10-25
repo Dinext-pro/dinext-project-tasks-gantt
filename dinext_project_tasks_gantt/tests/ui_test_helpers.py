@@ -11,6 +11,14 @@ USER = "cy.critical.path@example.com"
 PROJECT_ID = "CY-CRITICAL-PATH"
 PROJECT_NAME = "Cypress Critical Path"
 HOLIDAY_LIST = "Cypress Critical Path Holidays"
+PROJECT_TYPE = "Cypress Critical Path Type"
+PAYMENT_SCHEME = "Cypress Critical Path Payment"
+TASK_TYPE = "Cypress Critical Path Task"
+FIXTURE_LINKS = (
+	("Project Type", "project_type", PROJECT_TYPE),
+	("Project Payment Scheme", "payment_scheme", PAYMENT_SCHEME),
+	("Task Type", "name", TASK_TYPE),
+)
 SUBJECTS = {
 	"tight_start": "Cypress critical start",
 	"tight_end": "Cypress critical end",
@@ -25,11 +33,12 @@ def _company() -> str:
 	return company
 
 
-def _required_link(doctype: str) -> str:
-	name = frappe.db.get_value(doctype, {}, "name")
-	if not name:
-		frappe.throw(f"Cypress critical path needs a {doctype}")
-	return name
+def _ensure_links() -> None:
+	for doctype, field, value in FIXTURE_LINKS:
+		if not frappe.db.exists(doctype, {field: value}):
+			frappe.get_doc({"doctype": doctype, field: value, "custom_title": value}).insert(
+				ignore_permissions=True
+			)
 
 
 def _ensure_user() -> None:
@@ -96,7 +105,7 @@ def _task(project: str, subject: str, start: str, end: str, predecessor: str | N
 			"doctype": "Task",
 			"subject": subject,
 			"project": project,
-			"type": "Stage",
+			"type": TASK_TYPE,
 			"status": "Open",
 			"is_group": 0,
 			"is_milestone": 0,
@@ -124,6 +133,7 @@ def seed_critical_path() -> dict:
 	_ensure_user()
 	_delete_tasks()
 	_delete_projects()
+	_ensure_links()
 	holiday_list = _ensure_holiday_list()
 	project = frappe.get_doc(
 		{
@@ -131,8 +141,8 @@ def seed_critical_path() -> dict:
 			"name": PROJECT_ID,
 			"project_name": PROJECT_NAME,
 			"company": _company(),
-			"project_type": "Внутренний",
-			"custom_payment_scheme": _required_link("Project Payment Scheme"),
+			"project_type": PROJECT_TYPE,
+			"custom_payment_scheme": PAYMENT_SCHEME,
 			"holiday_list": holiday_list,
 		}
 	)
@@ -158,12 +168,16 @@ def seed_critical_path() -> dict:
 
 @whitelist_for_tests
 def cleanup_critical_path() -> dict:
-	"""Delete the Cypress tasks, project, holiday list, and user."""
+	"""Delete the Cypress tasks, project, reference records, calendar and user."""
 	_delete_tasks()
 	_delete_projects()
 	holiday = frappe.db.get_value("Holiday List", {"holiday_list_name": HOLIDAY_LIST}, "name")
 	if holiday:
 		frappe.delete_doc("Holiday List", holiday, force=True, ignore_permissions=True)
+	for doctype, field, value in FIXTURE_LINKS:
+		name = frappe.db.get_value(doctype, {field: value}, "name")
+		if name:
+			frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
 	if frappe.db.exists("User", USER):
 		frappe.delete_doc("User", USER, force=True, ignore_permissions=True)
 	frappe.db.commit()
