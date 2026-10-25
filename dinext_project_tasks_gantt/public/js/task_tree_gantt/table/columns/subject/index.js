@@ -5,6 +5,11 @@
  * Text click must bubble: hover.js capture scrolls gantt.
  */
 import {
+	CRITICAL_MARK_CLASS,
+	criticalPathIconSvg,
+	isTaskCritical,
+} from "../../../critical/index.js";
+import {
 	subjectConflictClassRules,
 	subjectTreeContentKey,
 } from "../../../dependencies/check.js";
@@ -104,6 +109,16 @@ export function renderSubject(params) {
 		main.appendChild(mark);
 	}
 
+	if (isTaskCritical(row.id)) {
+		const mark = el("span", CRITICAL_MARK_CLASS);
+		const label = __("Critical path");
+		mark.innerHTML = criticalPathIconSvg();
+		mark.title = label;
+		mark.setAttribute("role", "img");
+		mark.setAttribute("aria-label", label);
+		main.appendChild(mark);
+	}
+
 	const text = el(
 		"span",
 		"tree-gantt-subject-text",
@@ -138,7 +153,10 @@ export function subjectColumn() {
 		tree: true,
 		render: renderSubject,
 		// Remount body when dep flags change (value/subject may stay same).
-		treeContentKey: subjectTreeContentKey,
+		treeContentKey: (params) =>
+			`${subjectTreeContentKey(params)}\0${
+				isTaskCritical(params?.data?.id) ? "1" : "0"
+			}`,
 		cellClassRules: subjectConflictClassRules(),
 		edit: (row) => fieldCanEdit(row, "subject"),
 		suppressClickEdit: true,

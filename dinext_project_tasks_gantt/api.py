@@ -20,6 +20,9 @@ from dinext_project_tasks_gantt.task_tree_gantt.models import (
 	SaveCellsResponse,
 	TreeMeta,
 )
+from dinext_project_tasks_gantt.task_tree_gantt.critical_path import (
+	get_critical_path as run_get_critical_path,
+)
 from dinext_project_tasks_gantt.task_tree_gantt.save_cells import save_cells as run_save_cells
 from dinext_project_tasks_gantt.task_tree_order import reorder_siblings as run_reorder_siblings
 
@@ -37,6 +40,14 @@ def get_children(**kwargs) -> list[GetChildrenRow]:
 	"""Task rows for Tree Gantt DinextTable."""
 	form_input: GetChildrenFormInput = _merge_form_input(kwargs)
 	return run_get_children(**form_input)
+
+
+@frappe.whitelist()
+def get_critical_path(project: str | None = None) -> dict:
+	"""Critical tasks and tight relations for the readable project schedule."""
+	if not project:
+		project = frappe.form_dict.get("project")
+	return run_get_critical_path(project)
 
 
 @frappe.whitelist()

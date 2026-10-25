@@ -26,12 +26,15 @@
 
 **Dinext Project Tasks Gantt** is an application built on [Frappe](https://frappeframework.com/) that extends ERPNext **Project / Task** for Dinext: Gantt and tree views, dependency management, story point estimates, a **change log for task % complete** (`progress`) and project % complete (`percent_complete`), **automatic recalculation of group parents' `%`** using child task weights (with a monotonic floor and propagation up the hierarchy), and **chart series** (forecast/actual trends on the task form and the Epic Burndown report).
 
+The task tree and Gantt chart can show the **critical path** from the current planned dates (`exp_start_date` / `exp_end_date`) and active `Task Relation` rows. Stored dates remain unchanged: highlighting identifies the tasks and relations that determine the project finish.
+
 The application includes **fixtures** (Custom Field, Client Script, Server Script, Story Point records) and **DocTypes** (for example, `Task Relation`, `Story Point`, `Task Progress History`). Server logic for task progress auditing, project percentage auditing and group task rollup runs through `doc_events`, so changes are recorded when saving from a form, through the API and in scripts — not only from Desk. Both project scenarios are covered: direct `Project.save()` and the standard recalculation of `Project.percent_complete` from `Task`, where ERPNext saves the project through `db_update()`. Chart data is provided by [`burndown.py`](dinext_project_tasks_gantt/burndown.py) (whitelisted methods for the client and report).
 
 ## ✨ Features
 
 - **Task UI extension** — Client Script on `Task` (tree, Gantt, dependency styling and behavior).
 - **Dependency logic** — Server Script and the **`Task Relation`** child table on `Task` (`custom_relations`) for predecessor/successor relationships and related automation.
+- **Critical path** — total float from planned dates and active `Task Relation` dependencies (FS / SS / FF / SF, `buffer_days` lag). Business days skip Saturday, Sunday and the project Holiday List, falling back to the company list. Every readable project task with both planned dates is a node except `Cancelled`; a group uses its own `exp_*` dates rather than inheriting a child's critical state. Completed tasks remain in the planned path. Cyclic dependencies are excluded. A toolbar checkbox with an icon controls the display (off by default, remembered per user): an icon in the task subject, a dashed outline around the Gantt bar and an underlay beneath the relation arrow. Priority strokes, the related-task row frame, hover and the arrow's own color remain unchanged. Implementation: [`task_tree_gantt/critical_path.py`](dinext_project_tasks_gantt/task_tree_gantt/critical_path.py), whitelist `dinext_project_tasks_gantt.api.get_critical_path`.
 - **Story points** — the **`Story Point`** DocType and **`story_point`** Link field on `Task`.
 - **Task progress auditing** — when an existing task is saved, if **`progress`** has actually changed, a row with `changed_on`, `changed_by`, `old_progress`, `new_progress` is added to **`custom_progress_history`** (the **`Task Progress History`** table). No row is created on initial document insertion; unchanged progress does not generate duplicate entries.
 - **Project percentage auditing** — when **`Project.percent_complete`** changes, a row is also added to **`custom_progress_history`** on `Project`. Both paths are covered: direct project saving (`Project.before_save`) and percentage recalculation from tasks. For the task-driven scenario, the application captures the old project value in the `Task` lifecycle, compares it with the current value after the standard ERPNext recalculation, and inserts a child row directly without another `Project.save()`.
@@ -56,6 +59,7 @@ After installation, reload the site and make sure **migrate** completed successf
 
 ## 🛠️ Usage
 
+- **Task tree / Gantt** — on `/app/tree/Task`, the chain-icon checkbox next to Fact and Plan shows the selected project's critical path. When off, no path is requested or highlighted. When on, a critical task shows an icon in its subject and a dashed outline around its bar, and a critical relation shows an underlay beneath its arrow; changes to dates, relations or status recalculate the path.
 - **Desk / Task** — open **Task** as usual; the **Progress History** block appears after **% Progress** if the custom field exists. Rows are populated automatically; the table is read-only. **Progress Trend** (for a task that is neither new nor a milestone) displays a chart by period (day / week / month). For **group** tasks, **% Progress** may update automatically when child tasks are saved or deleted, following the rollup rules (see Features).
 - **Desk / Project** — if `Project` has `custom_progress_history`, the history table is also populated automatically when **`percent_complete`** changes. This works both for manually saved projects and task changes that recalculate the project percentage in ERPNext.
 - **Task Epic Burndown** — open the report in Desk and select a project, period and metric. **X Axis Period** lets you choose calendar grouping or one of the current project's **group task** types (`Task.type`, excluding **Issue**). The list is dynamic: if the project has group tasks of types **Sprint** and **Release**, those are the types the filter shows; if there are no such tasks, only **month / week / day** remain. When switching projects, if the previously selected period type is unavailable in the new project, the filter resets to **month**. For task-type periods, the X axis is built from tasks of the selected type and dates in `exp_*` / `custom_planned_*`, covering the entire report range, including overlaps and gaps without a period. For **hours**, each period column comprises: **Completed above expected** (hours beyond the task plan in the period, displayed above **Completed**), completed hours within the plan (approved timesheets in the period), **Released hours** (unused planned volume at the task's completion date), open volume at the period end, created volume, and volume created+completed within that period. The table below the chart immediately shows a **detailed task list** using only actual data from the filtered selection; forecast buckets are excluded. The **Task** column shows the task title as a link to the `Task` document. When the completion forecast is enabled, an unfinished **current** period may appear **twice** consecutively on the X axis (with the same label): first the actual column, then that period's forecast portion; the vertical forecast boundary is between them. Clicking **Completed** / **Completed above expected** / **Created+Completed** segments in hours mode opens a **User Timesheet Position** list; clicking **Released hours** and other segments opens a **Task** list (forecast columns are not clickable). Explicit report refresh (the Reload icon or **Refresh** item) redraws the chart even when filters have not changed.
@@ -65,6 +69,8 @@ Running tests:
 
 ```bash
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt
+bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.tests.test_critical_path
+bench --site your-site.local run-ui-tests dinext_project_tasks_gantt --headless
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.test_task_parent_progress
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.test_burndown
 bench --site your-site.local run-tests --app dinext_project_tasks_gantt --module dinext_project_tasks_gantt.dinext_project_tasks_gantt.doctype.task_progress_history.test_task_progress_history
@@ -111,6 +117,7 @@ pre-commit install
 
 Recent commits (full history: `git log`):
 
+- Critical path in the task tree and Gantt: calculation from planned dates and `Task Relation`, highlighting only while the toolbar checkbox is on.
 - Task Epic Burndown: completion forecasting that accounts for **unequal period lengths** (velocity and regression based on calendar days, forecast volumes scaled by bucket duration).
 - Task Epic Burndown: **two columns** for an unfinished current period (actual + forecast portions of the same label); `forecast_from_index` at the forecast half; `_build_display_buckets` in `burndown.py`.
 - Task Epic Burndown: dynamic **X Axis Period** filter — `get_project_x_axis_period_options` and Select updates when switching projects; the list contains only **month / week / day** plus project group task types (`is_group=1`, excluding **Issue**); `group_by` for a period is set to the `Task.type` name; unavailable values reset to **month**.
@@ -143,7 +150,10 @@ dinext_project_tasks_gantt/          # Repository root
     ├── task_progress_audit.py       # before_save: task progress history rows
     ├── project_progress_audit.py    # Project percent_complete audit on save and task-driven recalculation
     ├── task_parent_progress.py      # on_update / after_delete: weighted group rollup, monotonicity
+    ├── api.py                       # Whitelisted methods, including get_critical_path
     ├── burndown.py                  # get_task_progress_trend, get_burndown_series, series calculation
+    ├── task_tree_gantt/
+    │   └── critical_path.py         # Total float from planned dates and Task Relation
     ├── test_burndown.py
     ├── test_task_parent_progress.py # Group task progress rollup tests
     ├── modules.txt
@@ -169,7 +179,8 @@ dinext_project_tasks_gantt/          # Repository root
 - **`project_progress_audit.py`** — server-side auditing when `Project.percent_complete` changes, including project recalculation from `Task`.
 - **`task_parent_progress.py`** — recalculation of the immediate group parent's `%` from child weights (monotonic floor).
 - **`burndown.py`** — series calculation for the Progress Trend widget and Epic Burndown report: `get_project_x_axis_period_options`, `get_period_buckets` / `iter_task_type_period_buckets_from_rows` (X axis by any `Task.type`), `get_burndown_series`, `_period_volume_burndown` (actual + completion forecast), `_build_display_buckets` (splitting the current period into actual/forecast portions for the chart), duration-aware forecasting (`_bucket_duration_days`, `_forecast_bucket_range`, `_velocity_window_daily_rates`), `completed_above_expected`, `unused_hours` / Released hours for hours mode.
-- **`translations/ru.csv`** — Russian report label translations, including **Completed above expected** → «Завершено сверх прогноза» and **Released hours** → «Высвобожденные часы».
+- **`translations/ru.csv`** — Russian report label translations, including **Completed above expected** → «Завершено сверх прогноза» and **Released hours** → «Высвобожденные часы», plus critical-path labels.
+- **`task_tree_gantt/critical_path.py`** — pure critical-path calculation; `api.get_critical_path` returns `tasks`, `edges`, `cycles`. Client: `public/js/task_tree_gantt/critical/`. UI test: `cypress/integration/critical_path.js`.
 
 ## 🔗 Flow Diagram
 

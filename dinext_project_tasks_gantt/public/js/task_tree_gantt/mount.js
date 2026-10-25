@@ -1,3 +1,8 @@
+import {
+	isCriticalPathVisible,
+	reloadCriticalPath,
+	setCriticalPathPainter,
+} from "./critical/index.js";
 import { DEFAULT_TITLE } from "./constants.js";
 import { setupFilters } from "./filters/index.js";
 import {
@@ -153,6 +158,11 @@ export async function mount({ page }) {
 		mountGen: 0,
 	};
 
+	setCriticalPathPainter(() => {
+		state.table?.api?.redrawRows?.();
+		scheduleGanttRefresh(state);
+	});
+
 	const reload = async (opts = {}) => {
 		const gen = ++state.mountGen;
 		clearRelatedIds(state);
@@ -185,6 +195,9 @@ export async function mount({ page }) {
 			return;
 		}
 		state.table = table;
+		if (isCriticalPathVisible()) {
+			await reloadCriticalPath(project);
+		}
 		if (state.table) {
 			wireTreeGanttHooks(state.table, state);
 			const merge = state.tableHost?._treeGanttTable?.lastMerge;

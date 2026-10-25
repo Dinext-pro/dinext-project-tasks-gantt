@@ -1,3 +1,4 @@
+import { invalidateCriticalPath } from "../critical/index.js";
 import { ganttDatesVisible } from "./tasks.js";
 import { fieldCanEdit, saveCells, writeDeniedTitle } from "../table/save.js";
 
@@ -141,6 +142,7 @@ async function persistGanttDates(state, { id, row, start, end }, onDone) {
 		return;
 	}
 	await saveCells(payload, { table: state.table });
+	void invalidateCriticalPath(state.getArgs?.()?.project || null);
 	onDone?.();
 }
 

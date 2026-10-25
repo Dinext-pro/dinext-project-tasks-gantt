@@ -507,6 +507,42 @@ body[data-route^="Tree/Task/"] .main-section {
 	stroke-width: 2;
 }
 
+.task-tree-gantt-page {
+	--g-critical-color: var(--red-500, #e24c4c);
+}
+
+[data-theme="dark"] .task-tree-gantt-page {
+	--g-critical-color: var(--red-300, #ff8a80);
+}
+
+.tree-gantt-critical-toggle-icon {
+	display: inline-flex;
+	width: 16px;
+	height: 16px;
+	margin-left: 4px;
+	color: var(--text-color);
+}
+
+.tree-gantt-critical-toggle-icon svg {
+	display: block;
+	width: 16px;
+	height: 16px;
+}
+
+.tree-gantt-critical-mark {
+	display: inline-flex;
+	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+	color: var(--g-critical-color);
+}
+
+.tree-gantt-critical-mark svg {
+	display: block;
+	width: 14px;
+	height: 14px;
+}
+
 .task-tree-gantt-chart .gantt .arrow path.tree-gantt-arrow-hit {
 	fill: none;
 	stroke: transparent;
@@ -543,6 +579,18 @@ body[data-route^="Tree/Task/"] .main-section {
 .task-tree-gantt-chart .gantt path.tree-gantt-arrow--related.tree-gantt-arrow--hover {
 	stroke-width: 3.2 !important;
 	filter: drop-shadow(0 0 4px var(--g-related-color));
+}
+
+.task-tree-gantt-chart .gantt .arrow path.tree-gantt-critical-arrow-underlay {
+	fill: none;
+	stroke: var(--g-critical-color);
+	stroke-width: 5;
+	stroke-opacity: 0.45;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	pointer-events: none;
+	marker-start: none;
+	marker-end: none;
 }
 
 .task-tree-gantt-table-host.dinext-table .ag-row.tree-gantt-row--hover,
@@ -596,6 +644,14 @@ body[data-route^="Tree/Task/"] .main-section {
 	stroke: var(--g-related-color);
 	stroke-width: 3;
 	filter: drop-shadow(0 0 4px var(--g-related-color));
+}
+
+.task-tree-gantt-chart .gantt .bar-group > rect.tree-gantt-critical-ring {
+	fill: none;
+	stroke: var(--g-critical-color);
+	stroke-width: 1.5;
+	stroke-dasharray: 3 2;
+	pointer-events: none;
 }
 
 /*
