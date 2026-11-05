@@ -51,12 +51,17 @@ export function getMaxStatus(positions) {
 	return max;
 }
 
-function tooltipFor(status) {
+function tooltipFor(status, hoursKey) {
+	const forecast = hoursKey === "expected";
 	if (status === "normal") {
-		return __("Work efforts within plans/limits");
+		return forecast
+			? __("Work efforts within forecast/limits")
+			: __("Work efforts within plans/limits");
 	}
 	if (status === "no-data" || status === "no-plan") {
-		return __("Planned work efforts are not defined");
+		return forecast
+			? __("Forecast work efforts are not defined")
+			: __("Planned work efforts are not defined");
 	}
 	return __("Task Work Efforts Control");
 }
@@ -145,7 +150,12 @@ export async function refreshPlanFact(ctx, rows) {
 		);
 		if (taskData.length) {
 			const status = getMaxStatus(taskData);
-			applyPlanFactFields(row, status, taskData, tooltipFor(status));
+			applyPlanFactFields(
+				row,
+				status,
+				taskData,
+				tooltipFor(status, taskData[0]?.hours_key)
+			);
 		} else {
 			applyPlanFactFields(
 				row,

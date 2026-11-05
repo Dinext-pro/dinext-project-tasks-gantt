@@ -30,7 +30,9 @@ export function showPlanFactDialog(row) {
 		return;
 	}
 
-	const showForecast = showForecastColumn();
+	const hoursKey = taskData[0]?.hours_key === "expected" ? "expected" : "plan";
+	const baseLabel = hoursKey === "expected" ? __("Forecast") : __("Plan");
+	const showForecast = showForecastColumn() && hoursKey !== "expected";
 	const fields = [
 		{
 			label: __("Role"),
@@ -41,7 +43,7 @@ export function showPlanFactDialog(row) {
 			columns: 3,
 		},
 		{
-			label: __("Plan"),
+			label: baseLabel,
 			fieldname: "planned_hours",
 			fieldtype: "Float",
 			precision: 1,
@@ -93,7 +95,10 @@ export function showPlanFactDialog(row) {
 	);
 
 	const d = new frappe.ui.Dialog({
-		title: __("Work Efforts Plan vs Actual"),
+		title:
+			hoursKey === "expected"
+				? __("Work Efforts Forecast vs Actual")
+				: __("Work Efforts Plan vs Actual"),
 		fields: [
 			{
 				label: __("Task"),
@@ -127,7 +132,11 @@ export function showPlanFactDialog(row) {
 		warning.style.cssText = "margin: 15px 0; display: flex; align-items: center; gap: 8px;";
 		warning.innerHTML = `<i class="fa fa-exclamation-triangle" style="font-size: 1.2em;"></i>
 			<div><strong>${__("Attention!")}</strong>
-			${__("Planned work efforts are required for this task")}</div>`;
+			${
+				hoursKey === "expected"
+					? __("Forecast work efforts are required for this task")
+					: __("Planned work efforts are required for this task")
+			}</div>`;
 		d.$wrapper.find(".modal-body").prepend(warning);
 	}
 
