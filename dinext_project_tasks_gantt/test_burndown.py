@@ -43,6 +43,8 @@ from dinext_project_tasks_gantt.burndown import (
 	_task_names_completed_from_rows,
 	_task_names_open_from_rows,
 	_task_volume,
+	_hours_source_from_hours_key,
+	_limits_hours_key_for_project,
 	_timesheet_limit_bands,
 	_timesheet_role_series_from_rows,
 	_weighted_velocity,
@@ -1236,6 +1238,7 @@ class TestProjectXAxisPeriodOptions(FrappeTestCase):
 		self.assertEqual(limits["planned_hours"], 100.0)
 		self.assertEqual(limits["actual_hours"], 110.0)
 		self.assertEqual(limits["axis_max"], 121.0)
+		self.assertEqual(limits["hours_key"], "plan")
 		self.assertEqual(
 			limits["bands"],
 			[
@@ -1243,6 +1246,17 @@ class TestProjectXAxisPeriodOptions(FrappeTestCase):
 				{"name": "Warning", "color": "yellow", "from": 100.0, "to": 121.0},
 			],
 		)
+
+	def test_timesheet_limit_bands_forecast_base_label(self):
+		limits = _timesheet_limit_bands(
+			planned_hours_by_role={"Developer": 80.0},
+			hours_by_role=[{"role": "Developer", "values": [20.0]}],
+			project_limits={},
+			hours_key="expected",
+		)
+		self.assertEqual(limits["hours_key"], "expected")
+		self.assertEqual(limits["bands"][0]["name"], "Forecast")
+		self.assertEqual(limits["bands"][0]["to"], 80.0)
 
 	def test_timesheet_limit_bands_with_warning_and_block_limits(self):
 		limits = _timesheet_limit_bands(
@@ -1262,6 +1276,36 @@ class TestProjectXAxisPeriodOptions(FrappeTestCase):
 				{"name": "Block limit", "color": "red", "from": 120.0, "to": 165.0},
 			],
 		)
+
+	def test_limits_hours_key_for_project_aliases(self):
+		with patch(
+			"dinext_project_tasks_gantt.burndown.frappe.db.get_value",
+			return_value="От прогноза",
+		):
+			self.assertEqual(_limits_hours_key_for_project("PROJ"), "expected")
+			self.assertEqual(_hours_source_from_hours_key("expected"), "pwea_expected")
+		with patch(
+			"dinext_project_tasks_gantt.burndown.frappe.db.get_value",
+			return_value="От плана",
+		):
+			self.assertEqual(_limits_hours_key_for_project("PROJ"), "plan")
+			self.assertEqual(_hours_source_from_hours_key("plan"), "pwea_plan")
+		fake_conf = type(
+			"Conf",
+			(),
+			{"get": staticmethod(lambda _key=None: {"limits_default_base": "От прогноза"})},
+		)()
+		with patch(
+			"dinext_project_tasks_gantt.burndown.frappe.db.get_value",
+			return_value=None,
+		), patch(
+			"dinext_project_tasks_gantt.burndown.frappe.conf",
+			fake_conf,
+		):
+			self.assertEqual(_limits_hours_key_for_project("PROJ"), "expected")
+		empty_conf = type("Conf", (), {"get": staticmethod(lambda _key=None: {})})()
+		with patch("dinext_project_tasks_gantt.burndown.frappe.conf", empty_conf):
+			self.assertEqual(_limits_hours_key_for_project(None), "plan")
 
 
 class TestLoadTaskVolumeRowsHours(FrappeTestCase):
@@ -1424,6 +1468,80 @@ class TestHoursBranchPots(unittest.TestCase):
 			{"name": "t1.1.3", "parent_task": "t1.1", "_pf_assembled_at": "t1.1"},
 		]
 		self.assertEqual(_hours_aggregate_task_names(tasks), {"t1.1.3"})
+
+
+class TestTaskProgressTrendLimitsBase(FrappeTestCase):
+	@patch("dinext_project_tasks_gantt.burndown._project_limits", return_value={})
+	@patch(
+		"dinext_project_tasks_gantt.burndown._branch_plan_fact",
+		return_value=({"Developer": 50.0}, ["T-LIMITS"], "T-LIMITS"),
+	)
+	@patch("dinext_project_tasks_gantt.burndown._load_task_timesheet_role_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown._load_progress_rows", return_value=[])
+	@patch("dinext_project_tasks_gantt.burndown.frappe.has_permission", return_value=True)
+	@patch("dinext_project_tasks_gantt.burndown.frappe.db.get_value")
+	@patch(
+		"dinext_project_tasks_gantt.burndown._task_trend_fields",
+		return_value=[
+			"name",
+			"subject",
+			"project",
+			"progress",
+			"exp_start_date",
+			"exp_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+			"actual_start_date",
+			"actual_end_date",
+			"completed_on",
+			"closing_date",
+			"type",
+			"is_group",
+			"is_milestone",
+		],
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown.getdate",
+		side_effect=lambda value=None: date(2026, 1, 15) if value is None else frappe_getdate(value),
+	)
+	@patch(
+		"dinext_project_tasks_gantt.burndown._limits_hours_key_for_project",
+		return_value="expected",
+	)
+	def test_get_task_progress_trend_uses_limits_base_hours_source(
+		self,
+		_mock_hours_key,
+		_mock_getdate,
+		_mock_trend_fields,
+		mock_get_value,
+		_mock_perm,
+		_mock_progress,
+		_mock_ts,
+		mock_plan_fact,
+		_mock_limits,
+	):
+		mock_get_value.return_value = {
+			"name": "T-LIMITS",
+			"subject": "Limits task",
+			"progress": 10,
+			"project": "PROJ-LIMITS",
+			"is_group": 0,
+			"is_milestone": 0,
+			"type": "Task",
+			"exp_start_date": date(2026, 1, 1),
+			"exp_end_date": date(2026, 1, 31),
+			"custom_planned_start_date": None,
+			"custom_planned_end_date": None,
+			"actual_start_date": None,
+			"actual_end_date": None,
+			"completed_on": None,
+			"closing_date": None,
+		}
+		out = get_task_progress_trend(task="T-LIMITS", group_by="week")
+		self.assertEqual(out["hours_key"], "expected")
+		self.assertEqual(out["timesheet_limits"]["hours_key"], "expected")
+		self.assertEqual(out["timesheet_limits"]["planned_hours"], 50.0)
+		self.assertEqual(mock_plan_fact.call_args.kwargs.get("hours_source"), "pwea_expected")
 
 
 class TestTaskProgressTrendForecastSuppression(FrappeTestCase):

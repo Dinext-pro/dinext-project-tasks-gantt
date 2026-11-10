@@ -241,6 +241,9 @@
 		]);
 		const timesheetLimits = data.timesheet_limits || {};
 		const hoursRows = data.hours_by_role || [];
+		const hoursKey =
+			data.hours_key === "expected" || timesheetLimits.hours_key === "expected" ? "expected" : "plan";
+		const hoursBaseLabel = hoursKey === "expected" ? __("Forecast hours") : __("Planned hours");
 		const hasBands = Array.isArray(timesheetLimits.bands) && timesheetLimits.bands.length > 0;
 		const totalHours = hoursRows.reduce(
 			(sum, row) => sum + (row.values || []).reduce((s, v) => s + flt(v), 0),
@@ -254,7 +257,9 @@
 				: undefined;
 		const plannedHoursValue = flt(timesheetLimits.planned_hours);
 		const plannedHoursMarkLine =
-			showHoursAxis && plannedHoursValue > 0 ? planned_hours_mark_line(plannedHoursValue, theme) : undefined;
+			showHoursAxis && plannedHoursValue > 0
+				? planned_hours_mark_line(plannedHoursValue, theme, hoursBaseLabel)
+				: undefined;
 		let hoursAxisMax =
 			timesheetLimits.axis_max != null && timesheetLimits.axis_max !== "" ? flt(timesheetLimits.axis_max) : null;
 		if (showHoursAxis && plannedHoursValue > 0) {
@@ -390,7 +395,7 @@
 					...(showHoursAxis && plannedHoursMarkLine
 						? [
 								{
-									name: __("Planned hours"),
+									name: hoursBaseLabel,
 									type: "line",
 									yAxisIndex: 1,
 									data: pad([], allCategories.length, null),
@@ -727,8 +732,9 @@
 		return values;
 	}
 
-	function planned_hours_mark_line(plannedHours, theme) {
-		const labelText = `${__("Planned hours")}: ${plannedHours}`;
+	function planned_hours_mark_line(plannedHours, theme, baseLabel) {
+		const label = baseLabel || __("Planned hours");
+		const labelText = `${label}: ${plannedHours}`;
 		return {
 			symbol: "none",
 			silent: true,
@@ -737,7 +743,7 @@
 			data: [
 				{
 					yAxis: plannedHours,
-					name: __("Planned hours"),
+					name: label,
 					label: { show: true, formatter: labelText, color: theme.text, position: "middle", fontSize: 10 },
 					lineStyle: { color: theme.markerLine, type: "dashed", width: theme.plannedHoursMarkerWidth },
 				},

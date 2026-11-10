@@ -1779,6 +1779,28 @@ def _project_limits(project: str | None) -> dict[str, float | None]:
 	}
 
 
+def _limits_hours_key_for_project(project: str | None) -> str:
+	"""PlanFact key for Task progress trend limit bands: plan | expected.
+
+	Reads Project.custom_limits_base; empty → client_config.limits_default_base; else plan.
+	"""
+	raw = ""
+	if project:
+		raw = str(frappe.db.get_value("Project", project, "custom_limits_base") or "").strip()
+	if not raw:
+		blob = frappe.conf.get("client_config")
+		if isinstance(blob, dict):
+			raw = str(blob.get("limits_default_base") or "").strip()
+	key = raw.lower()
+	if raw == "От прогноза" or key in {"forecast", "from forecast", "от прогноза"}:
+		return "expected"
+	return "plan"
+
+
+def _hours_source_from_hours_key(hours_key: str) -> str:
+	return "pwea_expected" if hours_key == "expected" else "pwea_plan"
+
+
 def _timesheet_plan_bulk(project: str):
 	from project_workload_assignment.project_workload_assignment.work_efforts.timesheet_limits.bulk_loader import (
 		TimesheetLimitsBulkLoader,
@@ -1931,10 +1953,12 @@ def _timesheet_limit_bands(
 	hours_by_role: list[dict[str, Any]],
 	project_limits: dict[str, float | None],
 	scale_planned_hours: float | None = None,
+	hours_key: str = "plan",
 ) -> dict[str, Any]:
 	planned_hours = sum(flt(value) for value in planned_hours_by_role.values())
 	actual_hours = _total_hours(hours_by_role)
 	scale_hours = flt(scale_planned_hours) if scale_planned_hours else planned_hours
+	base_label = _("Forecast") if hours_key == "expected" else _("Plan")
 	if planned_hours <= 0:
 		return {
 			"planned_hours": 0.0,
@@ -1944,6 +1968,7 @@ def _timesheet_limit_bands(
 			"block_limit_hours": None,
 			"axis_max": round(max(scale_hours * 1.1, actual_hours * 1.1), 1) if scale_hours > 0 else None,
 			"bands": [],
+			"hours_key": hours_key,
 		}
 
 	warning = flt(project_limits.get("warning")) if project_limits.get("warning") else None
@@ -1968,13 +1993,13 @@ def _timesheet_limit_bands(
 	elif block_hours:
 		axis_max = max(block_hours * 1.2, actual_hours * 1.1)
 		bands = [
-			{"name": _("Plan"), "color": "green", "from": 0.0, "to": planned_hours},
+			{"name": base_label, "color": "green", "from": 0.0, "to": planned_hours},
 			{"name": _("Block limit"), "color": "red", "from": block_hours, "to": round(axis_max, 1)},
 		]
 	else:
 		axis_max = max(planned_hours * 1.2, actual_hours * 1.1)
 		bands = [
-			{"name": _("Plan"), "color": "green", "from": 0.0, "to": planned_hours},
+			{"name": base_label, "color": "green", "from": 0.0, "to": planned_hours},
 			{"name": _("Warning"), "color": "yellow", "from": planned_hours, "to": round(axis_max, 1)},
 		]
 
@@ -1986,6 +2011,7 @@ def _timesheet_limit_bands(
 		"block_limit_hours": block_hours,
 		"axis_max": round(axis_max, 1),
 		"bands": bands,
+		"hours_key": hours_key,
 		"planned_hours_by_role": planned_hours_by_role,
 	}
 
@@ -2220,8 +2246,10 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 	task_start = min(task_start_candidates) if task_start_candidates else None
 	actual_progress_completion = getdate(task_row["completed_on"]) if task_row.get("completed_on") else None
 	skip_forecasts = _task_trend_forecasts_suppressed(task_row)
+	hours_key = _limits_hours_key_for_project(task_row.get("project"))
+	hours_source = _hours_source_from_hours_key(hours_key)
 	planned_hours_by_role, task_names_for_hours, _assembled = _branch_plan_fact(
-		task_row.get("project"), task
+		task_row.get("project"), task, hours_source=hours_source
 	)
 	scale_planned_hours = sum(flt(value) for value in planned_hours_by_role.values())
 	project_limits = _project_limits(task_row.get("project"))
@@ -2253,6 +2281,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			hours_by_role_state,
 			project_limits,
 			scale_planned_hours=scale_planned_hours,
+			hours_key=hours_key,
 		)
 		hours_forecast_state = (
 			_empty_axis_forecast_for_buckets(current_buckets)
@@ -2370,6 +2399,7 @@ def get_task_progress_trend(task: str | None = None, group_by: str = "week") -> 
 			if hours_forecast.get("completion_date")
 			else None,
 		},
+		"hours_key": hours_key,
 		"timesheet_limits": timesheet_limits,
 		"date_markers": date_markers,
 		"holiday_list_name": holiday_list_name,
