@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: Dinext-pro/dinext-common
-          ref: c080095bd61ea5cc89b1bb9ef12e809ea00e68ce
+          ref: 3d80cb565d4e533719f3703671e286238d0c9d00
           path: ci-support
           persist-credentials: false
           sparse-checkout: .github/ci
