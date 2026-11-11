@@ -20,23 +20,9 @@ HUB_ITEMS = (
 	},
 )
 
-HUB_SECTIONS = ({"section": "Project Management", "list_limit": 8},)
+HUB_SECTIONS = ({"section": "Project Management", "list_limit": 8, "card_columns": 4},)
 
-HUB_DOCTYPE_ITEMS = (
-	{
-		"section": "Project Management",
-		"document_type": "Task",
-		"show_quick_create": 0,
-		"show_recently_opened": 1,
-		"show_assigned": 1,
-		"show_liked": 0,
-		"show_attention": 1,
-		"attention_filter": [
-			["Task", "status", "=", "Overdue", False],
-			["Task", "type", "!=", "Issue", False],
-		],
-	},
-)
+HUB_DOCTYPE_ITEMS = ()  # Existing saved rows are retained; no new default contribution.
 
 
 def register_dinext_hub_items() -> None:
