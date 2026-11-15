@@ -21,7 +21,7 @@ from frappe import _
 from frappe.query_builder.functions import Coalesce, Date, IfNull, Max, Min, Sum
 from frappe.utils import add_months, cint, cstr, flt, get_datetime, getdate
 
-from dinext_timesheets.timesheet_status import APPROVED_POSITION_STATUSES
+APPROVED_POSITION_STATUSES = ("Approved", "Согласовано")
 CALENDAR_GROUP_BYS = {"day", "week", "month"}
 TASK_EPIC_BURNDOWN_TASK_TYPE_UNSET = "__not_set__"
 DINEXT_TASK_TYPE_TRANSLATION_CONTEXT = "Dinext.TaskType"
