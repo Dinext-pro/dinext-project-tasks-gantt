@@ -153,14 +153,13 @@ class TaskRow:
 		"""Columns for the tree query: system + optional + permitted scalar fields.
 
 		Built from meta at request time. Optional columns referenced by a
-		form-contract expression (e.g. `_comments`) are added on demand.
+		form-contract expression (e.g. `_liked_by`) are added on demand.
 		"""
 		if meta is None:
 			meta = frappe.get_meta("Task")
 		if permitted is None:
 			permitted = cls.permitted_fieldnames(meta)
-		# get_valid_columns() excludes optional_fields (_assign, _user_tags, _comments, ...);
-		# every Frappe table has them, so they are valid whenever permitted.
+		# Frappe exposes optional columns separately from meta.get_valid_columns().
 		valid = set(meta.get_valid_columns()) | set(optional_fields)
 		names: list[str] = [f for f in cls.SYSTEM_FIELDS if f in valid]
 		for optional in cls.OPTIONAL_ALWAYS:

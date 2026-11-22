@@ -4,6 +4,7 @@ app_publisher = "Dinext"
 app_description = "Dinext Project Tasks Gantt"
 app_email = "info@dinext.ru"
 app_license = "GNU General Public License (v3)"
+workflow_approval_canonical_statuses = 1
 
 fixtures = [
     {

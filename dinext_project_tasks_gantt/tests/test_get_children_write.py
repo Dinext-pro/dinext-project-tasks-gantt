@@ -151,9 +151,9 @@ class TestTaskRowShape(FrappeTestCase):
 		self.assertNotIn("secret", names)
 
 	def test_select_fieldnames_adds_referenced_optional_column(self):
-		meta = FakeMeta([_df("subject", depends_on="eval:doc._comments")])
-		names = TaskRow.select_fieldnames(meta, permitted={"subject", "_comments"})
-		self.assertIn("_comments", names)
+		meta = FakeMeta([_df("subject", depends_on="eval:doc._liked_by")])
+		names = TaskRow.select_fieldnames(meta, permitted={"subject", "_liked_by"})
+		self.assertIn("_liked_by", names)
 
 	def test_from_task_keeps_doctype_names_and_aliases(self):
 		row = TaskRow.from_task(
