@@ -86,7 +86,9 @@ class TestProjectProgressAudit(FrappeTestCase):
 				frappe.delete_doc("Project", name, force=True, ignore_permissions=True)
 		super().tearDown()
 
-	def _make_project(self, tail: str, method: str = "Task Completion", percent_complete: float = 0):
+	def _make_project(
+		self, tail: str, method: str = "Task Completion", percent_complete: float = 0, *, approved: bool = False
+	):
 		project = frappe.new_doc("Project")
 		project.name = f"{self.prefix}-{tail}"
 		project.project_name = project.name
@@ -98,6 +100,9 @@ class TestProjectProgressAudit(FrappeTestCase):
 		project.percent_complete = percent_complete
 		project.insert()
 		self._projects.append(project.name)
+		if approved and project.is_active != "Yes":
+			# Project Approval inserts drafts as inactive. Seed the state required to complete Tasks.
+			project.db_set({"workflow_state": "Согласовано", "is_active": "Yes"})
 		return project
 
 	def _make_task(
@@ -143,7 +148,7 @@ class TestProjectProgressAudit(FrappeTestCase):
 		self.assertFalse(self._project_history(project.name))
 
 	def test_task_completion_updates_project_history(self):
-		project = self._make_project("TaskCompletion")
+		project = self._make_project("TaskCompletion", approved=True)
 		task = self._make_task("CompletionTask", project.name)
 		task.status = "Completed"
 		task.save()
@@ -165,7 +170,7 @@ class TestProjectProgressAudit(FrappeTestCase):
 		self.assertAlmostEqual(flt(history[0].new_progress), 40.0, places=2)
 
 	def test_task_delete_updates_project_history(self):
-		project = self._make_project("DeleteProject")
+		project = self._make_project("DeleteProject", approved=True)
 		done = self._make_task("DeleteDone", project.name)
 		open_task = self._make_task("DeleteOpen", project.name)
 
